@@ -111,9 +111,7 @@ function scheduleReconnect(): void {
   reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
 }
 
-/* ------------------------------------------------------------------ */
 /*  Graceful shutdown on Ctrl+C                                        */
-/* ------------------------------------------------------------------ */
 
 process.on("SIGINT", () => {
   if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -122,8 +120,6 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-/* ------------------------------------------------------------------ */
 /*  Start                                                              */
-/* ------------------------------------------------------------------ */
 
 connect();
