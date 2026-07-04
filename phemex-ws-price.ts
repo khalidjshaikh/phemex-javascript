@@ -29,7 +29,7 @@ let lastPrintedPrice: number | undefined;
 function logPriceIfChanged(price: number): void {
   if (lastPrintedPrice === undefined || price !== lastPrintedPrice) {
     const now = new Date().toLocaleString();
-    process.stdout.write(`\n${now}  ${price.toFixed(2)}`);
+    process.stdout.write(`\n${now}  ${price.toFixed(2)} `);
     lastPrintedPrice = price;
   }
 }
