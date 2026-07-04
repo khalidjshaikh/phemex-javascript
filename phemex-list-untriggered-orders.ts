@@ -164,6 +164,8 @@ async function main(): Promise<void> {
     const data = resp.data as Record<string, unknown> | undefined;
     const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
 
+    // console.log(data)
+
     if (rows.length === 0) {
       console.log("  ℹ  No untriggered orders found.");
     } else {
@@ -171,11 +173,12 @@ async function main(): Promise<void> {
       for (const o of rows) {
         const orderID = String(o.orderID ?? "?");
         const side = String(o.side ?? "?");
-        const qty = String(o.qty ?? "?");
+        const qty = String(o.orderQty ?? "?");
         const stopPx = String(o.stopPx ?? "?");
         const price = String(o.price ?? "?");
-        const triggerType = String(o.triggerType ?? "?");
-        console.log(`     ${orderID}  ${side}  qty ${qty}  trigger @ ${stopPx}  limit @ ${price}  type=${triggerType}`);
+        // const triggerType = String(o.triggerType ?? "?");
+        // console.log(`     ${orderID}  ${side}  qty ${qty}  trigger @ ${stopPx}  limit @ ${price}  type=${triggerType}`);
+        console.log(`${orderID} ${side} qty ${qty} limit @ ${price}`);
       }
     }
   } else {
