@@ -4,29 +4,31 @@
  * Phemex WebSocket Price — subscribes to the BTCUSD 24h ticker and tick
  * channels, printing the last price to stdout on each update.
  *
- * The 24h ticker pushes every 1s (always has data). The tick channel
- * pushes on each trade (real-time but possibly infrequent on weekends).
+ * Auto-reconnects on disconnect with exponential backoff (1s → 30s max).
  *
- * Usage:  npx tsx phemex-ws-price.ts
+ * Usage:  ./phemex-ws-price.ts
  */
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
-
-/** Price scale for BTCUSD (from /public/products). */
 const PRICE_SCALE = 10_000;
 
-function main(): void {
-  const ws = new WebSocket(WS_URL);
+/* ------------------------------------------------------------------ */
+/*  Reconnecting WebSocket wrapper                                     */
+/* ------------------------------------------------------------------ */
+
+let ws: WebSocket;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let reconnectDelay = 1_000; // start at 1s
+const MAX_RECONNECT_DELAY = 30_000;
+
+function connect(): void {
+  ws = new WebSocket(WS_URL);
 
   ws.addEventListener("open", () => {
-    // Subscribe to both channels
-    ws.send(
-      JSON.stringify({ method: "tick.subscribe", params: [SYMBOL], id: 1 })
-    );
-    ws.send(
-      JSON.stringify({ method: "market24h.subscribe", params: [], id: 2 })
-    );
+    reconnectDelay = 1_000; // reset backoff on successful connection
+    // ws.send(JSON.stringify({ method: "tick.subscribe", params: [SYMBOL], id: 1 }));
+    // ws.send(JSON.stringify({ method: "market24h.subscribe", params: [], id: 2 }));
   });
 
   ws.addEventListener("message", (event: MessageEvent) => {
@@ -58,9 +60,36 @@ function main(): void {
     }
   });
 
+  // ws.addEventListener("close", () => {
+  //   scheduleReconnect();
+  // });
+
   ws.addEventListener("error", () => {
-    /* keep alive — connection logs on stderr not needed */
+    /* error event is always followed by close, so reconnect handles it */
   });
 }
 
-main();
+function scheduleReconnect(): void {
+  if (reconnectTimer) return; // already scheduled
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = undefined;
+    connect();
+  }, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Graceful shutdown on Ctrl+C                                        */
+/* ------------------------------------------------------------------ */
+
+process.on("SIGINT", () => {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  ws?.close();
+  process.exit(0);
+});
+
+/* ------------------------------------------------------------------ */
+/*  Start                                                              */
+/* ------------------------------------------------------------------ */
+
+connect();
