@@ -110,6 +110,7 @@ class EMACalculator {
 let position: Position = "NONE";
 let prevEma20: number | null = null;
 let prevEma50: number | null = null;
+let lastPosition: Position = "NONE";
 
 function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: number): void {
   // Need previous values to detect crossover
@@ -171,9 +172,10 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     const actions = actionParts.join(" / ");
     const crossedDir = crossedAbove ? "↑" : "↓";
     console.log(
-      `[SIGNAL] ${timestamp}  ${actions.padEnd(22)} ${prevPositionLabel(position, actionParts)}  ` +
-      `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)}  ` +
-      `(EMA20 ${crossedDir} EMA50)`
+      `· ${timestamp} ` +
+      `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)} ` +
+      `(EMA20 ${crossedDir} EMA50) ` +
+      `${actions.padEnd(22)} ${prevPositionLabel(lastPosition, actionParts)} `
     );
   }
 }
@@ -224,6 +226,7 @@ function tickDisplay(): void {
     `Position: ${position.padEnd(5)}  ` +
     `[ticks: ${ema.count}]`
   );
+  lastPosition = position;
 }
 
 /* ------------------------------------------------------------------ */
