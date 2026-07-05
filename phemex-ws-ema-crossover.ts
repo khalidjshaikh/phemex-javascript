@@ -137,7 +137,7 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
   prevEma20 = ema20;
   prevEma50 = ema50;
 
-  if (!crossedAbove && !crossedBelow) return;
+  // if (!crossedAbove && !crossedBelow) return;
 
   const timestamp = new Date().toLocaleString();
   const actionParts: string[] = [];
