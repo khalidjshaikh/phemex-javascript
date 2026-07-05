@@ -2,7 +2,7 @@
 
 /**
  * Phemex Balance Checker — retrieves balances across all account types.
- * Reads credentials from phemex-credentials.json.
+ * Reads credentials from .phemex-credentials.json.
  *
  * Account types queried:
  *   1. Spot Wallet        GET /spot/wallets
@@ -85,9 +85,9 @@ function toHuman(val, scale) {
 
 async function main() {
   // Read credentials
-  const credsPath = path.join(__dirname, "phemex-credentials.json");
+  const credsPath = path.join(__dirname, ".phemex-credentials.json");
   if (!fs.existsSync(credsPath)) {
-    console.error("Missing phemex-credentials.json");
+    console.error("Missing .phemex-credentials.json");
     process.exit(1);
   }
   const { PHEMEX_API_KEY, PHEMEX_API_SECRET } = JSON.parse(

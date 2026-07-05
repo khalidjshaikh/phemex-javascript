@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 /**
  * phemex-create-limit-order.ts  —  Place a limit order on Phemex.
- * Credentials are read from phemex-credentials.json.
+ * Credentials are read from .phemex-credentials.json.
  *
  * Usage:
  *   ./phemex-create-limit-order.ts --account <type> --symbol <pair> --side <Buy|Sell>
@@ -340,9 +340,9 @@ async function fetchProductInfo(symbol: string): Promise<ProductInfo | null> {
 }
 
 function loadCredentials(): Credentials {
-  const credsPath = path.resolve(import.meta.dirname, "phemex-credentials.json");
+  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
   if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing phemex-credentials.json");
+    console.error("✗  Missing .phemex-credentials.json");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(credsPath, "utf8"));

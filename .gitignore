@@ -2,5 +2,6 @@ node_modules/
 .env
 *.log
 .DS_Store
-phemex-credentials.json
+.phemex-credentials.json
+.phemex-ws-ema-prices.json
 data.rb

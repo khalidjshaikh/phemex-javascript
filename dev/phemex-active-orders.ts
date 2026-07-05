@@ -185,9 +185,9 @@ async function publicGet(urlPath: string, query: string | null): Promise<Record<
 }
 
 function loadCredentials(): Credentials {
-  const credsPath = path.resolve(import.meta.dirname, "phemex-credentials.json");
+  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
   if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing phemex-credentials.json");
+    console.error("✗  Missing .phemex-credentials.json");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(credsPath, "utf8"));

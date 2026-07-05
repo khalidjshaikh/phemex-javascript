@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 /**
  * phemex-coinm-positions.ts  —  Retrieve COIN-M (inverse perpetual) open positions
- * from Phemex.  Credentials are read from phemex-credentials.json.
+ * from Phemex.  Credentials are read from .phemex-credentials.json.
  *
  * Endpoint:  GET /accounts/accountPositions?currency=<currency>
  *
@@ -116,9 +116,9 @@ async function get(
 
 async function main(): Promise<void> {
   /* -- Read credentials ------------------------------------------- */
-  const credsPath = path.resolve(import.meta.dirname, "phemex-credentials.json");
+  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
   if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing phemex-credentials.json");
+    console.error("✗  Missing .phemex-credentials.json");
     process.exit(1);
   }
   const creds: Credentials = JSON.parse(fs.readFileSync(credsPath, "utf8"));

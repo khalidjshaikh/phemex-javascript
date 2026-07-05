@@ -15,7 +15,7 @@ All `.ts` and `.js` files in this directory are self-contained. No `npm install`
 
 ### 2. Create credentials file
 
-Create `phemex-credentials.json` in the project root:
+Create `.phemex-credentials.json` in the project root:
 
 ```json
 {
@@ -234,7 +234,7 @@ The script generates a set of short and long orders around a price range and cal
 
 ## Credentials File Reference
 
-All authenticated scripts expect `phemex-credentials.json` in the project root:
+All authenticated scripts expect `.phemex-credentials.json` in the project root:
 
 ```json
 {
