@@ -174,7 +174,7 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     const crossedDir = crossedAbove ? "↑" : "↓";
     console.log(
       `· ${timestamp}  ` +
-      `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)} ` +
+      `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)}  ` +
       `(EMA20 ${crossedDir} EMA50) ` +
       `${actions.padEnd(22)} ${prevPositionLabel(lastPosition, actionParts)} `
     );
@@ -220,10 +220,18 @@ function tickDisplay(): void {
   const ema50s = ema50 !== null ? ema50.toFixed(2) : "—";
   const ema200s = ema200 !== null ? ema200.toFixed(2) : "—";
 
+  const emaComparison =
+    ema20 !== null && ema50 !== null
+      ? ema20 > ema50
+        ? "(EMA20 ↑ EMA50)"
+        : "(EMA20 ↓ EMA50)"
+      : "";
+
   console.log(
     `· ${now}  ` +
     `Price: ${priceStr}  ` +
     `EMA20: ${ema20s}  EMA50: ${ema50s}  EMA200: ${ema200s}  ` +
+    `${emaComparison}  ` +
     `Position: ${position.padEnd(5)}  ` +
     `[ticks: ${ema.count}]`
   );
