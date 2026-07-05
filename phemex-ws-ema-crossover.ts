@@ -148,10 +148,14 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
         actionParts.push("go LONG");
         runCommand("./phemex-market-order.ts --side Long --qty 1 --leverage 100");
         position = "LONG";
+      } else if (crossedAbove && price <= ema200) {
+        actionParts.push("BLOCKED: go LONG (price ≤ EMA200)");
       } else if (crossedBelow && price < ema200) {
         actionParts.push("go SHORT");
         runCommand("./phemex-market-order.ts --side Short --qty 1 --leverage 100");
         position = "SHORT";
+      } else if (crossedBelow && price >= ema200) {
+        actionParts.push("BLOCKED: go SHORT (price ≥ EMA200)");
       }
       break;
 
