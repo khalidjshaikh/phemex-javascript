@@ -26,6 +26,15 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import { exec } from "node:child_process";
+
+function runCommand(cmd: string): void {
+  exec(cmd, (error, stdout, stderr) => {
+    if (stdout) console.log(stdout.trimEnd());
+    if (stderr) console.error(stderr.trimEnd());
+    if (error) console.error(`  ✗ Command failed: ${error.message}`);
+  });
+}
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
@@ -137,9 +146,11 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     case "NONE":
       if (crossedAbove && price > ema200) {
         actionParts.push("go LONG");
+        runCommand("./phemex-market-order.ts --side Long --qty 1 --leverage 100");
         position = "LONG";
       } else if (crossedBelow && price < ema200) {
         actionParts.push("go SHORT");
+        runCommand("./phemex-market-order.ts --side Short --qty 1 --leverage 100");
         position = "SHORT";
       }
       break;
@@ -147,9 +158,11 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     case "LONG":
       if (crossedBelow) {
         actionParts.push("close LONG");
+        runCommand("./phemex-market-order.ts --side Short --qty 1 --leverage 100");
         if (price < ema200) {
           actionParts.push("open SHORT");
           position = "SHORT";
+          runCommand("./phemex-market-order.ts --side Short --qty 1 --leverage 100");
         } else {
           position = "NONE";
         }
@@ -159,9 +172,11 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     case "SHORT":
       if (crossedAbove) {
         actionParts.push("close SHORT");
+        runCommand("./phemex-market-order.ts --side Long --qty 1 --leverage 100");
         if (price > ema200) {
           actionParts.push("open LONG");
           position = "LONG";
+          runCommand("./phemex-market-order.ts --side Long --qty 1 --leverage 100");
         } else {
           position = "NONE";
         }
@@ -176,16 +191,14 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
       `· ${timestamp}  ` +
       `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)}  ` +
       `(EMA20 ${crossedDir} EMA50) ` +
-      `${actions.padEnd(22)} ${prevPositionLabel(lastPosition, actionParts)} `
+      `${actions.padEnd(22)} ${prevPositionLabel(lastPosition)} `
     );
   }
 }
 
 /** Derive the "old → new" position label for the signal line. */
-function prevPositionLabel(current: Position, actions: string[]): string {
-  // Determine what the new position will be based on the actions performed
-  // This is a helper for display only — position has already been updated
-  return `${current} → ${position}`;
+function prevPositionLabel(prevPos: Position): string {
+  return `${prevPos} → ${position}`;
 }
 
 /* ------------------------------------------------------------------ */
