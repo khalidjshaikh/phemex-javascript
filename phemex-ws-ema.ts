@@ -8,16 +8,23 @@
  * tick (`.`) and the current EMAs with the latest price.  The WebSocket
  * handler only updates the data — it never prints directly.
  *
+ * Price history is persisted to disk on shutdown and reloaded on startup
+ * so EMAs are immediately available after a restart.
+ *
  * Auto-reconnects on disconnect with exponential backoff (1s → 30s max).
  *
  * Usage:  ./phemex-ws-ema.ts
  */
+
+import path from "node:path";
+import fs from "node:fs";
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
 const PRICE_SCALE = 10_000;
 const HEARTBEAT_INTERVAL = 20_000; // 20s
 const DISPLAY_INTERVAL = 1_000;    // 1s
+const PERSIST_PATH = path.resolve(import.meta.dirname, ".phemex-ws-ema-prices.json");
 
 /* ------------------------------------------------------------------ */
 /*  EMA Calculator                                                     */
@@ -34,6 +41,22 @@ class EMACalculator {
     this.ema20 = this.computeEMA(20, this.ema20, price);
     this.ema50 = this.computeEMA(50, this.ema50, price);
     this.ema200 = this.computeEMA(200, this.ema200, price);
+  }
+
+  /** Replace the price history and recompute all EMAs (used on startup restore). */
+  loadPrices(prices: number[]): void {
+    this.prices = [];
+    this.ema20 = null;
+    this.ema50 = null;
+    this.ema200 = null;
+    for (const p of prices) {
+      this.addPrice(p);
+    }
+  }
+
+  /** Return a copy of the price history for persistence. */
+  getPrices(): number[] {
+    return [...this.prices];
   }
 
   private computeEMA(period: number, prevEMA: number | null, price: number): number {
@@ -179,7 +202,17 @@ function scheduleReconnect(): void {
 
 /*  Graceful shutdown on Ctrl+C                                        */
 
+function savePrices(): void {
+  try {
+    const data = JSON.stringify(ema.getPrices());
+    fs.writeFileSync(PERSIST_PATH, data, "utf8");
+  } catch (e) {
+    console.error("Failed to save price history:", e);
+  }
+}
+
 process.on("SIGINT", () => {
+  savePrices();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   stopHeartbeat();
   ws?.close();
@@ -187,6 +220,20 @@ process.on("SIGINT", () => {
 });
 
 /*  Start                                                              */
+
+// Restore persisted price history so EMAs are available immediately
+try {
+  if (fs.existsSync(PERSIST_PATH)) {
+    const raw = fs.readFileSync(PERSIST_PATH, "utf8");
+    const prices: number[] = JSON.parse(raw);
+    if (Array.isArray(prices) && prices.length > 0) {
+      ema.loadPrices(prices);
+      console.log(`⟐  Restored ${prices.length} prices from ${PERSIST_PATH}`);
+    }
+  }
+} catch (e) {
+  console.error("Failed to load price history:", e);
+}
 
 connect();
 setInterval(tickDisplay, DISPLAY_INTERVAL);
