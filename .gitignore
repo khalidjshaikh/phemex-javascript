@@ -4,4 +4,5 @@ node_modules/
 .DS_Store
 .phemex-credentials.json
 .phemex-ws-ema-prices.json
+.phemex-ws-ema-position.json
 data.rb
