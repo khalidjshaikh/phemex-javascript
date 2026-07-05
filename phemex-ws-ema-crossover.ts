@@ -227,11 +227,18 @@ function tickDisplay(): void {
         : "(EMA20 ↓ EMA50)"
       : "";
 
+  const priceVsEma200 =
+    lastPrice !== null && ema200 !== null
+      ? lastPrice > ema200
+        ? "(Price ↑ EMA200)"
+        : "(Price ↓ EMA200)"
+      : "";
+
   console.log(
     `· ${now}  ` +
     `Price: ${priceStr}  ` +
     `EMA20: ${ema20s}  EMA50: ${ema50s}  EMA200: ${ema200s}  ` +
-    `${emaComparison}  ` +
+    `${emaComparison}  ${priceVsEma200}  ` +
     `Position: ${position.padEnd(5)}  ` +
     `[ticks: ${ema.count}]`
   );
