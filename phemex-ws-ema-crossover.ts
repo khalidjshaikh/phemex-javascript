@@ -33,6 +33,7 @@ const PRICE_SCALE = 10_000;
 const HEARTBEAT_INTERVAL = 20_000; // 20s
 const DISPLAY_INTERVAL = 1_000;    // 1s
 const PERSIST_PATH = path.resolve(import.meta.dirname, ".phemex-ws-ema-prices.json");
+const POSITION_PATH = path.resolve(import.meta.dirname, ".phemex-ws-ema-position.json");
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -172,7 +173,7 @@ function evaluateCrossover(price: number, ema20: number, ema50: number, ema200: 
     const actions = actionParts.join(" / ");
     const crossedDir = crossedAbove ? "↑" : "↓";
     console.log(
-      `· ${timestamp} ` +
+      `· ${timestamp}  ` +
       `Price: ${price.toFixed(2)}  EMA20: ${ema20.toFixed(2)}  EMA50: ${ema50.toFixed(2)}  EMA200: ${ema200.toFixed(2)} ` +
       `(EMA20 ${crossedDir} EMA50) ` +
       `${actions.padEnd(22)} ${prevPositionLabel(lastPosition, actionParts)} `
@@ -309,17 +310,22 @@ function scheduleReconnect(): void {
 
 /*  Graceful shutdown on Ctrl+C                                        */
 
-function savePrices(): void {
+function saveState(): void {
   try {
     const data = JSON.stringify(ema.getPrices());
     fs.writeFileSync(PERSIST_PATH, data, "utf8");
   } catch (e) {
     console.error("Failed to save price history:", e);
   }
+  try {
+    fs.writeFileSync(POSITION_PATH, JSON.stringify({ position }), "utf8");
+  } catch (e) {
+    console.error("Failed to save position:", e);
+  }
 }
 
 process.on("SIGINT", () => {
-  savePrices();
+  saveState();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   stopHeartbeat();
   ws?.close();
@@ -340,6 +346,21 @@ try {
   }
 } catch (e) {
   console.error("Failed to load price history:", e);
+}
+
+// Restore persisted position
+try {
+  if (fs.existsSync(POSITION_PATH)) {
+    const raw = fs.readFileSync(POSITION_PATH, "utf8");
+    const data = JSON.parse(raw);
+    if (data.position === "NONE" || data.position === "LONG" || data.position === "SHORT") {
+      position = data.position;
+      lastPosition = data.position;
+      console.log(`⟐  Restored position: ${position}`);
+    }
+  }
+} catch (e) {
+  console.error("Failed to load position:", e);
 }
 
 connect();
