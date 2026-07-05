@@ -251,10 +251,11 @@ async function main(): Promise<void> {
     if (data) {
       console.log(`      OrderID:  ${String(data.orderID ?? "?")}`);
       console.log(`      Side:     ${String(data.side ?? "?")}`);
-      console.log(`      Qty:      ${String(data.qty ?? "?")}`);
+      console.log(`      orderQty: ${String(data.orderQty ?? "?")}`);
       console.log(`      Price:    ${String(data.price ?? "?")}`);
       console.log(`      Status:   ${String(data.ordStatus ?? "?")}`);
       console.log(`      leavesQty: ${String(data.leavesQty ?? "0")}`);
+      // console.log(data);
     }
   } else {
     console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
