@@ -153,18 +153,22 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Determine the correct endpoint based on symbol suffix:
+  //   *USDT  → USDT-M perpetual  → /g-orders/activeList
+  //   *USD   → Coin-M perpetual   → /orders/activeList
+  const isUsdtM = symbol.toUpperCase().endsWith("USDT");
+  const endpoint = isUsdtM ? "/g-orders/activeList" : "/orders/activeList";
+
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`⟐  Fetching untriggered orders for ${symbol} …`);
+  console.log(`⟐  Fetching untriggered orders for ${symbol} (${isUsdtM ? "USDT-M" : "Coin-M"}) …`);
 
-  const resp = await request("GET", "/orders/activeList", query, creds.PHEMEX_API_KEY, secretRaw, "");
+  const resp = await request("GET", endpoint, query, creds.PHEMEX_API_KEY, secretRaw, "");
 
   if (resp.code === 0) {
     const data = resp.data as Record<string, unknown> | undefined;
     const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
-
-    // console.log(data)
 
     if (rows.length === 0) {
       console.log("  ℹ  No untriggered orders found.");
@@ -173,11 +177,10 @@ async function main(): Promise<void> {
       for (const o of rows) {
         const orderID = String(o.orderID ?? "?");
         const side = String(o.side ?? "?");
-        const qty = String(o.orderQty ?? "?");
-        const stopPx = String(o.stopPx ?? "?");
-        const price = String(o.price ?? "?");
-        // const triggerType = String(o.triggerType ?? "?");
-        // console.log(`     ${orderID}  ${side}  qty ${qty}  trigger @ ${stopPx}  limit @ ${price}  type=${triggerType}`);
+        // USDT-M uses orderQtyRq/priceRp, Coin-M uses orderQty/price
+        const qty = String(o.orderQtyRq ?? o.orderQty ?? "?");
+        const stopPx = String(o.stopPxRp ?? o.stopPx ?? "?");
+        const price = String(o.priceRp ?? o.price ?? "?");
         console.log(`${orderID} ${side} qty ${qty} limit @ ${price}`);
       }
     }
