@@ -32,7 +32,8 @@ orders=[]
 # 1.times{|i| p i; orders << [:BTCUSD, :Short, 5.8e4 + i * 1e3, 1, 100]}
 # 3.times{|i| p i; orders << [:BTCUSD, :Short, 6.5e4 + i * 1e3, 1, 100]}
 # 3.times{|i| p i; orders << [:BTCUSD, :Long, 6.3e4 - i * 1e3, 1, 100]}
-1.times{|i| p i; orders << ["XTIUSDT", :Long, 62+ i, 0.01, 100]}
+1.times{|i| p i; orders << ["XTIUSDT", :Long, 71 + i, 0.01, 100]}
+# 21.times{|i| p i; orders << ["XTIUSDT", :Long, 50 + i, 0.01, 100]}
 # 3.times{|i| orders << [:XTIUSDT, :Long, 70 - i, 0.01, 100]}
 
 orders.each do |symbol, side, price, qty, leverage|
