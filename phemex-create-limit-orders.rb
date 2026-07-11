@@ -32,13 +32,14 @@ orders=[]
 # 1.times{|i| p i; orders << [:BTCUSD, :Short, 5.8e4 + i * 1e3, 1, 100]}
 # 3.times{|i| p i; orders << [:BTCUSD, :Short, 6.5e4 + i * 1e3, 1, 100]}
 # 3.times{|i| p i; orders << [:BTCUSD, :Long, 6.3e4 - i * 1e3, 1, 100]}
-1.times{|i| p i; orders << ["XTIUSDT", :Long, 71 + i, 0.01, 100]}
-# 21.times{|i| p i; orders << ["XTIUSDT", :Long, 50 + i, 0.01, 100]}
+# 1.times{|i| p i; orders << [:XTIUSDT, :Long, 71 + i, 0.01, 100]}
+# 21.times{|i| p i; orders << [:XTIUSDT, :Long, 50 + i, 0.01, 100]}
 # 3.times{|i| orders << [:XTIUSDT, :Long, 70 - i, 0.01, 100]}
 
 orders.each do |symbol, side, price, qty, leverage|
-  # s = "./phemex-create-limit-order.ts --account coin-m --symbol #{symbol} --side #{side} --price #{price} --qty #{qty} --leverage #{leverage}"
-  s = "./phemex-create-limit-order.ts --account usdt-m --symbol #{symbol} --side #{side} --price #{price} --qty #{qty} --leverage #{leverage} --posSide #{side}"
+  s = "./phemex-create-limit-order.ts --account coin-m --symbol #{symbol} --side #{side} --price #{price} --qty #{qty} --leverage #{leverage}" if symbol.to_s == :BTCUSD
+  s = "./phemex-create-limit-order.ts --account usdt-m --symbol #{symbol} --side #{side} --price #{price} --qty #{qty} --leverage #{leverage} --posSide #{side}" if symbol.to_s == :XTIUSDT
+
 
   if dry_run
     puts "[DRY-RUN] #{s}"
