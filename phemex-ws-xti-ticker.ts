@@ -316,7 +316,7 @@ function connect(): void {
             const leverage = 100;
             const result = placeOrderWithCli(symbol, side, price, qty, leverage);
             if (result) {
-              console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
+              // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
           }
 
@@ -328,7 +328,7 @@ function connect(): void {
             const leverage = 100;
             const result = placeOrderWithCli(symbol, side, price, qty, leverage);
             if (result) {
-              console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
+              // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
           }
 
