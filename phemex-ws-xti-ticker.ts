@@ -1,7 +1,8 @@
 #!/usr/bin/env npx tsx
 
- import { execSync } from 'child_process';
- import process from "process";
+import { execFileSync } from "child_process";
+import path from "node:path";
+import process from "process";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -26,6 +27,57 @@
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XTIUSDT";
 const HEARTBEAT_INTERVAL = 20_000; // 20s
+
+interface PlaceOrderResult {
+  orderID?: string;
+  clOrdID?: string;
+  ordStatus?: string;
+  symbol?: string;
+  side?: string;
+  price?: unknown;
+  qty?: unknown;
+  [key: string]: unknown;
+}
+
+function placeOrderWithCli(symbol: string, side: string, price: number, qty: number, leverage: number): PlaceOrderResult | null {
+  const scriptPath = path.resolve(process.cwd(), "phemex-create-limit-order.ts");
+  const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+  const args = [
+    "tsx",
+    scriptPath,
+    "--account",
+    "usdt-m",
+    "--symbol",
+    symbol,
+    "--side",
+    side,
+    "--price",
+    String(price),
+    "--qty",
+    String(qty),
+    "--leverage",
+    String(leverage),
+    "--posSide",
+    side,
+    "--json",
+  ];
+
+  try {
+    const output = execFileSync(npxCommand, args, {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    }).trim();
+
+    if (!output) {
+      return null;
+    }
+
+    return JSON.parse(output) as PlaceOrderResult;
+  } catch (error) {
+    console.error(`Order placement failed for ${symbol} ${side}:`, error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Columnar data helpers                                              */
@@ -159,36 +211,28 @@ function connect(): void {
           console.log();
           
           {
-            let symbol = "XTIUSDT";
-            let side = "Long";
-            let price = (last - .05).toFixed(2);
-            let qty = 0.01;
-            let leverage = 100;
-            let s = `./phemex-create-limit-order.ts --account usdt-m --symbol ${symbol} --side ${side} --price ${price} --qty ${qty} --leverage ${leverage} --posSide ${side}`
-
-            let f = (cmd) => {
-              const result = execSync(cmd).toString().trim();
-              console.log(result);
+            const symbol = "XTIUSDT";
+            const side = "Long";
+            const price = Number((last - 0.05).toFixed(2));
+            const qty = 0.01;
+            const leverage = 100;
+            const result = placeOrderWithCli(symbol, side, price, qty, leverage);
+            if (result) {
+              console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
-            f(s)
           }
 
           {
-            let symbol = "XTIUSDT";
-            let side = "Short";
-            let price = (last + .05).toFixed(2);
-            let qty = 0.01;
-            let leverage = 100;
-            let s = `./phemex-create-limit-order.ts --account usdt-m --symbol ${symbol} --side ${side} --price ${price} --qty ${qty} --leverage ${leverage} --posSide ${side}`
-
-            let f = (cmd) => {
-              const result = execSync(cmd).toString().trim();
-              console.log(result);
+            const symbol = "XTIUSDT";
+            const side = "Short";
+            const price = Number((last + 0.05).toFixed(2));
+            const qty = 0.01;
+            const leverage = 100;
+            const result = placeOrderWithCli(symbol, side, price, qty, leverage);
+            if (result) {
+              console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
-            f(s)
           }
-
-
 
           lastPrint = line;
         }

@@ -63,6 +63,7 @@ interface CliArgs {
   posSide: string;
   timeInForce: string;
   leverage?: number;
+  jsonOutput: boolean;
 }
 
 interface ProductInfo {
@@ -201,6 +202,8 @@ Optional flags:
                   Value is always positive (e.g. 100 = 100x)
                   Use 0 for max cross-margin leverage
                   Example:  --leverage 100   100x cross-margin
+
+  --json          Print the order result as JSON instead of the human-readable summary
 `.trim();
   console.log(text);
   process.exit(0);
@@ -229,6 +232,7 @@ function parseArgs(): CliArgs {
   const posSideRaw = m("--posSide") ?? "Merged";
   const timeInForce = m("--timeInForce") ?? "GoodTillCancel";
   const leverageRaw = m("--leverage");
+  const jsonOutput = argv.includes("--json");
 
   // Normalize case for side and posSide
   const sideNorm = side
@@ -286,6 +290,7 @@ function parseArgs(): CliArgs {
     posSide,
     timeInForce,
     leverage,
+    jsonOutput,
   };
 }
 
@@ -390,7 +395,7 @@ async function setLeverageCoinM(
 
   const leverageEr = Math.round(apiLeverage * ratioScale);
 
-  console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
+  // console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
 
   const qs = `symbol=${symbol}&leverageEr=${leverageEr}`;
   const res = await request("PUT", "/positions/leverage", qs, apiKey, secretRaw, "");
@@ -410,7 +415,7 @@ async function setLeverageUsdtM(
   // User passes positive value for cross-margin; Phemex API expects negative
   const apiLeverage = leverage > 0 ? -leverage : 0;
 
-  console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
+  // console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
 
   // The hedged perpetual API uses different query params based on position mode:
   //   Merged (one-way) → leverageRr only
@@ -567,8 +572,8 @@ async function main(): Promise<void> {
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`⟐  Placing ${args.side} limit order on ${args.account}:${args.symbol}`);
-  console.log(`   Price: ${args.price}, Qty: ${args.qty}, TIF: ${args.timeInForce}`);
+  // console.log(`   Placing ${args.side} limit order on ${args.account}:${args.symbol}`);
+  // console.log(`   Price: ${args.price}, Qty: ${args.qty}, TIF: ${args.timeInForce}`);
 
   // Set leverage first if requested (only for perpetual accounts)
   if (args.leverage !== undefined) {
@@ -593,6 +598,11 @@ async function main(): Promise<void> {
     case "coin-m":
       result = await placeInverse(args, creds.PHEMEX_API_KEY, secretRaw);
       break;
+  }
+
+  if (args.jsonOutput) {
+    console.log(JSON.stringify(result));
+    return;
   }
 
   const ordID = result.orderID ?? result.clOrdID ?? "—";
