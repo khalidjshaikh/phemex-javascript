@@ -1,6 +1,7 @@
 #!/usr/bin/env npx tsx
 
 import { execFileSync } from "child_process";
+import fs from "node:fs";
 import path from "node:path";
 import process from "process";
 
@@ -27,6 +28,7 @@ import process from "process";
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XTIUSDT";
 const HEARTBEAT_INTERVAL = 20_000; // 20s
+const ORDER_HISTORY_FILE = path.resolve(process.cwd(), ".phemex-order-history.json");
 
 interface PlaceOrderResult {
   orderID?: string;
@@ -37,6 +39,95 @@ interface PlaceOrderResult {
   price?: unknown;
   qty?: unknown;
   [key: string]: unknown;
+}
+
+interface OrderHistoryEntry {
+  orderID?: string;
+  symbol?: string;
+  side?: string;
+}
+
+let orderHistory: OrderHistoryEntry[] = [];
+
+function loadOrderHistory(): OrderHistoryEntry[] {
+  if (!fs.existsSync(ORDER_HISTORY_FILE)) {
+    return [];
+  }
+
+  try {
+    const raw = fs.readFileSync(ORDER_HISTORY_FILE, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((entry): entry is OrderHistoryEntry => {
+        if (!entry || typeof entry !== "object") return false;
+        const candidate = entry as Record<string, unknown>;
+        return typeof candidate.orderID === "string" || typeof candidate.symbol === "string" || typeof candidate.side === "string";
+      });
+    }
+  } catch (error) {
+    console.warn(`Unable to read order history from disk:`, error instanceof Error ? error.message : String(error));
+  }
+
+  return [];
+}
+
+function saveOrderHistory(): void {
+  fs.writeFileSync(ORDER_HISTORY_FILE, JSON.stringify(orderHistory, null, 2));
+}
+
+function appendOrderHistory(por: PlaceOrderResult): void {
+  const entry: OrderHistoryEntry = {
+    orderID: typeof por.orderID === "string" ? por.orderID : undefined,
+    symbol: typeof por.symbol === "string" ? por.symbol : undefined,
+    side: typeof por.side === "string" ? por.side : undefined,
+  };
+
+  if (!entry.orderID && !entry.symbol && !entry.side) {
+    return;
+  }
+
+  orderHistory.push(entry);
+  saveOrderHistory();
+}
+
+function cancelOrdersFromHistory(): void {
+  if (orderHistory.length === 0) {
+    return;
+  }
+
+  console.log(`Cancelling ${orderHistory.length} saved order(s) from history...`);
+
+  for (const entry of orderHistory) {
+    if (!entry.orderID || !entry.symbol) {
+      continue;
+    }
+
+    const scriptPath = path.resolve(process.cwd(), "phemex-cancel-order.ts");
+    const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+    const posSide = entry.side === "Buy" ? "Long" : entry.side === "Sell" ? "Short" : entry.side;
+    const args = [
+      "tsx",
+      scriptPath,
+      "--order-id",
+      entry.orderID,
+      "--symbol",
+      entry.symbol,
+      "--pos-side",
+      posSide ?? "",
+    ];
+
+    try {
+      const output = execFileSync(npxCommand, args, {
+        cwd: process.cwd(),
+        encoding: "utf8",
+      }).trim();
+      if (output) {
+        console.log(output);
+      }
+    } catch (error) {
+      console.error(`Failed to cancel ${entry.orderID} for ${entry.symbol}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 function placeOrderWithCli(symbol: string, side: string, price: number, qty: number, leverage: number): PlaceOrderResult | null {
@@ -72,7 +163,9 @@ function placeOrderWithCli(symbol: string, side: string, price: number, qty: num
       return null;
     }
 
-    return JSON.parse(output) as PlaceOrderResult;
+    const por = JSON.parse(output) as PlaceOrderResult;
+    appendOrderHistory(por);
+    return por;
   } catch (error) {
     console.error(`Order placement failed for ${symbol} ${side}:`, error instanceof Error ? error.message : String(error));
     return null;
@@ -280,6 +373,10 @@ process.on("SIGINT", () => {
 });
 
 /*  Start                                                              */
+
+orderHistory = loadOrderHistory();
+console.log(`Loaded ${orderHistory.length} saved order entries from ${path.basename(ORDER_HISTORY_FILE)}`);
+cancelOrdersFromHistory();
 
 console.log(`⟐  Connecting to ${WS_URL} (USDT-M) …`);
 connect();
