@@ -97,8 +97,10 @@ function cancelOrdersFromHistory(): void {
 
   console.log(`Cancelling ${orderHistory.length} saved order(s) from history...`);
 
-  for (const entry of orderHistory) {
+  for (let i = orderHistory.length - 1; i >= 0; i -= 1) {
+    const entry = orderHistory[i];
     if (!entry.orderID || !entry.symbol) {
+      orderHistory.splice(i, 1);
       continue;
     }
 
@@ -124,6 +126,8 @@ function cancelOrdersFromHistory(): void {
       if (output) {
         console.log(output);
       }
+      orderHistory.splice(i, 1);
+      saveOrderHistory();
     } catch (error) {
       console.error(`Failed to cancel ${entry.orderID} for ${entry.symbol}:`, error instanceof Error ? error.message : String(error));
     }
@@ -302,7 +306,8 @@ function connect(): void {
           // process.stdout.write(`\r\x1b[K`);
           process.stdout.write(line);
           console.log();
-          
+          cancelOrdersFromHistory();
+
           {
             const symbol = "XTIUSDT";
             const side = "Long";

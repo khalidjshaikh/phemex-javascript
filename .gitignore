@@ -9,3 +9,4 @@ data.rb
 __pycache__
 *.csv
 package-lock.json
+.phemex-order-history.json
