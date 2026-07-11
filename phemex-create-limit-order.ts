@@ -412,7 +412,16 @@ async function setLeverageUsdtM(
 
   console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
 
-  const qs = `symbol=${symbol}&leverageRr=${apiLeverage}&posSide=${posSide}`;
+  // The hedged perpetual API uses different query params based on position mode:
+  //   Merged (one-way) → leverageRr only
+  //   Long/Short (hedge) → longLeverageRr + shortLeverageRr (no posSide param)
+  let qs: string;
+  if (posSide === "Merged") {
+    qs = `symbol=${symbol}&leverageRr=${apiLeverage}`;
+  } else {
+    qs = `symbol=${symbol}&longLeverageRr=${apiLeverage}&shortLeverageRr=${apiLeverage}`;
+  }
+
   const res = await request("PUT", "/g-positions/leverage", qs, apiKey, secretRaw, "");
   if (res.code !== 0) {
     const msg = String(res.msg ?? res.code);
