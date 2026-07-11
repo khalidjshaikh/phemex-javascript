@@ -6,3 +6,4 @@ node_modules/
 .phemex-ws-ema-prices.json
 .phemex-ws-ema-position.json
 data.rb
+__pycache__
