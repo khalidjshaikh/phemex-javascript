@@ -161,7 +161,7 @@ function connect(): void {
           {
             let symbol = "XTIUSDT";
             let side = "Long";
-            let price = (last - .03).toFixed(2);
+            let price = (last - .05).toFixed(2);
             let qty = 0.01;
             let leverage = 100;
             let s = `./phemex-create-limit-order.ts --account usdt-m --symbol ${symbol} --side ${side} --price ${price} --qty ${qty} --leverage ${leverage} --posSide ${side}`
@@ -169,7 +169,6 @@ function connect(): void {
             let f = (cmd) => {
               const result = execSync(cmd).toString().trim();
               console.log(result);
-              
             }
             f(s)
           }
@@ -177,7 +176,7 @@ function connect(): void {
           {
             let symbol = "XTIUSDT";
             let side = "Short";
-            let price = (last + .03).toFixed(2);
+            let price = (last + .05).toFixed(2);
             let qty = 0.01;
             let leverage = 100;
             let s = `./phemex-create-limit-order.ts --account usdt-m --symbol ${symbol} --side ${side} --price ${price} --qty ${qty} --leverage ${leverage} --posSide ${side}`
