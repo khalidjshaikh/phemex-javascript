@@ -4,7 +4,8 @@
  * phemex-cancel-orders-all.ts  —  Cancel ALL orders (including untriggered)
  * for a given symbol via the Phemex API.
  *
- * Endpoint:  DELETE /orders/all?symbol=<symbol>&untriggered=untriggered
+ * Endpoint:  DELETE /orders/all  (COIN-M)  or  DELETE /g-orders/all  (USDT-M)
+ *           selected automatically based on symbol suffix (USDT → USDT-M, else COIN-M)
  *
  * Usage:
  *   npx tsx phemex-cancel-orders-all.ts --symbol BTCUSD
@@ -28,6 +29,12 @@ interface Credentials {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+/** Determine the correct API path based on symbol suffix */
+function apiPath(symbol: string): string {
+  // USDT-M (linear) uses /g-orders/*, COIN-M (inverse) uses /orders/*
+  return symbol.endsWith("USDT") ? "/g-orders/all" : "/orders/all";
+}
 
 /** Base64-url decode (RFC 4648 §5) */
 function base64UrlDecode(s: string): Buffer {
@@ -118,7 +125,8 @@ Options:
   --help, -h          Show this help message
 
 Examples:
-  ./phemex-cancel-orders-all.ts --symbol BTCUSD
+  ./phemex-cancel-orders-all.ts --symbol BTCUSD       # COIN-M
+  ./phemex-cancel-orders-all.ts --symbol XTIUSDT      # USDT-M
   ./phemex-cancel-orders-all.ts --symbol ETHUSD  --dry-run
 `);
   process.exit(0);
@@ -144,11 +152,12 @@ async function main(): Promise<void> {
   if (!symbol) usage();
 
   const dryRun = hasFlag("--dry-run");
+  const path = apiPath(symbol);
   const query = `symbol=${symbol}&untriggered=false`;
 
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);
-    console.log(`  DELETE /orders/all?${query}`);
+    console.log(`  DELETE ${path}?${query}`);
     console.log();
     process.exit(0);
   }
@@ -156,9 +165,10 @@ async function main(): Promise<void> {
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`⟐  Cancelling ALL orders for ${symbol} (including untriggered) …`);
+  const accountType = symbol.endsWith("USDT") ? "USDT-M" : "COIN-M";
+  console.log(`⟐  [${accountType}] Cancelling ALL orders for ${symbol} (including untriggered) …`);
 
-  const resp = await request("DELETE", "/orders/all", query, creds.PHEMEX_API_KEY, secretRaw, "");
+  const resp = await request("DELETE", path, query, creds.PHEMEX_API_KEY, secretRaw, "");
 
   if (resp.code === 0) {
     const data = resp.data as Record<string, unknown> | undefined;
