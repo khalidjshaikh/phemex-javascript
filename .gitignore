@@ -7,3 +7,4 @@ node_modules/
 .phemex-ws-ema-position.json
 data.rb
 __pycache__
+*.csv

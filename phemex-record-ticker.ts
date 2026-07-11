@@ -1,0 +1,190 @@
+#!/usr/bin/env npx tsx
+
+/**
+ * Phemex Ticker Recorder — subscribes to the BTCUSD tick channel and appends
+ * every tick to a CSV file in the same format as btc-usd-max-trimmed.csv:
+ *
+ *   event_date,close_price_usd
+ *
+ * Usage:  ./phemex-record-ticker.ts [output.csv]
+ *
+ * If no filename is given, defaults to btc-usd-max-trimmed.csv.
+ * Aborting (Ctrl+C / SIGINT) cannot lose data because every write is a
+ * synchronous appendFileSync call — the signal handler won't fire until the
+ * current write completes.
+ */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+const WS_URL = "wss://ws.phemex.com";
+const SYMBOL = "BTCUSD";
+const PRICE_SCALE = 10_000;
+const HEARTBEAT_INTERVAL = 20_000; // 20s
+
+/* ------------------------------------------------------------------ */
+/*  Output file                                                        */
+/* ------------------------------------------------------------------ */
+
+const outFile = path.resolve(process.argv[2] ?? "btc-usd-max-trimmed.csv");
+
+// Create file with header row if it doesn't exist yet
+if (!fs.existsSync(outFile)) {
+  fs.writeFileSync(outFile, "event_date,close_price_usd\n");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Convert a Phemex tick timestamp (nanoseconds since epoch) to the CSV date
+ * format used in btc-usd-max-trimmed.csv, e.g. "2026-07-04 23:59:59 UTC".
+ */
+function tickTsToCsvDate(tsNs: number): string {
+  const ms = Math.floor(tsNs / 1_000_000);
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const h = String(d.getUTCHours()).padStart(2, "0");
+  const mi = String(d.getUTCMinutes()).padStart(2, "0");
+  const s = String(d.getUTCSeconds()).padStart(2, "0");
+  return `${y}-${mo}-${day} ${h}:${mi}:${s} UTC`;
+}
+
+/** Write one CSV row synchronously — safe against signal interruption. */
+function appendRow(dateStr: string, priceUsd: number): void {
+  const line = `${dateStr},${priceUsd.toFixed(2)}\n`;
+  fs.appendFileSync(outFile, line, "utf-8");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reconnecting WebSocket wrapper                                     */
+/* ------------------------------------------------------------------ */
+
+let ws: WebSocket;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+let reconnectDelay = 1_000; // start at 1s
+const MAX_RECONNECT_DELAY = 30_000;
+let lastWrittenPrice: number | undefined;
+
+function connect(): void {
+  ws = new WebSocket(WS_URL);
+
+  ws.addEventListener("open", () => {
+    reconnectDelay = 1_000; // reset backoff on successful connection
+
+    // Subscribe to the real-time tick channel
+    ws.send(
+      JSON.stringify({ method: "tick.subscribe", params: [SYMBOL], id: 1 }),
+    );
+
+    // Also subscribe to the 24h ticker as a backup source of last price
+    ws.send(
+      JSON.stringify({ method: "market24h.subscribe", params: [], id: 2 }),
+    );
+
+    // Start heartbeat
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      ws.send(
+        JSON.stringify({
+          method: "server.ping",
+          params: [],
+          id: Date.now(),
+        }),
+      );
+    }, HEARTBEAT_INTERVAL);
+  });
+
+  ws.addEventListener("message", (event: MessageEvent) => {
+    const msg = JSON.parse(event.data as string);
+
+    // Pong — heartbeat response
+    if (msg.result === "pong") {
+      process.stdout.write("♥");
+      return;
+    }
+
+    if (msg.error != null) {
+      console.error("Subscription error:", msg.error);
+      return;
+    }
+
+    // Ignore subscription ack
+    if (msg.result?.status === "success") return;
+
+    // ---------------------------------------------------------------
+    // Tick channel — real-time trade price (fires on every trade)
+    // ---------------------------------------------------------------
+    if (msg.tick) {
+      const { last: lastEp, timestamp: tsNs } = msg.tick;
+      const price = lastEp / PRICE_SCALE;
+      if (price !== lastWrittenPrice) {
+        const dateStr = tickTsToCsvDate(tsNs);
+        appendRow(dateStr, price);
+        lastWrittenPrice = price;
+        process.stdout.write(".");
+      }
+      return;
+    }
+
+    // ---------------------------------------------------------------
+    // 24h ticker channel — fallback; updates every ~1s
+    // ---------------------------------------------------------------
+    if (msg.market24h?.symbol === SYMBOL) {
+      const { close: lastEp } = msg.market24h;
+      const price = lastEp / PRICE_SCALE;
+      if (price !== lastWrittenPrice) {
+        const dateStr = new Date().toISOString().replace("T", " ").replace(/\.\d{3}Z/, " UTC");
+        appendRow(dateStr, price);
+        lastWrittenPrice = price;
+        process.stdout.write(",");
+      }
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    stopHeartbeat();
+    scheduleReconnect();
+  });
+
+  ws.addEventListener("error", () => {
+    /* error event is always followed by close, so reconnect handles it */
+  });
+}
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer) return; // already scheduled
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = undefined;
+    connect();
+  }, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+}
+
+/*  Graceful shutdown on Ctrl+C                                        */
+
+process.on("SIGINT", () => {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  stopHeartbeat();
+  ws?.close();
+  // No manual flush needed — every row was committed synchronously via
+  // appendFileSync before the signal handler ever ran.
+  process.stdout.write("\n");
+  process.exit(0);
+});
+
+/*  Start                                                              */
+
+console.log(`Recording ticker data → ${outFile}`);
+connect();
