@@ -28,8 +28,8 @@ end
 
 orders=[]
 n=4
-n.times{|i| orders << [:Short, 6.4e4 + i * 1e3, 1, 100]}
-n.times{|i| orders << [:Long, 6.2e4 - i * 1e3, 1, 100]}
+n.times{|i| orders << [:Short, 6.5e4 + i * 1e3, 1, 100]}
+n.times{|i| orders << [:Long, 6.1e4 - i * 1e3, 1, 100]}
 
 
 orders.each do |side, price, qty, leverage|
