@@ -8,3 +8,4 @@ node_modules/
 data.rb
 __pycache__
 *.csv
+package-lock.json

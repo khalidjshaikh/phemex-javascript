@@ -1,5 +1,7 @@
 #!/usr/bin/env npx tsx
 
+import process from "process";
+
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
  * channel on the USDT-M perpetual endpoint and prints a compact ticker line
@@ -7,7 +9,7 @@
  *
  * Uses the USDT-M-specific WebSocket subscription methods:
  *   - perp_market24h_pack_p.subscribe  (24h ticker for all USDT-M symbols)
- *   - tick_p.subscribe                  (real-time trade price ticks)
+ *   - trade_p.subscribe                (real-time trade prices)
  *
  * Prices are in real-value (Rp) format — no EP scaling needed.
  *
@@ -85,8 +87,9 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const line = `${now}  ${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
 
   if (line !== lastPrint) {
-    process.stdout.write(`\r\x1b[K`);
+    // process.stdout.write(`\r\x1b[K`);
     process.stdout.write(line);
+    console.log() ;
     lastPrint = line;
   }
 }
@@ -100,8 +103,8 @@ function connect(): void {
     // Subscribe to all USDT-M 24h tickers (columnar format)
     ws.send(JSON.stringify({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 }));
 
-    // Also subscribe to real-time ticks for XTIUSDT
-    ws.send(JSON.stringify({ method: "tick_p.subscribe", params: [SYMBOL], id: 2 }));
+    // Also subscribe to real-time trades for XTIUSDT
+    ws.send(JSON.stringify({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 }));
 
     // Start heartbeat
     stopHeartbeat();
@@ -130,6 +133,7 @@ function connect(): void {
     // USDT-M 24h ticker (columnar format)
     // ---------------------------------------------------------------
     if (msg.method === "perp_market24h_pack_p.update" && Array.isArray(msg.fields) && Array.isArray(msg.data)) {
+      // console.log("perp_market24h_pack_p");
       const ticker = findSymbolRow(msg.data, msg.fields, SYMBOL);
       if (ticker) {
         printTicker(SYMBOL, ticker);
@@ -138,19 +142,20 @@ function connect(): void {
     }
 
     // ---------------------------------------------------------------
-    // USDT-M tick channel — real-time trade price
+    // USDT-M trade channel — real-time trade price
     // ---------------------------------------------------------------
-    if (msg.method === "tick_p.update" && msg.data) {
-      // tick_p.update returns a flat array: [symbol, lastRp, timestamp, ...]
-      const tickData = msg.data as unknown[];
-      if (tickData.length >= 2 && String(tickData[0]) === SYMBOL) {
-        // We get the last price — update the display with just the price
-        const last = Number(tickData[1]);
+    if (msg.trades_p && msg.symbol === SYMBOL) {
+      // console.log("trade_p");
+      // trades_p is an array of [timestampNs, side, priceRp, qtyRq]
+      const trades = msg.trades_p as unknown[][];
+      if (trades.length > 0 && trades[0].length >= 3) {
+        const last = Number(trades[0][2]);
         const now = new Date().toLocaleString();
         const line = `${now}  ${SYMBOL}  $${last.toFixed(2)}`;
         if (line !== lastPrint) {
-          process.stdout.write(`\r\x1b[K`);
+          // process.stdout.write(`\r\x1b[K`);
           process.stdout.write(line);
+          console.log();
           lastPrint = line;
         }
       }
