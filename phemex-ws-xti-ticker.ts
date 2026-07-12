@@ -276,14 +276,23 @@ const ws = new ReconnectingWs(WS_URL, {
             }
           }
 
-          if (false) {
+          {
             const symbol = "XTIUSDT";
             const side = "Short";
-            const price = Number((last + 5).toFixed(2));
+            const price = Number((last + 0.75).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
             const takeProfit = Number((price - 1.50).toFixed(2));
             const stopLoss = Number((price + 0.50).toFixed(2));
+
+            calculatePnL({
+              side: "Sell",
+              price,
+              qty,
+              takeProfit,
+              stopLoss,
+            });
+
             const result = await placeLimitOrderWithTpSl(symbol, side, price, qty, leverage, takeProfit, stopLoss);
             if (result) {
               // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
