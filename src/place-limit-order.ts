@@ -198,10 +198,10 @@ export async function placeLinear(
     `orderQtyRq=${params.qty}`,
     `clOrdID=${clOrdID}`,
   ];
-  if (params.takeProfit !== undefined) {
+  if ((params.takeProfit !== undefined) && (params.takeProfit > 0)) {
     paramsList.push(`takeProfitRp=${params.takeProfit}`);
   }
-  if (params.stopLoss !== undefined) {
+  if ((params.stopLoss !== undefined) && (params.stopLoss > 0)) {
     paramsList.push(`stopLossRp=${params.stopLoss}`);
   }
   const query = paramsList.join("&");

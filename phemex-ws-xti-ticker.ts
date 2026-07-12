@@ -173,10 +173,12 @@ function buildTradePlan(
   leverage: number,
   marketPrice: number,
 ): TradePlan {
-  const takeProfit = side === "Long" ? Number((entryPrice + deltaOrder.takeProfit).toFixed(2)) : Number((entryPrice - deltaOrder.takeProfit).toFixed(2));
-  const stopLoss = side === "Long" ? Number((entryPrice - deltaOrder.stopLoss).toFixed(2)) : Number((entryPrice + deltaOrder.stopLoss
+  let takeProfit = side === "Long" ? Number((entryPrice + deltaOrder.takeProfit).toFixed(2)) : Number((entryPrice - deltaOrder.takeProfit).toFixed(2));
+  let stopLoss = side === "Long" ? Number((entryPrice - deltaOrder.stopLoss).toFixed(2)) : Number((entryPrice + deltaOrder.stopLoss).toFixed(2));
+  
+  if(deltaOrder.takeProfit == 0) takeProfit = 0;
+  if(deltaOrder.stopLoss == 0) stopLoss = 0;
 
-  ).toFixed(2));
   return {
     symbol,
     side,
@@ -300,10 +302,14 @@ const ws = new ReconnectingWs(WS_URL, {
           console.log();
           cancelOrdersFromHistory();
 
-          deltaOrder = {
-            price: 0.75,
-            takeProfit: 1.50,
-            stopLoss: 0.50
+          let flag = true
+          if(flag) {
+            flag = false;
+            deltaOrder = {
+              price: 0.25,
+              takeProfit: 0.00,
+              stopLoss: 0.00
+            }
           }
 
           {
@@ -322,7 +328,7 @@ const ws = new ReconnectingWs(WS_URL, {
               stopLoss: plan.stopLoss,
             });
 
-            const result = await placeLimitOrderWithTpSl(
+            true && await placeLimitOrderWithTpSl(
               plan.symbol,
               plan.side,
               plan.entryPrice,
@@ -331,9 +337,7 @@ const ws = new ReconnectingWs(WS_URL, {
               plan.takeProfit,
               plan.stopLoss,
             );
-            if (result) {
-              // console.log(`Order result (${plan.symbol} ${plan.side}):`, JSON.stringify(result));
-            }
+
           }
 
           {
@@ -352,7 +356,7 @@ const ws = new ReconnectingWs(WS_URL, {
               stopLoss: plan.stopLoss,
             });
 
-            const result = await placeLimitOrderWithTpSl(
+            true && await placeLimitOrderWithTpSl(
               plan.symbol,
               plan.side,
               plan.entryPrice,
@@ -361,9 +365,6 @@ const ws = new ReconnectingWs(WS_URL, {
               plan.takeProfit,
               plan.stopLoss,
             );
-            if (result) {
-              // console.log(`Order result (${plan.symbol} ${plan.side}):`, JSON.stringify(result));
-            }
           }
 
           lastPrice = last;
