@@ -44,15 +44,11 @@ import https from "node:https";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Credentials, loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-
-interface Credentials {
-  PHEMEX_API_KEY: string;
-  PHEMEX_API_SECRET: string;
-}
 
 interface CliArgs {
   account: "spot" | "usdt-m" | "coin-m";
@@ -63,6 +59,8 @@ interface CliArgs {
   posSide: string;
   timeInForce: string;
   leverage?: number;
+  takeProfit?: number;
+  stopLoss?: number;
   jsonOutput: boolean;
 }
 
@@ -203,6 +201,12 @@ Optional flags:
                   Use 0 for max cross-margin leverage
                   Example:  --leverage 100   100x cross-margin
 
+  --takeProfit    Take-profit trigger price (usdt-m only, optional)
+                  Example:  --takeProfit 69   set TP at $69.00
+
+  --stopLoss      Stop-loss trigger price (usdt-m only, optional)
+                  Example:  --stopLoss 76     set SL at $76.00
+
   --json          Print the order result as JSON instead of the human-readable summary
 `.trim();
   console.log(text);
@@ -232,6 +236,8 @@ function parseArgs(): CliArgs {
   const posSideRaw = m("--posSide") ?? "Merged";
   const timeInForce = m("--timeInForce") ?? "GoodTillCancel";
   const leverageRaw = m("--leverage");
+  const takeProfitRaw = m("--takeProfit");
+  const stopLossRaw = m("--stopLoss");
   const jsonOutput = argv.includes("--json");
 
   // Normalize case for side and posSide
@@ -274,6 +280,22 @@ function parseArgs(): CliArgs {
     }
   }
 
+  // Validate takeProfit / stopLoss
+  let takeProfit: number | undefined;
+  if (takeProfitRaw !== undefined) {
+    takeProfit = Number(takeProfitRaw);
+    if (isNaN(takeProfit)) {
+      errors.push("--takeProfit must be numeric");
+    }
+  }
+  let stopLoss: number | undefined;
+  if (stopLossRaw !== undefined) {
+    stopLoss = Number(stopLossRaw);
+    if (isNaN(stopLoss)) {
+      errors.push("--stopLoss must be numeric");
+    }
+  }
+
   if (errors.length > 0) {
     console.error("✗  Missing or invalid arguments:\n");
     for (const e of errors) console.error(`   ${e}`);
@@ -290,13 +312,15 @@ function parseArgs(): CliArgs {
     posSide,
     timeInForce,
     leverage,
+    takeProfit,
+    stopLoss,
     jsonOutput,
   };
 }
 
 /** Fetch product info for an inverse (Coin-M) symbol */
 async function fetchProductInfo(symbol: string): Promise<ProductInfo | null> {
-  const creds = loadCredentials();
+  const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
   const resp = (await request(
     "GET",
@@ -344,13 +368,8 @@ async function fetchProductInfo(symbol: string): Promise<ProductInfo | null> {
   return null;
 }
 
-function loadCredentials(): Credentials {
-  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
-  if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing .phemex-credentials.json");
-    process.exit(1);
-  }
-  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+function loadCredentialsLocal(): Credentials {
+  return loadCredentials(import.meta.dirname);
 }
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +387,7 @@ async function setLeverageCoinM(
   const apiLeverage = leverage > 0 ? -leverage : 0;
 
   // Fetch product info for ratioScale
-  const creds = loadCredentials();
+  const creds = loadCredentialsLocal();
   const secretRaw2 = base64UrlDecode(creds.PHEMEX_API_SECRET);
   const resp = (await request(
     "GET",
@@ -496,7 +515,7 @@ async function placeSpot(args: CliArgs, apiKey: string, secretRaw: Buffer): Prom
 async function placeLinear(args: CliArgs, apiKey: string, secretRaw: Buffer): Promise<PlaceOrderResult> {
   // USDT-M uses the PUT method with query params (no body)
   const clOrdID = uuid();
-  const query = [
+  const params: string[] = [
     `symbol=${args.symbol}`,
     `side=${args.side}`,
     `posSide=${args.posSide}`,
@@ -505,7 +524,14 @@ async function placeLinear(args: CliArgs, apiKey: string, secretRaw: Buffer): Pr
     `priceRp=${args.price}`,
     `orderQtyRq=${args.qty}`,
     `clOrdID=${clOrdID}`,
-  ].join("&");
+  ];
+  if (args.takeProfit !== undefined) {
+    params.push(`takeProfitRp=${args.takeProfit}`);
+  }
+  if (args.stopLoss !== undefined) {
+    params.push(`stopLossRp=${args.stopLoss}`);
+  }
+  const query = params.join("&");
 
   const resp = (await request(
     "PUT",
@@ -569,7 +595,7 @@ async function placeInverse(args: CliArgs, apiKey: string, secretRaw: Buffer): P
 
 async function main(): Promise<void> {
   const args = parseArgs();
-  const creds = loadCredentials();
+  const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   // console.log(`   Placing ${args.side} limit order on ${args.account}:${args.symbol}`);

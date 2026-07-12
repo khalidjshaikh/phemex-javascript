@@ -18,6 +18,11 @@ from datetime import datetime
 
 import websockets
 
+import { Credentials, loadCredentials } from "./src/credentials.js";
+
+const creds = loadCredentials();
+const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+
 WS_URL = "wss://ws.phemex.com"
 SYMBOL = "BTCUSD"
 PRICE_SCALE = 10_000

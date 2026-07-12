@@ -15,15 +15,11 @@ import https from "node:https";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Credentials, loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-
-interface Credentials {
-  PHEMEX_API_KEY: string;
-  PHEMEX_API_SECRET: string;
-}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -103,13 +99,8 @@ async function request(
   });
 }
 
-function loadCredentials(): Credentials {
-  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
-  if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing .phemex-credentials.json");
-    process.exit(1);
-  }
-  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+function loadCredentialsLocal(): Credentials {
+  return loadCredentials(import.meta.dirname);
 }
 
 function usage(): never {
@@ -166,7 +157,7 @@ async function main(): Promise<void> {
   if (posSide) qp.set("posSide", posSide);
   const query = qp.toString();
 
-  const creds = loadCredentials();
+  const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const accountType = isUsdt ? "USDT-M" : "COIN-M";

@@ -13,15 +13,11 @@ import https from "node:https";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Credentials, loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-
-interface Credentials {
-  PHEMEX_API_KEY: string;
-  PHEMEX_API_SECRET: string;
-}
 
 interface Position {
   symbol: string;
@@ -116,12 +112,7 @@ async function get(
 
 async function main(): Promise<void> {
   /* -- Read credentials ------------------------------------------- */
-  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
-  if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing .phemex-credentials.json");
-    process.exit(1);
-  }
-  const creds: Credentials = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+  const creds: Credentials = loadCredentials(import.meta.dirname);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   /* -- Query COIN-M positions for each settlement currency -------- */

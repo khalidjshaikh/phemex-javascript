@@ -313,7 +313,7 @@ function connect(): void {
           cancelOrdersFromHistory();
 
           var flag = true;
-          if(true)
+          if(false)
           {
             const symbol = "XTIUSDT";
             const side = "Long";

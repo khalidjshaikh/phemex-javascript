@@ -17,13 +17,9 @@ import https from "node:https";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { Credentials, loadCredentials } from "../src/credentials.js";
 
 // ── Types ─────────────────────────────────────────────────
-
-interface Credentials {
-  PHEMEX_API_KEY: string;
-  PHEMEX_API_SECRET: string;
-}
 
 interface Product {
   symbol: string;
@@ -142,13 +138,8 @@ async function publicGet(urlPath: string, query: string | null): Promise<Record<
   });
 }
 
-function loadCredentials(): Credentials {
-  const credsPath = path.resolve(import.meta.dirname, ".phemex-credentials.json");
-  if (!fs.existsSync(credsPath)) {
-    console.error("✗  Missing .phemex-credentials.json");
-    process.exit(1);
-  }
-  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+function loadCredentialsLocal(): Credentials {
+  return loadCredentials(import.meta.dirname);
 }
 
 function hasFlag(name: string): boolean {
@@ -367,7 +358,7 @@ async function main(): Promise<void> {
   // No flags → show usage (safeguard against accidental mass cancellation)
   if (!hasFlag("--account")) usage();
 
-  const creds = loadCredentials();
+  const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const accountRaw = getArg("--account");
