@@ -257,8 +257,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
     // process.stdout.write(`\r\x1b[K`);
     process.stdout.write(line);
     console.log() ;
-    // lastPrint = line;
-    lastPrice = last;
+    // lastPrice = last;
   }
 }
 
@@ -306,7 +305,7 @@ const ws = new ReconnectingWs(WS_URL, {
           if(flag) {
             flag = false;
             deltaOrder = {
-              price: 0.25,
+              price: 1,
               takeProfit: 0.00,
               stopLoss: 0.00
             }
@@ -324,8 +323,8 @@ const ws = new ReconnectingWs(WS_URL, {
               side: "Buy",
               price: plan.entryPrice,
               qty: plan.qty,
-              takeProfit: plan.takeProfit,
-              stopLoss: plan.stopLoss,
+              takeProfit: plan.takeProfit == 0 ? plan.entryPrice : plan.takeProfit,
+              stopLoss: plan.stopLoss == 0 ? plan.entryPrice : plan.stopLoss,
             });
 
             true && await placeLimitOrderWithTpSl(
@@ -352,11 +351,11 @@ const ws = new ReconnectingWs(WS_URL, {
               side: "Sell",
               price: plan.entryPrice,
               qty: plan.qty,
-              takeProfit: plan.takeProfit,
-              stopLoss: plan.stopLoss,
+              takeProfit: plan.takeProfit == 0 ? plan.entryPrice : plan.takeProfit,
+              stopLoss: plan.stopLoss == 0 ? plan.entryPrice : plan.stopLoss,
             });
 
-            true && await placeLimitOrderWithTpSl(
+            false && await placeLimitOrderWithTpSl(
               plan.symbol,
               plan.side,
               plan.entryPrice,
