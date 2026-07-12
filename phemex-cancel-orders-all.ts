@@ -14,7 +14,7 @@
 
 import { request, base64UrlDecode } from "./src/http-client.js";
 import { getArg, hasFlag, apiPath } from "./src/cli-utils.js";
-import { loadCredentials } from "./src/credentials.js";
+import { loadCredentialsLocal } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -23,10 +23,6 @@ import { loadCredentials } from "./src/credentials.js";
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-function loadCredentialsLocal(): ReturnType<typeof loadCredentials> {
-  return loadCredentials(import.meta.dirname);
-}
 
 function usage(): never {
   console.log(`

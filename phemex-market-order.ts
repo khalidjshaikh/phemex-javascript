@@ -13,7 +13,7 @@
 import { request, base64UrlDecode } from "./src/http-client.js";
 import { uuid } from "./src/uuid.js";
 import { getArg, hasFlag } from "./src/cli-utils.js";
-import { loadCredentials } from "./src/credentials.js";
+import { loadCredentialsLocal } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -22,10 +22,6 @@ import { loadCredentials } from "./src/credentials.js";
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-function loadCredentialsLocal(): ReturnType<typeof loadCredentials> {
-  return loadCredentials(import.meta.dirname);
-}
 
 async function setLeverageCoinM(
   symbol: string,

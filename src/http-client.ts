@@ -8,6 +8,7 @@
  *   request            — Signed HTTPS request (GET/PUT/POST/DELETE)
  *   httpGet            — Convenience GET wrapper
  *   httpDelete         — Convenience DELETE wrapper
+ *   publicGet          — Unauthenticated GET (no signing needed)
  *   HttpRequest        — Type signature for the request function
  *
  * Usage:
@@ -125,4 +126,34 @@ export function httpDelete(
   secretRaw: Buffer,
 ): Promise<Record<string, unknown>> {
   return request("DELETE", path, query, apiKey, secretRaw, "");
+}
+
+/** Unauthenticated GET request (no signing needed, e.g. public endpoints). */
+export function publicGet(
+  urlPath: string,
+  query: string | null,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const qs = query ? "?" + query : "";
+    const req = https.request(
+      {
+        hostname: "api.phemex.com",
+        path: urlPath + qs,
+        method: "GET",
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
 }

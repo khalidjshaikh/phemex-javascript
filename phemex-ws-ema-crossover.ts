@@ -210,6 +210,7 @@ function tickDisplay(): void {
 /* ------------------------------------------------------------------ */
 
 const ws = new ReconnectingWs(WS_URL, {
+  registerSigint: false, // script manages its own SIGINT (saves state before exit)
   onOpen: () => {
     // Subscribe to 24h ticker channel (~1s updates)
     ws.send({ method: "market24h.subscribe", params: [], id: 2 });

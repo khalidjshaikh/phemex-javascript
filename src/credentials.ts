@@ -3,8 +3,9 @@
  * credentials.ts — Shared Phemex API credentials interface and loader.
  *
  * Exports:
- *   Credentials       — { PHEMEX_API_KEY, PHEMEX_API_SECRET }
- *   loadCredentials   — reads .phemex-credentials.json from a given directory
+ *   Credentials          — { PHEMEX_API_KEY, PHEMEX_API_SECRET }
+ *   loadCredentials      — reads .phemex-credentials.json from a given directory
+ *   loadCredentialsLocal — convenience: reads from the caller's directory
  */
 
 import fs from "node:fs";
@@ -36,4 +37,12 @@ export function loadCredentials(credsDir?: string): Credentials {
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+}
+
+/**
+ * Convenience: load credentials from the calling script's directory.
+ * Equivalent to `loadCredentials(import.meta.dirname)`.
+ */
+export function loadCredentialsLocal(): Credentials {
+  return loadCredentials(import.meta.dirname);
 }

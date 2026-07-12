@@ -8,7 +8,8 @@ import { base64UrlDecode } from "./src/http-client.js";
 import { uuid } from "./src/uuid.js";
 import { findSymbolRow } from "./src/cli-utils.js";
 import { ReconnectingWs } from "./src/ws-client.js";
-import { placeLinear, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { calculatePnL } from "./src/pnl-calculator.js";
+import { placeLimitOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -141,15 +142,21 @@ function cancelOrdersFromHistory(): void {
   }
 }
 
-async function placeOrderLinear(symbol: string, side: string, price: number, qty: number, leverage: number): Promise<PlaceOrderResult | null> {
+async function placeLimitOrderWithTpSl(
+  symbol: string,
+  side: string,
+  price: number,
+  qty: number,
+  leverage: number,
+  takeProfit: number,
+  stopLoss: number,
+): Promise<PlaceOrderResult | null> {
   try {
-    // Map position-side terminology ("Long"/"Short") to API order side ("Buy"/"Sell")
     const apiSide = side === "Long" ? "Buy" : side === "Short" ? "Sell" : side;
 
-    // Set leverage before placing the order
     await setLeverageUsdtM(symbol, leverage, side, creds.PHEMEX_API_KEY, secretRaw);
 
-    const por = await placeLinear(
+    const por = await placeLimitOrder(
       {
         account: "usdt-m",
         symbol,
@@ -158,6 +165,8 @@ async function placeOrderLinear(symbol: string, side: string, price: number, qty
         qty,
         posSide: side,
         leverage,
+        takeProfit,
+        stopLoss,
       },
       creds.PHEMEX_API_KEY,
       secretRaw,
@@ -250,7 +259,18 @@ const ws = new ReconnectingWs(WS_URL, {
             const price = Number((last - .75).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const result = await placeOrderLinear(symbol, side, price, qty, leverage);
+            const takeProfit = Number((price + 1.50).toFixed(2));
+            const stopLoss = Number((price - 0.50).toFixed(2));
+
+            calculatePnL({
+              side: "Buy",
+              price,
+              qty,
+              takeProfit,
+              stopLoss,
+            });
+
+            const result = await placeLimitOrderWithTpSl(symbol, side, price, qty, leverage, takeProfit, stopLoss);
             if (result) {
               // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
@@ -262,7 +282,9 @@ const ws = new ReconnectingWs(WS_URL, {
             const price = Number((last + 5).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const result = await placeOrderLinear(symbol, side, price, qty, leverage);
+            const takeProfit = Number((price - 1.50).toFixed(2));
+            const stopLoss = Number((price + 0.50).toFixed(2));
+            const result = await placeLimitOrderWithTpSl(symbol, side, price, qty, leverage, takeProfit, stopLoss);
             if (result) {
               // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }

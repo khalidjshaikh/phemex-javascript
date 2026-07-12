@@ -43,7 +43,7 @@
 import { request, base64UrlDecode } from "./src/http-client.js";
 import { uuid } from "./src/uuid.js";
 import { getArg, hasFlag } from "./src/cli-utils.js";
-import { Credentials, loadCredentials } from "./src/credentials.js";
+import { loadCredentialsLocal } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -287,10 +287,6 @@ async function fetchProductInfo(symbol: string): Promise<ProductInfo | null> {
     return { priceScale: 10000, valueScale: 100_000_000, ratioScale: 100_000_000, settleCurrency: "BTC", contractSize: 1 };
   }
   return null;
-}
-
-function loadCredentialsLocal(): Credentials {
-  return loadCredentials(import.meta.dirname);
 }
 
 /* ------------------------------------------------------------------ */

@@ -13,10 +13,9 @@
  *   npx tsx phemex-cancel-all-orders.ts --help             # show help
  */
 
-import https from "node:https";
-import { request, base64UrlDecode } from "../src/http-client.js";
+import { request, base64UrlDecode, publicGet } from "../src/http-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
-import { Credentials, loadCredentials } from "../src/credentials.js";
+import { loadCredentialsLocal } from "../src/credentials.js";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -45,36 +44,7 @@ type AccountCategory = "Coin-M" | "USDT-M" | "Spot";
 
 // ── Helpers ───────────────────────────────────────────────
 
-/** Public GET (no auth needed) */
-async function publicGet(urlPath: string, query: string | null): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const qs = query ? "?" + query : "";
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: urlPath + qs,
-        method: "GET",
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.end();
-  });
-}
-
-function loadCredentialsLocal(): Credentials {
-  return loadCredentials(import.meta.dirname);
-}
+/** Public GET (no auth needed) — uses publicGet from http-client */
 
 function usage(): never {
   console.log(`

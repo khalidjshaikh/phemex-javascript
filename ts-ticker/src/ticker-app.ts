@@ -11,6 +11,8 @@
  * Usage:  ./src/ticker-app.ts   or  npm start
  */
 
+import { ReconnectingWs } from "../../src/ws-client.js";
+
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
@@ -18,9 +20,6 @@
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
 const PRICE_SCALE = 10_000;
-const HEARTBEAT_INTERVAL = 20_000; // 20s
-const RECONNECT_BASE = 1_000;
-const RECONNECT_MAX   = 30_000;
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -36,20 +35,10 @@ interface Market24hData {
   turnover: number;
 }
 
-interface WsMessage {
-  market24h?: Market24hData;
-  result?: { status?: string } | "pong";
-  error?: unknown;
-}
-
 /* ------------------------------------------------------------------ */
 /*  State                                                              */
 /* ------------------------------------------------------------------ */
 
-let ws: WebSocket;
-let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-let reconnectDelay = RECONNECT_BASE;
 let lastSnapshot: string | undefined;
 
 /* ------------------------------------------------------------------ */
@@ -100,91 +89,43 @@ function renderSnapshot(d: Market24hData): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  WebSocket lifecycle                                                */
+/*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
-function connect(): void {
-  ws = new WebSocket(WS_URL);
-
-  ws.addEventListener("open", () => {
-    reconnectDelay = RECONNECT_BASE;
-
+const ws = new ReconnectingWs(WS_URL, {
+  onOpen: () => {
     // Subscribe to the 24h ticker channel
-    ws.send(JSON.stringify({ method: "market24h.subscribe", params: [], id: 1 }));
-
-    // Start heartbeat
-    stopHeartbeat();
-    heartbeatTimer = setInterval(() => {
-      ws.send(JSON.stringify({ method: "server.ping", params: [], id: Date.now() }));
-    }, HEARTBEAT_INTERVAL);
-  });
-
-  ws.addEventListener("message", (event: MessageEvent) => {
-    const msg = JSON.parse(event.data as string) as WsMessage;
+    ws.send({ method: "market24h.subscribe", params: [], id: 1 });
+  },
+  onMessage: (msg) => {
+    const m = msg as Record<string, unknown>;
 
     // Pong — heartbeat response
-    if (msg.result === "pong") {
+    if (m.result === "pong") {
       process.stdout.write("\x1b[2m♥\x1b[0m"); // dim heart
       return;
     }
 
-    if (msg.error != null) {
-      console.error("  Subscription error:", msg.error);
+    if (m.error != null) {
+      console.error("  Subscription error:", m.error);
       return;
     }
 
-    // Ignore subscription ack
-    if (msg.result?.status === "success") return;
-
     // 24h ticker update
-    if (msg.market24h?.symbol === SYMBOL) {
-      const snapshot = renderSnapshot(msg.market24h);
+    const ticker = m.market24h as Market24hData | undefined;
+    if (ticker?.symbol === SYMBOL) {
+      const snapshot = renderSnapshot(ticker);
       if (snapshot !== lastSnapshot) {
         // Clear terminal and re-draw
-        process.stdout.write("\x1b[2J\x1b[H"); // clear screen, home cursor — no flicker on most terminals
+        process.stdout.write("\x1b[2J\x1b[H"); // clear screen, home cursor
         process.stdout.write(snapshot + "\n");
         lastSnapshot = snapshot;
       }
     }
-  });
-
-  ws.addEventListener("close", () => {
-    stopHeartbeat();
-    scheduleReconnect();
-  });
-
-  ws.addEventListener("error", () => {
-    /* error is always followed by close, so reconnect handles it */
-  });
-}
-
-function stopHeartbeat(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = undefined;
-  }
-}
-
-function scheduleReconnect(): void {
-  if (reconnectTimer) return;
-  process.stdout.write(`\n  \x1b[33mDisconnected — reconnecting in ${reconnectDelay / 1000}s\x1b[0m\n`);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Graceful shutdown                                                  */
-/* ------------------------------------------------------------------ */
-
-process.on("SIGINT", () => {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  stopHeartbeat();
-  ws?.close();
-  process.stdout.write("\n  \x1b[33mBye.\x1b[0m\n");
-  process.exit(0);
+  },
+  onReconnect: (delayMs) => {
+    process.stdout.write(`\n  \x1b[33mDisconnected — reconnecting in ${delayMs / 1000}s\x1b[0m\n`);
+  },
 });
 
 /* ------------------------------------------------------------------ */
