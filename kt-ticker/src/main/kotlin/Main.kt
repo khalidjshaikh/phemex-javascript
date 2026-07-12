@@ -70,6 +70,7 @@ class TickerClient {
                 if (last) {
                     handleMessage(data.toString())
                 }
+                webSocket.request(1)
                 return CompletableFuture.completedFuture(null)
             }
 
@@ -102,7 +103,7 @@ class TickerClient {
                 .put("method", "market24h.subscribe")
                 .put("params", JSONArray())
                 .put("id", 2)
-            webSocket.sendText(sub.toString(), true)
+            webSocket.sendText(sub.toString(), true).get(5, TimeUnit.SECONDS)
 
             // Start heartbeat
             startHeartbeat(webSocket)

@@ -73,6 +73,7 @@ public class TickerClient {
                 if (last) {
                     handleMessage(data.toString());
                 }
+                webSocket.request(1);
                 return CompletableFuture.completedFuture(null);
             }
 
