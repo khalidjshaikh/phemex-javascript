@@ -308,10 +308,12 @@ function connect(): void {
           console.log();
           cancelOrdersFromHistory();
 
+          var flag = true;
+          if(flag)
           {
             const symbol = "XTIUSDT";
             const side = "Long";
-            const price = Number((last - 0.05).toFixed(2));
+            const price = Number((last - 5).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
             const result = placeOrderWithCli(symbol, side, price, qty, leverage);
@@ -320,10 +322,11 @@ function connect(): void {
             }
           }
 
+          if(flag)
           {
             const symbol = "XTIUSDT";
             const side = "Short";
-            const price = Number((last + 0.05).toFixed(2));
+            const price = Number((last + 5).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
             const result = placeOrderWithCli(symbol, side, price, qty, leverage);

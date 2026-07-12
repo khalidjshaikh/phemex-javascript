@@ -37,7 +37,9 @@ orders=[]
 # (70..71).step(0.10) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
 # (69..70).step(0.10) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
 # (67..69).step(0.10) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
-(71.70..71.70).step(0.10) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
+# (40..50).step(1) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
+# (0..40).step(10) {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
+# ((0..40).step(5).to_a - (0..40).step(10).to_a).map {|price| orders << [:XTIUSDT, :Long, price.round(2), 0.01, 100]}
 
 orders.each do |symbol, side, price, qty, leverage|
   s = "./phemex-create-limit-order.ts --account coin-m --symbol #{symbol} --side #{side} --price #{price} --qty #{qty} --leverage #{leverage}" if symbol.to_sym == :BTCUSD
