@@ -1,0 +1,31 @@
+plugins {
+    id 'application'
+}
+
+group = 'com.phemex'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.json:json:20250107'
+}
+
+application {
+    mainClass = 'com.phemex.TickerClient'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.jar {
+    manifest {
+        attributes('Main-Class': 'com.phemex.TickerClient')
+    }
+    from(configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) })
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

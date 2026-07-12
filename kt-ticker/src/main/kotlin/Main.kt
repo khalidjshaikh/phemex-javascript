@@ -3,8 +3,6 @@ import org.json.JSONObject
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.WebSocket
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
@@ -30,10 +28,7 @@ class TickerClient {
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
     }
 
-    private val httpClient = HttpClient.newBuilder()
-        .build()
-
-    private val timeFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy, HH:mm:ss")
+    private val httpClient = HttpClient.newBuilder().build()
 
     @Volatile
     private var shuttingDown = false
@@ -51,7 +46,7 @@ class TickerClient {
     @Synchronized
     private fun logPriceIfChanged(price: Double) {
         if (lastPrice == null || price != lastPrice) {
-            val now = LocalTime.now().format(timeFormatter)
+            val now = Date().toLocaleString()
             print("\n$now  ${String.format("%.2f", price)} ")
             System.out.flush()
             lastPrice = price
@@ -95,8 +90,6 @@ class TickerClient {
         }
 
         try {
-            System.err.println("DEBUG: building connection...")
-            System.err.flush()
             val webSocket = httpClient.newWebSocketBuilder()
                 .buildAsync(URI(WS_URL), listener)
                 .get(10, TimeUnit.SECONDS)
@@ -104,26 +97,16 @@ class TickerClient {
             ws = webSocket
             reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS // reset backoff
 
-            System.err.println("DEBUG: connected, sending subscription...")
-            System.err.flush()
-
-            // Subscribe to 24h ticker (same as working TS/Go/Python/Ruby versions)
+            // Subscribe to 24h ticker
             val sub = JSONObject()
                 .put("method", "market24h.subscribe")
                 .put("params", JSONArray())
                 .put("id", 2)
-            val subStr = sub.toString()
-            System.err.println("DEBUG: sending: $subStr")
-            System.err.flush()
-            webSocket.sendText(subStr, true).get(5, TimeUnit.SECONDS)
-            System.err.println("DEBUG: subscription sent, waiting for data...")
-            System.err.flush()
+            webSocket.sendText(sub.toString(), true)
 
             // Start heartbeat
             startHeartbeat(webSocket)
         } catch (e: Exception) {
-            System.err.println("DEBUG: connection error: ${e.javaClass.name}: ${e.message}")
-            System.err.flush()
             if (!shuttingDown) {
                 scheduleReconnect()
             }
@@ -135,8 +118,6 @@ class TickerClient {
     // ------------------------------------------------------------------
 
     private fun handleMessage(raw: String) {
-        System.err.println("DEBUG RECV: $raw")
-        System.err.flush()
         try {
             val msg = JSONObject(raw)
 
@@ -156,6 +137,16 @@ class TickerClient {
             // Ignore subscription ack
             val result = msg.optJSONObject("result")
             if (result != null && result.optString("status") == "success") {
+                return
+            }
+
+            // Tick channel — real-time trade price
+            val tick = msg.optJSONObject("tick")
+            if (tick != null) {
+                val lastEp = tick.optLong("last", -1L)
+                if (lastEp > 0) {
+                    logPriceIfChanged(lastEp.toDouble() / PRICE_SCALE)
+                }
                 return
             }
 
@@ -187,11 +178,7 @@ class TickerClient {
                     .put("method", "server.ping")
                     .put("params", JSONArray())
                     .put("id", System.currentTimeMillis())
-                try {
-                    ws.sendText(ping.toString(), true).get(5, TimeUnit.SECONDS)
-                } catch (e: Exception) {
-                    System.err.println("Heartbeat send error: ${e.message}")
-                }
+                ws.sendText(ping.toString(), true)
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS)
     }
@@ -212,8 +199,6 @@ class TickerClient {
         val delay = reconnectDelayMs
         reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
 
-        System.err.println("\nReconnecting in ${delay / 1000}s...")
-        System.err.flush()
         val timer = Timer("reconnect", false)
         reconnectTimer = timer
         timer.schedule(object : TimerTask() {
