@@ -10,20 +10,12 @@
  * Usage:  ./phemex-ws-price.ts
  */
 
+import { ReconnectingWs } from "./src/ws-client.js";
+
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
 const PRICE_SCALE = 10_000;
-const HEARTBEAT_INTERVAL = 20_000; // 20s
 
-/* ------------------------------------------------------------------ */
-/*  Reconnecting WebSocket wrapper                                     */
-/* ------------------------------------------------------------------ */
-
-let ws: WebSocket;
-let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-let reconnectDelay = 1_000; // start at 1s
-const MAX_RECONNECT_DELAY = 30_000;
 let lastPrintedPrice: number | undefined;
 
 function logPriceIfChanged(price: number): void {
@@ -34,92 +26,46 @@ function logPriceIfChanged(price: number): void {
   }
 }
 
-function connect(): void {
-  ws = new WebSocket(WS_URL);
+/* ------------------------------------------------------------------ */
+/*  Main                                                              */
+/* ------------------------------------------------------------------ */
 
-  ws.addEventListener("open", () => {
-    reconnectDelay = 1_000; // reset backoff on successful connection
-
-    // Subscribe to channels
-    // ws.send(JSON.stringify({ method: "tick.subscribe", params: [SYMBOL], id: 1 }));
-    ws.send(JSON.stringify({ method: "market24h.subscribe", params: [], id: 2 }));
-
-    // Start heartbeat
-    stopHeartbeat();
-    heartbeatTimer = setInterval(() => {
-      ws.send(JSON.stringify({ method: "server.ping", params: [], id: Date.now() }));
-    }, HEARTBEAT_INTERVAL);
-  });
-
-  ws.addEventListener("message", (event: MessageEvent) => {
-    const msg = JSON.parse(event.data as string);
+const ws = new ReconnectingWs(WS_URL, {
+  onOpen: () => {
+    ws.send({ method: "market24h.subscribe", params: [], id: 2 });
+  },
+  onMessage: (msg) => {
+    const m = msg as Record<string, unknown>;
 
     // Pong — heartbeat response
-    if (msg.result === "pong") {
+    if (m.result === "pong") {
       process.stdout.write("♥");
       return;
     }
 
-    if (msg.error != null) {
-      console.error("Subscription error:", msg.error);
+    // Ignore error messages
+    if (m.error != null) {
+      console.error("Subscription error:", m.error);
       return;
     }
 
-    // Ignore subscription ack
-    if (msg.result?.status === "success") return;
-
     // Tick channel — real-time trade price
-    if (msg.tick) {
-      const { last: lastEp } = msg.tick;
+    if (m.tick) {
+      const tick = m.tick as Record<string, unknown>;
+      const lastEp = Number(tick.last);
       const price = lastEp / PRICE_SCALE;
       logPriceIfChanged(price);
       return;
     }
 
     // 24h ticker channel — updates every 1s
-    if (msg.market24h?.symbol === SYMBOL) {
-      const { close: lastEp } = msg.market24h;
+    const ticker = m.market24h as Record<string, unknown> | undefined;
+    if (ticker?.symbol === SYMBOL) {
+      const lastEp = Number(ticker.close);
       const price = lastEp / PRICE_SCALE;
       logPriceIfChanged(price);
-      // console.log(msg.market24h);
     }
-  });
-
-  ws.addEventListener("close", () => {
-    stopHeartbeat();
-    scheduleReconnect();
-  });
-
-  ws.addEventListener("error", () => {
-    /* error event is always followed by close, so reconnect handles it */
-  });
-}
-
-function stopHeartbeat(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = undefined;
-  }
-}
-
-function scheduleReconnect(): void {
-  if (reconnectTimer) return; // already scheduled
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-}
-
-/*  Graceful shutdown on Ctrl+C                                        */
-
-process.on("SIGINT", () => {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  stopHeartbeat();
-  ws?.close();
-  process.exit(0);
+  },
 });
 
-/*  Start                                                              */
-
-connect();
+ws.connect();

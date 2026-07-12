@@ -11,11 +11,9 @@
  *   npx tsx phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
  */
 
-import https from "node:https";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { Credentials, loadCredentials } from "./src/credentials.js";
+import { request, base64UrlDecode } from "./src/http-client.js";
+import { getArg, hasFlag } from "./src/cli-utils.js";
+import { loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -25,75 +23,7 @@ import { Credentials, loadCredentials } from "./src/credentials.js";
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Base64-url decode (RFC 4648 §5) */
-function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
-
-/**
- * Sign a request per Phemex spec: HMAC-SHA256(path + queryString + expiry + body)
- * Note: the query string does NOT include the leading '?'.
- */
-function sign(
-  _method: string,
-  path: string,
-  query: string | null,
-  expiry: number,
-  secretRaw: Buffer,
-  body: string
-): string {
-  const queryStr = query ?? "";
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
-/** Perform one signed HTTP request and parse the JSON response */
-async function request(
-  method: "GET" | "POST" | "DELETE",
-  urlPath: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer,
-  body: string
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign(method, urlPath, query, expiry, secretRaw, body);
-    const qs = query ? "?" + query : "";
-
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: urlPath + qs,
-        method,
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-          "Content-Type": "application/json",
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-function loadCredentialsLocal(): Credentials {
+function loadCredentialsLocal(): ReturnType<typeof loadCredentials> {
   return loadCredentials(import.meta.dirname);
 }
 
@@ -113,15 +43,6 @@ Examples:
   ./phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
 `);
   process.exit(0);
-}
-
-function getArg(name: string): string | undefined {
-  const idx = process.argv.indexOf(name);
-  return idx !== -1 ? process.argv[idx + 1] : undefined;
-}
-
-function hasFlag(name: string): boolean {
-  return process.argv.includes(name);
 }
 
 /* ------------------------------------------------------------------ */

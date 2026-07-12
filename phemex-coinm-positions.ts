@@ -9,11 +9,8 @@
  * Usage:  npx tsx phemex-coinm-positions.ts
  */
 
-import https from "node:https";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { Credentials, loadCredentials } from "./src/credentials.js";
+import { httpGet, base64UrlDecode } from "./src/http-client.js";
+import { loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -52,21 +49,6 @@ interface ApiResponse {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Base64-url decode (RFC 4648 §5) */
-function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
-
-/** Sign a GET request per Phemex spec: HMAC-SHA256(path + queryString + expiry) */
-function sign(method: string, path: string, query: string | null, expiry: number, secretRaw: Buffer): string {
-  const queryStr = query ?? "";
-  const body = ""; // GET requests have no body
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
 /** Perform one signed GET request and parse the JSON response */
 async function get(
   path: string,
@@ -74,36 +56,7 @@ async function get(
   apiKey: string,
   secretRaw: Buffer
 ): Promise<ApiResponse> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign("GET", path, query, expiry, secretRaw);
-    const qs = query ? "?" + query : "";
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: path + qs,
-        method: "GET",
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON response: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.end();
-  });
+  return httpGet(path, query, apiKey, secretRaw).then(r => r as unknown as ApiResponse);
 }
 
 /* ------------------------------------------------------------------ */
@@ -112,7 +65,7 @@ async function get(
 
 async function main(): Promise<void> {
   /* -- Read credentials ------------------------------------------- */
-  const creds: Credentials = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials(import.meta.dirname);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   /* -- Query COIN-M positions for each settlement currency -------- */

@@ -14,9 +14,9 @@
  *   const result = await placeLimitOrder({ ... }, apiKey, secretRaw, mockRequest);
  */
 
-import https from "node:https";
-import crypto from "node:crypto";
 import { Credentials } from "./credentials.js";
+import { request, sign, base64UrlDecode, HttpRequest, HttpMethod } from "./http-client.js";
+import { uuid } from "./uuid.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -65,98 +65,17 @@ export interface ProductInfo {
 }
 
 /** HTTP request function signature — injectable for testing */
-export type HttpRequest = (
-  method: "GET" | "PUT" | "POST",
-  path: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer,
-  body: string,
-) => Promise<Record<string, unknown>>;
+export type { HttpRequest };
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Decode a base64url-encoded string to a Buffer. */
-export function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
+/** Re-exported from http-client for backward compatibility */
+export { base64UrlDecode, sign, request };
 
-/**
- * Sign per Phemex spec: HMAC-SHA256(path + queryString + expiry + body).
- * Returns the hex-encoded signature.
- */
-export function sign(
-  _method: string,
-  path: string,
-  query: string | null,
-  expiry: number,
-  secretRaw: Buffer,
-  body: string,
-): string {
-  const queryStr = query ?? "";
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
-/** Perform one signed HTTP request (GET, PUT or POST) to the Phemex API. */
-export function request(
-  method: "GET" | "PUT" | "POST",
-  path: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer,
-  body: string,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign(method, path, query, expiry, secretRaw, body);
-    const qs = query ? "?" + query : "";
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: path + qs,
-        method,
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-          "Content-Type": "application/json",
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data);
-            resolve(parsed);
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      },
-    );
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-/** Generate a v4 UUID for clOrdID. */
-export function uuid(): string {
-  if (typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  // Fallback
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-  });
-}
+/** Re-exported from uuid for backward compatibility */
+export { uuid };
 
 /** Fetch product info for an inverse (Coin-M) symbol. */
 export async function fetchProductInfo(

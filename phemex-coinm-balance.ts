@@ -10,11 +10,8 @@
  * Usage:  npx tsx phemex-coinm-balance.ts
  */
 
-import https from "node:https";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { Credentials, loadCredentials } from "./src/credentials.js";
+import { httpGet, base64UrlDecode } from "./src/http-client.js";
+import { loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -42,60 +39,6 @@ interface ApiResponse {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Base64-url decode (RFC 4648 §5) */
-function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
-
-/** Sign a GET request per Phemex spec: HMAC-SHA256(path + queryString + expiry) */
-function sign(method: string, path: string, query: string | null, expiry: number, secretRaw: Buffer): string {
-  const queryStr = query ?? "";
-  const body = ""; // GET requests have no body
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
-/** Perform one signed GET request and parse the JSON response */
-async function get(
-  path: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer
-): Promise<ApiResponse> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign("GET", path, query, expiry, secretRaw);
-    const qs = query ? "?" + query : "";
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: path + qs,
-        method: "GET",
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON response: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.end();
-  });
-}
-
 /** Parse the Coin-M account balance from the API response */
 function parseBalance(account: Record<string, unknown>, currency: string): CoinMBalance {
   const valueScale = 10 ** (Number(account.valueScale) || 8);
@@ -121,7 +64,7 @@ function parseBalance(account: Record<string, unknown>, currency: string): CoinM
 
 async function main(): Promise<void> {
   /* -- Read credentials ------------------------------------------- */
-  const creds: Credentials = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials(import.meta.dirname);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   /* -- Query Coin-M balances for settlement currencies ------------ */
@@ -131,7 +74,7 @@ async function main(): Promise<void> {
   for (const cur of settlementCurrencies) {
     process.stdout.write(`⟐  Coin-M (${cur}) … `);
     try {
-      const resp = await get("/accounts/accountPositions", `currency=${cur}`, creds.PHEMEX_API_KEY, secretRaw);
+      const resp = await httpGet("/accounts/accountPositions", `currency=${cur}`, creds.PHEMEX_API_KEY, secretRaw) as unknown as ApiResponse;
       if (resp.code !== 0) {
         console.log(`API error: ${resp.msg ?? resp.code}`);
         continue;

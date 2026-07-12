@@ -16,11 +16,11 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { ReconnectingWs } from "./src/ws-client.js";
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
 const PRICE_SCALE = 10_000;
-const HEARTBEAT_INTERVAL = 20_000; // 20s
 
 /* ------------------------------------------------------------------ */
 /*  Output file                                                        */
@@ -60,67 +60,40 @@ function appendRow(dateStr: string, priceUsd: number): void {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Reconnecting WebSocket wrapper                                     */
+/*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
-let ws: WebSocket;
-let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-let reconnectDelay = 1_000; // start at 1s
-const MAX_RECONNECT_DELAY = 30_000;
 let lastWrittenPrice: number | undefined;
 
-function connect(): void {
-  ws = new WebSocket(WS_URL);
-
-  ws.addEventListener("open", () => {
-    reconnectDelay = 1_000; // reset backoff on successful connection
-
+const ws = new ReconnectingWs(WS_URL, {
+  onOpen: () => {
     // Subscribe to the real-time tick channel
-    ws.send(
-      JSON.stringify({ method: "tick.subscribe", params: [SYMBOL], id: 1 }),
-    );
+    ws.send({ method: "tick.subscribe", params: [SYMBOL], id: 1 });
 
     // Also subscribe to the 24h ticker as a backup source of last price
-    ws.send(
-      JSON.stringify({ method: "market24h.subscribe", params: [], id: 2 }),
-    );
-
-    // Start heartbeat
-    stopHeartbeat();
-    heartbeatTimer = setInterval(() => {
-      ws.send(
-        JSON.stringify({
-          method: "server.ping",
-          params: [],
-          id: Date.now(),
-        }),
-      );
-    }, HEARTBEAT_INTERVAL);
-  });
-
-  ws.addEventListener("message", (event: MessageEvent) => {
-    const msg = JSON.parse(event.data as string);
+    ws.send({ method: "market24h.subscribe", params: [], id: 2 });
+  },
+  onMessage: (msg) => {
+    const m = msg as Record<string, unknown>;
 
     // Pong — heartbeat response
-    if (msg.result === "pong") {
+    if (m.result === "pong") {
       process.stdout.write("♥");
       return;
     }
 
-    if (msg.error != null) {
-      console.error("Subscription error:", msg.error);
+    if (m.error != null) {
+      console.error("Subscription error:", m.error);
       return;
     }
-
-    // Ignore subscription ack
-    if (msg.result?.status === "success") return;
 
     // ---------------------------------------------------------------
     // Tick channel — real-time trade price (fires on every trade)
     // ---------------------------------------------------------------
-    if (msg.tick) {
-      const { last: lastEp, timestamp: tsNs } = msg.tick;
+    if (m.tick) {
+      const tick = m.tick as Record<string, unknown>;
+      const lastEp = Number(tick.last);
+      const tsNs = Number(tick.timestamp);
       const price = lastEp / PRICE_SCALE;
       if (price !== lastWrittenPrice) {
         const dateStr = tickTsToCsvDate(tsNs);
@@ -134,8 +107,9 @@ function connect(): void {
     // ---------------------------------------------------------------
     // 24h ticker channel — fallback; updates every ~1s
     // ---------------------------------------------------------------
-    if (msg.market24h?.symbol === SYMBOL) {
-      const { close: lastEp } = msg.market24h;
+    const ticker = m.market24h as Record<string, unknown> | undefined;
+    if (ticker?.symbol === SYMBOL) {
+      const lastEp = Number(ticker.close);
       const price = lastEp / PRICE_SCALE;
       if (price !== lastWrittenPrice) {
         const dateStr = new Date().toISOString().replace("T", " ").replace(/\.\d{3}Z/, " UTC");
@@ -144,47 +118,8 @@ function connect(): void {
         process.stdout.write(",");
       }
     }
-  });
-
-  ws.addEventListener("close", () => {
-    stopHeartbeat();
-    scheduleReconnect();
-  });
-
-  ws.addEventListener("error", () => {
-    /* error event is always followed by close, so reconnect handles it */
-  });
-}
-
-function stopHeartbeat(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = undefined;
-  }
-}
-
-function scheduleReconnect(): void {
-  if (reconnectTimer) return; // already scheduled
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelay);
-  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-}
-
-/*  Graceful shutdown on Ctrl+C                                        */
-
-process.on("SIGINT", () => {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  stopHeartbeat();
-  ws?.close();
-  // No manual flush needed — every row was committed synchronously via
-  // appendFileSync before the signal handler ever ran.
-  process.stdout.write("\n");
-  process.exit(0);
+  },
 });
 
-/*  Start                                                              */
-
 console.log(`Recording ticker data → ${outFile}`);
-connect();
+ws.connect();

@@ -40,10 +40,9 @@
  *                   GoodTillCancel | PostOnly | ImmediateOrCancel | FillOrKill
  */
 
-import https from "node:https";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
+import { request, base64UrlDecode } from "./src/http-client.js";
+import { uuid } from "./src/uuid.js";
+import { getArg, hasFlag } from "./src/cli-utils.js";
 import { Credentials, loadCredentials } from "./src/credentials.js";
 
 /* ------------------------------------------------------------------ */
@@ -75,84 +74,6 @@ interface ProductInfo {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
-
-/** Sign per Phemex spec: HMAC-SHA256(path + queryString + expiry + body) */
-function sign(
-  _method: string,
-  path: string,
-  query: string | null,
-  expiry: number,
-  secretRaw: Buffer,
-  body: string
-): string {
-  const queryStr = query ?? "";
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
-/** Perform one signed HTTP request (GET, PUT or POST) */
-function request(
-  method: "GET" | "PUT" | "POST",
-  path: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer,
-  body: string
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign(method, path, query, expiry, secretRaw, body);
-    const qs = query ? "?" + query : "";
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: path + qs,
-        method,
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-          "Content-Type": "application/json",
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data);
-            // If the top-level response wraps data inside a nested "data" field
-            resolve(parsed);
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-/** Generate a v4 UUID for clOrdID */
-function uuid(): string {
-  // Use crypto.randomUUID if available (Node 19+)
-  if (typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  // Fallback
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-  });
-}
 
 function usage(): never {
   const text = `

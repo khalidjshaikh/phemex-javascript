@@ -14,9 +14,8 @@
  */
 
 import https from "node:https";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
+import { request, base64UrlDecode } from "../src/http-client.js";
+import { getArg, hasFlag } from "../src/cli-utils.js";
 import { Credentials, loadCredentials } from "../src/credentials.js";
 
 // ── Types ─────────────────────────────────────────────────
@@ -46,72 +45,7 @@ type AccountCategory = "Coin-M" | "USDT-M" | "Spot";
 
 // ── Helpers ───────────────────────────────────────────────
 
-function base64UrlDecode(s: string): Buffer {
-  s = s.replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
-
-function sign(
-  _method: string,
-  path: string,
-  query: string | null,
-  expiry: number,
-  secretRaw: Buffer,
-  body: string
-): string {
-  const queryStr = query ?? "";
-  const payload = path + queryStr + expiry + body;
-  return crypto.createHmac("sha256", secretRaw).update(payload).digest("hex");
-}
-
-/**
- * Generic signed HTTP request (extends the active-orders pattern to support DELETE).
- */
-async function request(
-  method: "GET" | "POST" | "DELETE",
-  urlPath: string,
-  query: string | null,
-  apiKey: string,
-  secretRaw: Buffer,
-  body: string
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const expiry = Math.floor(Date.now() / 1000) + 60;
-    const sig = sign(method, urlPath, query, expiry, secretRaw, body);
-    const qs = query ? "?" + query : "";
-
-    const req = https.request(
-      {
-        hostname: "api.phemex.com",
-        path: urlPath + qs,
-        method,
-        headers: {
-          "x-phemex-access-token": apiKey,
-          "x-phemex-request-expiry": String(expiry),
-          "x-phemex-request-signature": sig,
-          "Content-Type": "application/json",
-        },
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-/** Unauthenticated GET for public endpoints. */
+/** Public GET (no auth needed) */
 async function publicGet(urlPath: string, query: string | null): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const qs = query ? "?" + query : "";
@@ -140,16 +74,6 @@ async function publicGet(urlPath: string, query: string | null): Promise<Record<
 
 function loadCredentialsLocal(): Credentials {
   return loadCredentials(import.meta.dirname);
-}
-
-function hasFlag(name: string): boolean {
-  return process.argv.includes(name);
-}
-
-function getArg(name: string): string | undefined {
-  const idx = process.argv.indexOf(name);
-  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return undefined;
 }
 
 function usage(): never {
