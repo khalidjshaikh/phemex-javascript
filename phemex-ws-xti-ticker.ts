@@ -4,6 +4,8 @@ import { execFileSync } from "child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "process";
+import { base64UrlDecode, placeLinear, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { loadCredentials } from "./src/credentials.js";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -29,6 +31,9 @@ const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XTIUSDT";
 const HEARTBEAT_INTERVAL = 20_000; // 20s
 const ORDER_HISTORY_FILE = path.resolve(process.cwd(), ".phemex-order-history.json");
+
+const creds = loadCredentials(import.meta.dirname);
+const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
 interface PlaceOrderResult {
   orderID?: string;
@@ -134,40 +139,27 @@ function cancelOrdersFromHistory(): void {
   }
 }
 
-function placeOrderWithCli(symbol: string, side: string, price: number, qty: number, leverage: number): PlaceOrderResult | null {
-  const scriptPath = path.resolve(process.cwd(), "phemex-create-limit-order.ts");
-  const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
-  const args = [
-    "tsx",
-    scriptPath,
-    "--account",
-    "usdt-m",
-    "--symbol",
-    symbol,
-    "--side",
-    side,
-    "--price",
-    String(price),
-    "--qty",
-    String(qty),
-    "--leverage",
-    String(leverage),
-    "--posSide",
-    side,
-    "--json",
-  ];
-
+async function placeOrderLinear(symbol: string, side: string, price: number, qty: number, leverage: number): Promise<PlaceOrderResult | null> {
   try {
-    const output = execFileSync(npxCommand, args, {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    }).trim();
+    // Map position-side terminology ("Long"/"Short") to API order side ("Buy"/"Sell")
+    const apiSide = side === "Long" ? "Buy" : side === "Short" ? "Sell" : side;
 
-    if (!output) {
-      return null;
-    }
+    // Set leverage before placing the order
+    await setLeverageUsdtM(symbol, leverage, side, creds.PHEMEX_API_KEY, secretRaw);
 
-    const por = JSON.parse(output) as PlaceOrderResult;
+    const por = await placeLinear(
+      {
+        account: "usdt-m",
+        symbol,
+        side: apiSide as "Buy" | "Sell",
+        price,
+        qty,
+        posSide: side,
+        leverage,
+      },
+      creds.PHEMEX_API_KEY,
+      secretRaw,
+    );
     appendOrderHistory(por);
     return por;
   } catch (error) {
@@ -266,7 +258,7 @@ function connect(): void {
     }, HEARTBEAT_INTERVAL);
   });
 
-  ws.addEventListener("message", (event: MessageEvent) => {
+  ws.addEventListener("message", async (event: MessageEvent) => {
     const msg = JSON.parse(event.data as string);
 
     // Pong — heartbeat response
@@ -312,28 +304,25 @@ function connect(): void {
           console.log();
           cancelOrdersFromHistory();
 
-          var flag = true;
-          if(false)
           {
             const symbol = "XTIUSDT";
             const side = "Long";
             const price = Number((last - .75).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const result = placeOrderWithCli(symbol, side, price, qty, leverage);
+            const result = await placeOrderLinear(symbol, side, price, qty, leverage);
             if (result) {
               // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }
           }
 
-          if(false)
-          {
+          if (false) {
             const symbol = "XTIUSDT";
             const side = "Short";
             const price = Number((last + 5).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const result = placeOrderWithCli(symbol, side, price, qty, leverage);
+            const result = await placeOrderLinear(symbol, side, price, qty, leverage);
             if (result) {
               // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
             }

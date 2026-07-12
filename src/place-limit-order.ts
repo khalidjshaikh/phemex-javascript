@@ -351,6 +351,52 @@ export async function placeInverse(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Leverage                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Set cross-margin leverage for a USDT-M perpetual symbol.
+ *
+ * The Phemex API expects negative values for cross-margin.
+ * For the "Merged" (one-way) position mode, only leverageRr is sent.
+ * For "Long"/"Short" (hedge) mode, both longLeverageRr and shortLeverageRr are sent.
+ *
+ * @param symbol    Trading pair (e.g. XTIUSDT)
+ * @param leverage  Leverage (positive value; negated internally for API)
+ * @param posSide   Position side: "Merged", "Long", or "Short"
+ * @param apiKey    Phemex API key
+ * @param secretRaw Decoded API secret
+ */
+export async function setLeverageUsdtM(
+  symbol: string,
+  leverage: number,
+  posSide: string,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<void> {
+  const apiLeverage = leverage > 0 ? -leverage : 0;
+
+  let qs: string;
+  if (posSide === "Merged") {
+    qs = `symbol=${symbol}&leverageRr=${apiLeverage}`;
+  } else {
+    qs = `symbol=${symbol}&longLeverageRr=${apiLeverage}&shortLeverageRr=${apiLeverage}`;
+  }
+
+  const res = await request("PUT", "/g-positions/leverage", qs, apiKey, secretRaw, "");
+  if (res.code !== 0) {
+    const msg = String(res.msg ?? res.code);
+    if (msg.includes("INCONSISTENT_POS_MODE")) {
+      throw new Error(
+        `Leverage API error: ${msg} — the account position mode may not support this endpoint. ` +
+        `Try setting leverage via the Phemex web UI for this account.`,
+      );
+    }
+    throw new Error(`Leverage API error: ${msg}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main API                                                           */
 /* ------------------------------------------------------------------ */
 
