@@ -217,6 +217,7 @@ const MAX_RECONNECT_DELAY = 30_000;
 
 // Cache the last known ticker values so we can do incremental updates
 let lastPrint = "";
+let lastPrice = 0;
 
 function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const open = Number(ticker.openRp ?? 0);
@@ -236,11 +237,13 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 
   const line = `${now}  ${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
 
-  if (line !== lastPrint) {
+  // if (line !== lastPrint) {
+  if (last !== lastPrice) {
     // process.stdout.write(`\r\x1b[K`);
     process.stdout.write(line);
     console.log() ;
-    lastPrint = line;
+    // lastPrint = line;
+    lastPrice = last;
   }
 }
 
@@ -302,7 +305,8 @@ function connect(): void {
         const last = Number(trades[0][2]);
         const now = new Date().toLocaleString();
         const line = `${now}  ${SYMBOL}  $${last.toFixed(2)}`;
-        if (line !== lastPrint) {
+        // if (line !== lastPrint) {
+        if (last !== lastPrice) {
           // process.stdout.write(`\r\x1b[K`);
           process.stdout.write(line);
           console.log();
@@ -335,7 +339,8 @@ function connect(): void {
             }
           }
 
-          lastPrint = line;
+          // lastPrint = line;
+          lastPrice = last;
         }
       }
     }
