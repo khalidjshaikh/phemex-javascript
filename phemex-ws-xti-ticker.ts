@@ -311,7 +311,7 @@ const ws = new ReconnectingWs(WS_URL, {
             }
           }
 
-          {
+          if(true) {
             const symbol = "XTIUSDT";
             const side = "Long";
             const entryPrice = Number((last - deltaOrder.price).toFixed(2));
@@ -327,7 +327,7 @@ const ws = new ReconnectingWs(WS_URL, {
               stopLoss: plan.stopLoss == 0 ? plan.entryPrice : plan.stopLoss,
             });
 
-            true && await placeLimitOrderWithTpSl(
+            await placeLimitOrderWithTpSl(
               plan.symbol,
               plan.side,
               plan.entryPrice,
@@ -339,7 +339,7 @@ const ws = new ReconnectingWs(WS_URL, {
 
           }
 
-          {
+          if(false) {
             const symbol = "XTIUSDT";
             const side = "Short";
             const entryPrice = Number((last + deltaOrder.price).toFixed(2));
@@ -355,7 +355,7 @@ const ws = new ReconnectingWs(WS_URL, {
               stopLoss: plan.stopLoss == 0 ? plan.entryPrice : plan.stopLoss,
             });
 
-            false && await placeLimitOrderWithTpSl(
+            await placeLimitOrderWithTpSl(
               plan.symbol,
               plan.side,
               plan.entryPrice,
