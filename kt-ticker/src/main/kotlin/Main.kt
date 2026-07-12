@@ -95,7 +95,7 @@ class TickerClient {
         }
 
         try {
-            System.err.println("DEBUG: Connecting to WebSocket...")
+            System.err.println("DEBUG: building connection...")
             System.err.flush()
             val webSocket = httpClient.newWebSocketBuilder()
                 .buildAsync(URI(WS_URL), listener)
@@ -104,37 +104,27 @@ class TickerClient {
             ws = webSocket
             reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS // reset backoff
 
-            System.err.println("DEBUG: Connected, sending subscriptions...")
+            System.err.println("DEBUG: connected, sending subscription...")
             System.err.flush()
 
-            // Subscribe to 24h ticker
+            // Subscribe to 24h ticker (same as working TS/Go/Python/Ruby versions)
             val sub = JSONObject()
                 .put("method", "market24h.subscribe")
                 .put("params", JSONArray())
                 .put("id", 2)
-            webSocket.sendText(sub.toString(), true)
-
-            // Subscribe to real-time tick channel
-            val tickSub = JSONObject()
-                .put("method", "tick.subscribe")
-                .put("params", JSONArray(listOf("BTCUSD")))
-                .put("id", 1)
-            webSocket.sendText(tickSub.toString(), true)
-
-            System.err.println("DEBUG: Subscriptions sent, starting heartbeat...")
+            val subStr = sub.toString()
+            System.err.println("DEBUG: sending: $subStr")
+            System.err.flush()
+            webSocket.sendText(subStr, true).get(5, TimeUnit.SECONDS)
+            System.err.println("DEBUG: subscription sent, waiting for data...")
             System.err.flush()
 
             // Start heartbeat
             startHeartbeat(webSocket)
-
-            System.err.println("DEBUG: Heartbeat started")
-            System.err.flush()
         } catch (e: Exception) {
-            System.err.println("DEBUG Exception: ${e.javaClass.name}: ${e.message}")
+            System.err.println("DEBUG: connection error: ${e.javaClass.name}: ${e.message}")
             System.err.flush()
             if (!shuttingDown) {
-                System.err.println("DEBUG: Scheduling reconnect...")
-                System.err.flush()
                 scheduleReconnect()
             }
         }
@@ -145,9 +135,9 @@ class TickerClient {
     // ------------------------------------------------------------------
 
     private fun handleMessage(raw: String) {
+        System.err.println("DEBUG RECV: $raw")
+        System.err.flush()
         try {
-            System.err.println("DEBUG MSG: $raw")
-            System.err.flush()
             val msg = JSONObject(raw)
 
             // Pong — heartbeat response
@@ -166,16 +156,6 @@ class TickerClient {
             // Ignore subscription ack
             val result = msg.optJSONObject("result")
             if (result != null && result.optString("status") == "success") {
-                return
-            }
-
-            // Tick channel — real-time trade price
-            val tick = msg.optJSONObject("tick")
-            if (tick != null) {
-                val lastEp = tick.optLong("lastEp", -1L)
-                if (lastEp > 0) {
-                    logPriceIfChanged(lastEp.toDouble() / PRICE_SCALE)
-                }
                 return
             }
 
@@ -207,7 +187,11 @@ class TickerClient {
                     .put("method", "server.ping")
                     .put("params", JSONArray())
                     .put("id", System.currentTimeMillis())
-                ws.sendText(ping.toString(), true)
+                try {
+                    ws.sendText(ping.toString(), true).get(5, TimeUnit.SECONDS)
+                } catch (e: Exception) {
+                    System.err.println("Heartbeat send error: ${e.message}")
+                }
             }
         }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS)
     }
