@@ -10,3 +10,5 @@ __pycache__
 *.csv
 package-lock.json
 .phemex-order-history.json
+kt-ticker/gradlew
+kt-ticker/gradlew.bat

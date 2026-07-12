@@ -317,7 +317,7 @@ function connect(): void {
           {
             const symbol = "XTIUSDT";
             const side = "Long";
-            const price = Number((last - .80).toFixed(2));
+            const price = Number((last - .75).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
             const result = placeOrderWithCli(symbol, side, price, qty, leverage);

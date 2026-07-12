@@ -1,0 +1,16 @@
+{
+  "name": "phemex-ws-ticker-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phemex WebSocket BTCUSD ticker app",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/ticker-app.ts",
+    "dev": "tsx watch src/ticker-app.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
