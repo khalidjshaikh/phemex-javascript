@@ -55,6 +55,29 @@ interface OrderHistoryEntry {
   side?: string;
 }
 
+interface TradePlan {
+  symbol: string;
+  side: "Long" | "Short";
+  entryPrice: number;
+  qty: number;
+  leverage: number;
+  change: number;
+  takeProfit: number;
+  stopLoss: number;
+}
+
+interface DeltaOrder {
+  price: number;
+  takeProfit: number;
+  stopLoss: number;
+}
+
+let deltaOrder: DeltaOrder = {
+  price: 0.75,
+  takeProfit: 1.50,
+  stopLoss: 0.50
+}
+
 let orderHistory: OrderHistoryEntry[] = [];
 
 function loadOrderHistory(): OrderHistoryEntry[] {
@@ -140,6 +163,30 @@ function cancelOrdersFromHistory(): void {
       console.error(`Failed to cancel ${entry.orderID} for ${entry.symbol}:`, error instanceof Error ? error.message : String(error));
     }
   }
+}
+
+function buildTradePlan(
+  symbol: string,
+  side: "Long" | "Short",
+  entryPrice: number,
+  qty: number,
+  leverage: number,
+  marketPrice: number,
+): TradePlan {
+  const takeProfit = side === "Long" ? Number((entryPrice + deltaOrder.takeProfit).toFixed(2)) : Number((entryPrice - deltaOrder.takeProfit).toFixed(2));
+  const stopLoss = side === "Long" ? Number((entryPrice - deltaOrder.stopLoss).toFixed(2)) : Number((entryPrice + deltaOrder.stopLoss
+
+  ).toFixed(2));
+  return {
+    symbol,
+    side,
+    entryPrice,
+    qty,
+    leverage,
+    change: Number((entryPrice - marketPrice).toFixed(2)),
+    takeProfit,
+    stopLoss,
+  };
 }
 
 async function placeLimitOrderWithTpSl(
@@ -253,49 +300,69 @@ const ws = new ReconnectingWs(WS_URL, {
           console.log();
           cancelOrdersFromHistory();
 
+          deltaOrder = {
+            price: 0.75,
+            takeProfit: 1.50,
+            stopLoss: 0.50
+          }
+
           {
             const symbol = "XTIUSDT";
             const side = "Long";
-            const price = Number((last - .75).toFixed(2));
+            const entryPrice = Number((last - deltaOrder.price).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const takeProfit = Number((price + 1.50).toFixed(2));
-            const stopLoss = Number((price - 0.50).toFixed(2));
+            const plan = buildTradePlan(symbol, side, entryPrice, qty, leverage, last);
 
             calculatePnL({
               side: "Buy",
-              price,
-              qty,
-              takeProfit,
-              stopLoss,
+              price: plan.entryPrice,
+              qty: plan.qty,
+              takeProfit: plan.takeProfit,
+              stopLoss: plan.stopLoss,
             });
 
-            const result = await placeLimitOrderWithTpSl(symbol, side, price, qty, leverage, takeProfit, stopLoss);
+            const result = await placeLimitOrderWithTpSl(
+              plan.symbol,
+              plan.side,
+              plan.entryPrice,
+              plan.qty,
+              plan.leverage,
+              plan.takeProfit,
+              plan.stopLoss,
+            );
             if (result) {
-              // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
+              // console.log(`Order result (${plan.symbol} ${plan.side}):`, JSON.stringify(result));
             }
           }
 
           {
             const symbol = "XTIUSDT";
             const side = "Short";
-            const price = Number((last + 0.75).toFixed(2));
+            const entryPrice = Number((last + deltaOrder.price).toFixed(2));
             const qty = 0.01;
             const leverage = 100;
-            const takeProfit = Number((price - 1.50).toFixed(2));
-            const stopLoss = Number((price + 0.50).toFixed(2));
+            const plan = buildTradePlan(symbol, side, entryPrice, qty, leverage, last);
 
             calculatePnL({
               side: "Sell",
-              price,
-              qty,
-              takeProfit,
-              stopLoss,
+              price: plan.entryPrice,
+              qty: plan.qty,
+              takeProfit: plan.takeProfit,
+              stopLoss: plan.stopLoss,
             });
 
-            const result = await placeLimitOrderWithTpSl(symbol, side, price, qty, leverage, takeProfit, stopLoss);
+            const result = await placeLimitOrderWithTpSl(
+              plan.symbol,
+              plan.side,
+              plan.entryPrice,
+              plan.qty,
+              plan.leverage,
+              plan.takeProfit,
+              plan.stopLoss,
+            );
             if (result) {
-              // console.log(`Order result (${symbol} ${side}):`, JSON.stringify(result));
+              // console.log(`Order result (${plan.symbol} ${plan.side}):`, JSON.stringify(result));
             }
           }
 
