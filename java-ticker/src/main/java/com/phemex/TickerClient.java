@@ -1,7 +1,5 @@
 package com.phemex;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
@@ -11,6 +9,9 @@ import java.util.TimerTask;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Phemex WebSocket Price — subscribes to the BTCUSD 24h ticker channel,
