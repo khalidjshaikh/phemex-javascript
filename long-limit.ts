@@ -135,6 +135,8 @@ async function main(): Promise<void> {
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
+  const placedOrders: Array<{ orderPrice: number; orderId?: string }> = [];
+
   for (const orderPrice of orderPrices) {
     const stopLoss = +(orderPrice - 0.01).toFixed(2);
     const result = await placeLimitOrder(
@@ -144,11 +146,20 @@ async function main(): Promise<void> {
       secretRaw,
     );
 
-    console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${result.orderID ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+    const orderId = result.orderID ?? undefined;
+    placedOrders.push({ orderPrice, orderId });
 
-    if (CANCEL_FLAG && result.orderID) {
-      console.log(`   Cancelling order ${result.orderID} …`);
-      await cancelOrder({ symbol: SYMBOL, orderId: result.orderID, posSide: "Long" }, creds.PHEMEX_API_KEY, secretRaw);
+    console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+  }
+
+  if (CANCEL_FLAG) {
+    for (const placedOrder of placedOrders) {
+      if (!placedOrder.orderId) {
+        console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
+        continue;
+      }
+      console.log(`   Cancelling order ${placedOrder.orderId} …`);
+      await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: "Long" }, creds.PHEMEX_API_KEY, secretRaw);
       console.log(`   ✓  Order cancelled`);
     }
   }
