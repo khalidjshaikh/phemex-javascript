@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const limitPrice = lastPrice;
-  const stopLoss = +(lastPrice + 0.03).toFixed(2);
+  const stopLoss = +(lastPrice + 0.01).toFixed(2);
 
   console.log(`⟐  Limit Short ${SYMBOL}  qty: ${QTY}  @ ${limitPrice}  SL: ${stopLoss}  100x`);
 
