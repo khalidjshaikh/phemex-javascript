@@ -10,6 +10,7 @@ import { findSymbolRow } from "./src/cli-utils.js";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { calculatePnL } from "./src/pnl-calculator.js";
 import { placeLimitOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { getFlag, setFlag } from "./src/dynamodb-flag.js";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -310,6 +311,8 @@ const ws = new ReconnectingWs(WS_URL, {
               stopLoss: 0.00
             }
           }
+
+          // console.log(getFlag("purchase"))
 
           if(true) {
             const symbol = "XTIUSDT";

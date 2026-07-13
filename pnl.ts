@@ -56,3 +56,9 @@ calculatePnL({
   qty: 273,
   takeProfit: 110,
 });
+calculatePnL({
+  side: "Buy",
+  price: 71,
+  qty: .08,
+  takeProfit: 73.65,
+});

@@ -1,6 +1,10 @@
 {
   "type": "module",
   "private": true,
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/util-dynamodb": "^3.0.0"
+  },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "tsx": "^4.23.0",
