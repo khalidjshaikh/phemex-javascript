@@ -135,10 +135,7 @@ async function main(): Promise<void> {
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
-  const placedOrders: Array<{ orderPrice: number; orderId?: string }> = [];
-  let hasFailures = false;
-
-  for (const orderPrice of orderPrices) {
+  const placeOrderPromises = orderPrices.map(async (orderPrice) => {
     const stopLoss = +(orderPrice - 0.01).toFixed(2);
     try {
       const result = await placeLimitOrder(
@@ -149,13 +146,17 @@ async function main(): Promise<void> {
       );
 
       const orderId = result.orderID ?? undefined;
-      placedOrders.push({ orderPrice, orderId });
       console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+      return { orderPrice, orderId, error: undefined as Error | undefined };
     } catch (err) {
-      hasFailures = true;
-      console.error(`   ✗  Order failed at price ${orderPrice} — ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.error(`   ✗  Order failed at price ${orderPrice} — ${error.message}`);
+      return { orderPrice, orderId: undefined, error };
     }
-  }
+  });
+
+  const placedOrders = await Promise.all(placeOrderPromises);
+  const hasFailures = placedOrders.some((order) => order.error !== undefined);
 
   if (CANCEL_FLAG) {
     for (const placedOrder of placedOrders) {
