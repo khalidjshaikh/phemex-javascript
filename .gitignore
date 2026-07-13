@@ -20,3 +20,4 @@ java-ticker/build
 kt-ticker/.gradle
 kt-ticker/build
 xtiusdt-last-price.txt
+*.pid
