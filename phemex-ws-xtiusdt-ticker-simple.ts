@@ -1,7 +1,10 @@
 #!/usr/bin/env npx tsx
 
+import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
+
+const PRICE_FILE = "xtiusdt-last-price.txt";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -51,6 +54,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
     process.stdout.write(line);
     console.log();
     lastPrice = last;
+    fs.writeFileSync(PRICE_FILE, String(last), "utf8");
   }
 }
 
@@ -93,6 +97,7 @@ const ws = new ReconnectingWs(WS_URL, {
           process.stdout.write(line);
           console.log();
           lastPrice = last;
+          fs.writeFileSync(PRICE_FILE, String(last), "utf8");
         }
       }
     }

@@ -29,13 +29,13 @@ export interface PlaceLimitOrderParams {
   symbol: string;
   /** Order direction */
   side: "Buy" | "Sell";
-  /** Limit price in quote currency */
+  /** Limit price in quote currency (ignored for market orders) */
   price: number;
   /** Quantity (base currency for spot, contract qty for perpetual) */
   qty: number;
   /** Position side for usdt-m only (default: Merged) */
   posSide?: string;
-  /** Time in force (default: GoodTillCancel) */
+  /** Time in force (default: GoodTillCancel for limit, ImmediateOrCancel for market) */
   timeInForce?: string;
   /** Leverage for perpetual accounts (optional) */
   leverage?: number;
@@ -367,6 +367,97 @@ export async function setLeverageCoinM(
 }
 
 /* ------------------------------------------------------------------ */
+/*  Market order placement                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Place a USDT-M (linear) market order.
+ * Optionally includes take-profit and stop-loss trigger prices.
+ * @internal — use placeMarketOrder() instead.
+ */
+export async function placeMarketLinear(
+  params: PlaceLimitOrderParams,
+  apiKey: string,
+  secretRaw: Buffer,
+  httpRequest?: HttpRequest,
+): Promise<PlaceOrderResult> {
+  const _request = httpRequest ?? request;
+  const clOrdID = uuid();
+  const posSide = params.posSide ?? "Merged";
+  const timeInForce = params.timeInForce ?? "ImmediateOrCancel";
+
+  const paramsList: string[] = [
+    `symbol=${params.symbol}`,
+    `side=${params.side}`,
+    `posSide=${posSide}`,
+    `ordType=Market`,
+    `timeInForce=${timeInForce}`,
+    `orderQtyRq=${params.qty}`,
+    `clOrdID=${clOrdID}`,
+  ];
+  if ((params.takeProfit !== undefined) && (params.takeProfit > 0)) {
+    paramsList.push(`takeProfitRp=${params.takeProfit}`);
+  }
+  if ((params.stopLoss !== undefined) && (params.stopLoss > 0)) {
+    paramsList.push(`stopLossRp=${params.stopLoss}`);
+  }
+  const query = paramsList.join("&");
+
+  const resp = (await _request(
+    "PUT",
+    "/g-orders/create",
+    query,
+    apiKey,
+    secretRaw,
+    "",
+  )) as Record<string, unknown>;
+
+  if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
+  const data = resp.data as PlaceOrderResult | undefined;
+  if (!data) throw new Error("Empty response data");
+  return data;
+}
+
+/**
+ * Place a Coin-M (inverse) market order.
+ * @internal — use placeMarketOrder() instead.
+ */
+export async function placeMarketInverse(
+  params: PlaceLimitOrderParams,
+  apiKey: string,
+  secretRaw: Buffer,
+  httpRequest?: HttpRequest,
+): Promise<PlaceOrderResult> {
+  const _request = httpRequest ?? request;
+  const clOrdID = uuid();
+  const timeInForce = params.timeInForce ?? "ImmediateOrCancel";
+  const orderQty = Math.round(params.qty);
+
+  const query = [
+    `symbol=${params.symbol}`,
+    `side=${params.side}`,
+    `ordType=Market`,
+    `timeInForce=${timeInForce}`,
+    `orderQty=${orderQty}`,
+    `clOrdID=${clOrdID}`,
+  ].join("&");
+
+  const resp = (await _request(
+    "PUT",
+    "/orders/create",
+    query,
+    apiKey,
+    secretRaw,
+    "",
+  )) as Record<string, unknown>;
+
+  if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
+  const data = resp.data as PlaceOrderResult | undefined;
+  if (!data) throw new Error("Empty response data");
+  return data;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main API                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -397,5 +488,34 @@ export async function placeLimitOrder(
       return placeInverse(params, apiKey, secretRaw, httpRequest);
     default:
       throw new Error(`Unknown account type: ${params.account}`);
+  }
+}
+
+/**
+ * Place a market order on Phemex.
+ *
+ * Automatically selects the correct placement logic based on the account type.
+ * For USDT-M, you can optionally include take-profit and stop-loss trigger prices.
+ *
+ * @param params      Order parameters (account, symbol, side, qty, …)
+ *                    The `price` field is ignored for market orders.
+ * @param apiKey      Phemex API key
+ * @param secretRaw   Phemex API secret (decoded via base64UrlDecode)
+ * @param httpRequest Optional injectable HTTP request function (for testing)
+ * @returns           The order placement result from the API
+ */
+export async function placeMarketOrder(
+  params: PlaceLimitOrderParams,
+  apiKey: string,
+  secretRaw: Buffer,
+  httpRequest?: HttpRequest,
+): Promise<PlaceOrderResult> {
+  switch (params.account) {
+    case "usdt-m":
+      return placeMarketLinear(params, apiKey, secretRaw, httpRequest);
+    case "coin-m":
+      return placeMarketInverse(params, apiKey, secretRaw, httpRequest);
+    default:
+      throw new Error(`Market orders not supported for account type: ${params.account}`);
   }
 }
