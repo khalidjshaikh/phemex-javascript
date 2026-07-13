@@ -167,14 +167,21 @@ async function main(): Promise<void> {
       console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
       await new Promise((resolve) => setTimeout(resolve, SLEEP_SECONDS * 1000));
     }
-    for (const placedOrder of placedOrders) {
+
+    const cancelPromises = placedOrders.map(async (placedOrder) => {
       if (!placedOrder.orderId) {
         console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
-        continue;
+        return;
       }
       console.log(`   Cancelling order ${placedOrder.orderId} …`);
       await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: "Long" }, creds.PHEMEX_API_KEY, secretRaw);
       console.log(`   ✓  Order cancelled`);
+    });
+
+    const cancelResults = await Promise.allSettled(cancelPromises);
+    if (cancelResults.some((result) => result.status === "rejected")) {
+      console.error("✗  One or more cancellations failed.");
+      process.exit(1);
     }
   }
 
