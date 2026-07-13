@@ -6,11 +6,14 @@
  *
  * Endpoint:  GET /g-accounts/accountPositions?currency=<currency>
  *
- * Usage:  npx tsx phemex-usdt-positions.ts
+ * Usage:
+ *   npx tsx phemex-usdt-positions.ts            — show open positions
+ *   npx tsx phemex-usdt-positions.ts --close-all — close all open positions
  */
 
 import { httpGet, base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
+import { placeMarketOrder } from "./src/place-limit-order.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -19,20 +22,17 @@ import { loadCredentials } from "./src/credentials.js";
 interface Position {
   symbol: string;
   currency: string;
-  side: "Long" | "Short" | "None";
+  side: "Buy" | "Sell" | "None";
   positionStatus: string;
   crossMargin: boolean;
-  size: number;           // number of contracts
-  value: number;           // position value in settlement currency
-  avgEntryPrice: number;   // entry price
-  leverage: number;        // effective leverage
-  posCost: number;         // position cost
-  liquidationPrice: number;
-  initMarginReq: number;
-  maintMarginReq: number;
-  riskLimit: number;
-  unrealisedPnl?: number;
-  // Also keep the raw scaled fields for PnL calculation if needed
+  size: string;            // string from API, e.g. "0.01"
+  avgEntryPrice: string;   // string from API, e.g. "75.52"
+  markPriceRp: string;     // mark price, e.g. "80.06"
+  valueRv: string;         // raw value (÷10000 for human)
+  posCostRv: string;       // raw position cost (÷10000)
+  leverageRr: string;      // e.g. "-100"
+  liquidationPriceRp: string; // liquidation price
+  unrealisedPnl?: string;
   [key: string]: unknown;
 }
 
@@ -48,6 +48,24 @@ interface ApiResponse {
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+function usage(): never {
+  console.log(`
+Usage:  ./phemex-usdt-positions.ts [--close-all] [--help]
+
+Retrieve USDT-M (linear perpetual) open positions from Phemex.
+Credentials are read from .phemex-credentials.json.
+
+Options:
+  --close-all   Close all open positions via market orders
+  --help, -h    Show this help message
+
+Examples:
+  ./phemex-usdt-positions.ts             Show open positions
+  ./phemex-usdt-positions.ts --close-all  Show positions then close them all
+`);
+  process.exit(0);
+}
 
 /** Convert a scaled Phemex value (Rv/Rq) to human-readable using the scale factor */
 function toHuman(val: unknown, scale: number): number {
@@ -70,9 +88,13 @@ async function get(
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
+
   /* -- Read credentials ------------------------------------------- */
   const creds = loadCredentials(import.meta.dirname);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+
+  const CLOSE_ALL = process.argv.includes("--close-all");
 
   /* -- Query USDT-M positions for each settlement currency -------- */
   const settlementCurrencies = ["USDT", "USD"];
@@ -88,7 +110,7 @@ async function main(): Promise<void> {
       }
       const positions = resp.data?.positions ?? [];
       // Keep only OPEN positions (side = Long/Short, not "None")
-      const open = positions.filter((p) => p.side !== "None" || p.size !== 0);
+      const open = positions.filter((p) => p.side !== "None" && p.size !== "0");
       allPositions.push(...open);
       console.log(`${open.length} position(s) open`);
     } catch (err: unknown) {
@@ -111,17 +133,24 @@ async function main(): Promise<void> {
   console.log("─".repeat(136));
 
   for (const p of allPositions) {
-    const pnl = p.unrealisedPnl ?? 0;
-    const sideFmt = p.side.padEnd(7);
-    const sizeFmt = Number(p.size).toFixed(4).padStart(10);
-    const entryFmt = p.avgEntryPrice.toFixed(2).padStart(14);
-    // Mark price isn't returned by accountPositions — show "—"
-    const markFmt = "—".padStart(14);
-    const valueFmt = p.value.toFixed(2).padStart(14);
+    const entry = parseFloat(p.avgEntryPrice || "0");
+    const mark = parseFloat(p.markPriceRp || "0");
+    const size = parseFloat(p.size || "0");
+    const value = parseFloat(p.valueRv || "0") / 10000;
+    const pnl = (mark - entry) * size;
+    const lev = p.leverageRr ? Math.abs(parseFloat(p.leverageRr)) : 0;
+    const liq = parseFloat(p.liquidationPriceRp || "0");
+    const margin = parseFloat(p.posCostRv || "0") / 10000;
+
+    const sideFmt = p.side.padEnd(6);
+    const sizeFmt = size.toFixed(4).padStart(10);
+    const entryFmt = entry.toFixed(2).padStart(14);
+    const markFmt = mark.toFixed(2).padStart(14);
+    const valueFmt = value.toFixed(2).padStart(14);
     const pnlFmt = (pnl >= 0 ? "+" : "") + pnl.toFixed(2).padStart(11);
-    const levFmt = (p.leverage === 0 ? "∞" : p.leverage.toFixed(1)).padStart(9);
-    const liqFmt = (p.liquidationPrice || 0).toFixed(2).padStart(14);
-    const marginFmt = p.posCost.toFixed(4).padStart(12);
+    const levFmt = (lev === 0 ? "∞" : lev.toFixed(1)).padStart(9);
+    const liqFmt = liq.toFixed(2).padStart(14);
+    const marginFmt = margin.toFixed(4).padStart(12);
 
     console.log(
       `${p.symbol.padEnd(12)} ${sideFmt} ${sizeFmt} ${entryFmt} ${markFmt} ${valueFmt} ` +
@@ -129,6 +158,31 @@ async function main(): Promise<void> {
     );
   }
   console.log("─".repeat(136));
+
+  /* -- Close all open positions (--close-all) ---------------------- */
+  if (CLOSE_ALL) {
+    console.log(`\n⟐  Closing ${allPositions.length} position(s) via market orders …`);
+    const results = await Promise.allSettled(
+      allPositions.map(async (p) => {
+        // API side: "Buy" → Long position, "Sell" → Short position
+        const posSide = p.side === "Sell" ? "Short" : "Long";
+        const closeSide = p.side === "Buy" ? "Sell" : "Buy";
+        const size = parseFloat(p.size || "0");
+        console.log(`   ${p.symbol} — closing ${posSide} ${size} (${closeSide}) …`);
+        await placeMarketOrder(
+          { account: "usdt-m", symbol: p.symbol, side: closeSide, qty: size, posSide, price: 0 },
+          creds.PHEMEX_API_KEY,
+          secretRaw,
+        );
+        console.log(`   ✓  ${p.symbol} — closed`);
+      }),
+    );
+    for (const r of results) {
+      if (r.status === "rejected") {
+        console.error(`   ✗  ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+      }
+    }
+  }
 }
 
 main().catch((err) => {
