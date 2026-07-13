@@ -77,17 +77,16 @@ async function main() {
       const data = resp.data as Record<string, unknown> | undefined;
       if (resp.code === 0 && data?.account) {
         const a = data.account as Record<string, unknown>;
-        const valScale = 10 ** (Number(a.valueScale) || 4);
+        // USDT-M returns real-value strings (Rv) — no scaling needed
+        const total = Number(a.accountBalanceRv ?? 0);
+        const locked = Number(a.totalUsedBalanceRv ?? 0);
         results.push({
           account: `USDT-M (${cur})`,
           currency: cur,
-          total: toHuman(a.accountBalanceRv || 0, valScale),
-          locked: toHuman(a.totalUsedBalanceRv || 0, valScale),
-          available: toHuman(
-            (Number(a.accountBalanceRv) || 0) - (Number(a.totalUsedBalanceRv) || 0),
-            valScale,
-          ),
-          bonus: toHuman(a.bonusBalanceRv || 0, valScale),
+          total,
+          locked,
+          available: total - locked,
+          bonus: Number(a.bonusBalanceRv ?? 0),
         });
       }
     } catch (e) {
@@ -139,27 +138,27 @@ async function main() {
     console.log(
       "  Account".padEnd(20) +
         "Currency".padEnd(10) +
-        "Total".padEnd(16) +
-        "Available".padEnd(16) +
+        "Total".padEnd(24) +
+        "Available".padEnd(24) +
         "Locked",
     );
-    console.log("  " + "─".repeat(68));
+    console.log("  " + "─".repeat(86));
     for (const r of results) {
-      const totalS = r.total.toFixed(r.currency === "BTC" ? 8 : 2);
-      const availS = r.available.toFixed(r.currency === "BTC" ? 8 : 2);
-      const lockedS = r.locked.toFixed(r.currency === "BTC" ? 8 : 2);
+      const totalS = r.total.toFixed(12);
+      const availS = r.available.toFixed(12);
+      const lockedS = r.locked.toFixed(12);
       let bonus = "";
       if (r.bonus != null && r.bonus > 0) {
-        bonus = `  (bonus: ${r.bonus.toFixed(2)})`;
+        bonus = `  (bonus: ${r.bonus.toFixed(12)})`;
       }
       console.log(
         `  ${r.account.padEnd(18)} ` +
           `${r.currency.padEnd(8)} ` +
-          `${totalS.padStart(12)} ${availS.padStart(12)} ${lockedS.padStart(12)}` +
+          `${totalS.padStart(20)} ${availS.padStart(20)} ${lockedS.padStart(20)}` +
           bonus,
       );
     }
-    console.log("  " + "─".repeat(68));
+    console.log("  " + "─".repeat(86));
     // Grand totals
     const grand = { total: 0, available: 0, locked: 0 };
     for (const r of results) {
