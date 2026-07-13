@@ -308,7 +308,7 @@ const ws = new ReconnectingWs(WS_URL, {
             deltaOrder = {
               price: 2,
               takeProfit: 0.00,
-              stopLoss: 0.00
+              stopLoss: 0.01
             }
           }
 
