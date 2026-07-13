@@ -26,7 +26,7 @@ const POS_SIDE = "Short" as const;
 
 function usage(): never {
   console.log(`
-Usage: ./short-limit.ts [--qty <quantity>] [--spread <value>] [--cancel]
+Usage: ./short-limit.ts [--qty <quantity>] [--spread <value>] [--cancel] [--sleep <seconds>]
 
 Place a Short (Sell) limit order on ${SYMBOL} at the last known price with stop-loss.
 Reads the latest price from ${PRICE_FILE}.
@@ -35,6 +35,7 @@ Options:
   --qty <quantity>   Contract quantity (default: 0.01)
   --spread <value>   Spread count: +N one-sided above, -N one-sided below, N symmetric
   --cancel           Cancel the order immediately after placing (test flow)
+  --sleep <seconds>  Seconds to wait between placing and cancelling (requires --cancel)
   --help, -h         Show this help message
 
 Examples:
@@ -44,6 +45,7 @@ Examples:
   ./short-limit.ts --spread -3
   ./short-limit.ts --spread 6
   ./short-limit.ts --qty 0.01 --spread 2 --cancel
+  ./short-limit.ts --qty 0.01 --spread 2 --cancel --sleep 30
 `);
   process.exit(0);
 }
@@ -105,6 +107,8 @@ async function main(): Promise<void> {
   const qty = getArgValue("--qty");
   const QTY = qty !== undefined ? parseFloat(qty) : 0.01;
   const CANCEL_FLAG = process.argv.includes("--cancel");
+  const sleepRaw = getArgValue("--sleep");
+  const SLEEP_SECONDS = sleepRaw !== undefined ? parseFloat(sleepRaw) : 0;
   const spreadRaw = getArgValue("--spread") ?? "0";
 
   if (isNaN(QTY) || QTY <= 0) {
@@ -163,6 +167,10 @@ async function main(): Promise<void> {
   const hasFailures = placedOrders.some((order) => order.error !== undefined);
 
   if (CANCEL_FLAG) {
+    if (SLEEP_SECONDS > 0) {
+      console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
+      await new Promise((resolve) => setTimeout(resolve, SLEEP_SECONDS * 1000));
+    }
     for (const placedOrder of placedOrders) {
       if (!placedOrder.orderId) {
         console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
