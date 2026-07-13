@@ -4,11 +4,13 @@
  * short-limit.ts  —  Place a Short (Sell) limit order on XTIUSDT at the last
  * known price with stop-loss.  Reads latest price from xtiusdt-last-price.txt.
  *
- * Usage:  ./short-limit.ts [--qty <quantity>] [--spread <value>] [--cancel]
+ * Usage:  ./short-limit.ts [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel]
  *
  * Options:
  *   --qty <quantity>  Contract quantity (default: 0.01)
  *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
+ *   --dispersion <value>  Tick spacing multiplier (default: 1.0)
+ *   --gap <number>    Add this value to the entry price before applying spread and dispersion
  *   --cancel          Cancel the order immediately after placing (test flow)
  *   --help, -h        Show this help message
  */
@@ -26,7 +28,7 @@ const POS_SIDE = "Short" as const;
 
 function usage(): never {
   console.log(`
-Usage: ./short-limit.ts [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--cancel] [--sleep <seconds>]
+Usage: ./short-limit.ts [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>]
 
 Place a Short (Sell) limit order on ${SYMBOL} at the last known price with stop-loss.
 Reads the latest price from ${PRICE_FILE}.
@@ -35,6 +37,7 @@ Options:
   --qty <quantity>      Contract quantity (default: 0.01)
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
+  --gap <number>        Add this value to the entry price before applying spread and dispersion
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
   --help, -h            Show this help message
@@ -48,6 +51,8 @@ Examples:
   ./short-limit.ts --qty 0.01 --spread 2 --cancel
   ./short-limit.ts --qty 0.01 --spread 2 --cancel --sleep 30
   ./short-limit.ts --spread 3 --dispersion 2
+  ./short-limit.ts --gap 0.0 --spread 2
+  ./short-limit.ts --gap -5 --spread 2
 `);
   process.exit(0);
 }
@@ -132,6 +137,8 @@ async function main(): Promise<void> {
   const spreadRaw = getArgValue("--spread") ?? "0";
   const dispersionRaw = getArgValue("--dispersion");
   const DISPERSION = dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0;
+  const gapRaw = getArgValue("--gap");
+  const GAP = gapRaw !== undefined ? parseFloat(gapRaw) : 0.0;
 
   if (isNaN(QTY) || QTY <= 0) {
     console.error("✗  --qty must be a positive number");
@@ -140,6 +147,11 @@ async function main(): Promise<void> {
 
   if (isNaN(DISPERSION) || DISPERSION <= 0) {
     console.error("✗  --dispersion must be a positive number");
+    process.exit(1);
+  }
+
+  if (isNaN(GAP)) {
+    console.error("✗  --gap must be a number");
     process.exit(1);
   }
 
@@ -164,8 +176,9 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  const orderPrices = buildSpreadPrices(lastPrice, spreadValue, spreadExplicitSign, DISPERSION);
-  console.log(`⟐  Limit Short ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  100x`);
+  const adjustedReferencePrice = lastPrice + GAP;
+  const orderPrices = buildSpreadPrices(adjustedReferencePrice, spreadValue, spreadExplicitSign, DISPERSION);
+  console.log(`⟐  Limit Short ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  gap: ${GAP}  100x`);
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, POS_SIDE, creds.PHEMEX_API_KEY, secretRaw);
 
