@@ -11,9 +11,10 @@
  *   npx tsx phemex-cancel-order.ts --order-id <uuid> --symbol BTCUSD
  */
 
-import { request, base64UrlDecode } from "./src/http-client.js";
-import { getArg, hasFlag, apiPath } from "./src/cli-utils.js";
+import { base64UrlDecode } from "./src/http-client.js";
+import { getArg, hasFlag } from "./src/cli-utils.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
+import { cancelOrder } from "./src/place-limit-order.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -61,20 +62,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const urlPath = apiPath(symbol);
-  const qp = new URLSearchParams();
-  qp.set("orderID", orderId);
-  qp.set("symbol", symbol);
-  if (posSide) qp.set("posSide", posSide);
-  const query = qp.toString();
-
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const accountType = isUsdt ? "USDT-M" : "COIN-M";
   console.log(`⟐  [${accountType}] Cancelling order ${orderId} …`);
 
-  const resp = await request("DELETE", urlPath, query, creds.PHEMEX_API_KEY, secretRaw, "");
+  const resp = await cancelOrder(
+    { symbol, orderId, posSide },
+    creds.PHEMEX_API_KEY,
+    secretRaw,
+  );
 
   if (resp.code === 0) {
     console.log("  ✓  Order cancelled successfully");

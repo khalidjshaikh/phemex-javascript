@@ -20,6 +20,7 @@ import {
   placeLinear,
   placeInverse,
   placeLimitOrder,
+  cancelOrder,
   type HttpRequest,
   type PlaceOrderResult,
   type PlaceLimitOrderParams,
@@ -194,7 +195,29 @@ function mockRequestError(errorMsg: string): HttpRequest {
 }
 
 /* ================================================================== */
-/*  Test 6: placeLinear (USDT-M) — request formatting                  */
+/*  Test 6: cancelOrder — request formatting                          */
+/* ================================================================== */
+{
+  const mockResponse = { code: 0, data: { orderID: "cancel-789", ordStatus: "Canceled" } };
+  const mock = mockRequest(mockResponse);
+
+  const result = await cancelOrder(
+    { symbol: "XTIUSDT", orderId: "cancel-789", posSide: "Short" },
+    FAKE_API_KEY,
+    FAKE_SECRET_RAW,
+    mock.fn,
+  );
+
+  assert.equal(mock.lastCall.method, "DELETE", "Cancel should use DELETE");
+  assert.equal(mock.lastCall.path, "/g-orders", "USDT-M cancel should use /g-orders");
+  assert.equal(mock.lastCall.query, "orderID=cancel-789&symbol=XTIUSDT&posSide=Short");
+  assert.equal(result.code, 0);
+
+  console.log("✓  Test 6 — cancelOrder: PASSED");
+}
+
+/* ================================================================== */
+/*  Test 7: placeLinear (USDT-M) — request formatting                  */
 /* ================================================================== */
 {
   const mockResponse = { code: 0, data: { orderID: "linear-456", ordStatus: "New" } };

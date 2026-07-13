@@ -56,6 +56,12 @@ export interface PlaceOrderResult {
   [key: string]: unknown;
 }
 
+export interface CancelOrderParams {
+  symbol: string;
+  orderId: string;
+  posSide?: string;
+}
+
 export interface ProductInfo {
   priceScale: number;
   valueScale: number;
@@ -78,6 +84,23 @@ export { base64UrlDecode, sign, request };
 export { uuid };
 
 /** Fetch product info for an inverse (Coin-M) symbol. */
+export async function cancelOrder(
+  params: CancelOrderParams,
+  apiKey: string,
+  secretRaw: Buffer,
+  httpRequest?: HttpRequest,
+): Promise<Record<string, unknown>> {
+  const _request = httpRequest ?? request;
+  const qp = new URLSearchParams();
+  qp.set("orderID", params.orderId);
+  qp.set("symbol", params.symbol);
+  if (params.posSide) qp.set("posSide", params.posSide);
+  const query = qp.toString();
+  const urlPath = params.symbol.endsWith("USDT") ? "/g-orders" : "/orders";
+
+  return _request("DELETE", urlPath, query, apiKey, secretRaw, "") as Promise<Record<string, unknown>>;
+}
+
 export async function fetchProductInfo(
   symbol: string,
   apiKey: string,
