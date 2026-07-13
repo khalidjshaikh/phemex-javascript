@@ -11,12 +11,13 @@
 import fs from "node:fs";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
-import { placeLimitOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
 const QTY = parseFloat(process.argv[2] ?? "0.01");
 const LEVERAGE = 100;
+const CANCEL_FLAG = process.argv.includes("--cancel");
 
 async function main(): Promise<void> {
   const priceRaw = fs.readFileSync(PRICE_FILE, "utf8").trim();
@@ -43,7 +44,13 @@ async function main(): Promise<void> {
     secretRaw,
   );
 
-  console.log(`   ✓  OrderID: ${result.orderID ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+  console.log(`   ✓  Order placed — ID: ${result.orderID ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+
+  if (CANCEL_FLAG && result.orderID) {
+    console.log(`   Cancelling order ${result.orderID} …`);
+    await cancelOrder({ symbol: SYMBOL, orderId: result.orderID, posSide: "Short" }, creds.PHEMEX_API_KEY, secretRaw);
+    console.log(`   ✓  Order cancelled`);
+  }
 }
 
 main().catch((err) => {

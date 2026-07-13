@@ -1,17 +1,18 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * long-limit.ts  —  Place a Long (Buy) limit order on XTIUSDT at the last
- * known price with stop-loss.  Reads latest price from xtiusdt-last-price.txt.
+ * buy.ts  —  Place a Long (Buy) market order on XTIUSDT with stop-loss.
+ * Reads the latest price from xtiusdt-last-price.txt.
  *
- * Usage:  ./long-limit.ts [qty]
+ * Usage:  ./buy.ts [qty] [--cancel]
  *         (default qty: 0.01)
+ *         --cancel  Cancel the order immediately after placing (test flow)
  */
 
 import fs from "node:fs";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
-import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { placeMarketOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
@@ -30,16 +31,14 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  const limitPrice = lastPrice;
   const stopLoss = +(lastPrice - 0.03).toFixed(2);
 
-  console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  @ ${limitPrice}  SL: ${stopLoss}  100x`);
+  console.log(`⟐  Long ${SYMBOL}  qty: ${QTY}  @ ~${lastPrice}  SL: ${stopLoss}  100x`);
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
-  const result = await placeLimitOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: limitPrice, qty: QTY,
-      posSide: "Long", stopLoss },
+  const result = await placeMarketOrder(
+    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: 0, qty: QTY, posSide: "Long", stopLoss },
     creds.PHEMEX_API_KEY,
     secretRaw,
   );
