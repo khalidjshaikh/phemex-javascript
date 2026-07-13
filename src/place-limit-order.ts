@@ -62,6 +62,12 @@ export interface CancelOrderParams {
   posSide?: string;
 }
 
+export interface CancelOrdersParams {
+  symbol: string;
+  /** Also cancel untriggered trigger orders (default: true) */
+  untriggered?: boolean;
+}
+
 export interface ProductInfo {
   priceScale: number;
   valueScale: number;
@@ -99,6 +105,18 @@ export async function cancelOrder(
   const urlPath = params.symbol.endsWith("USDT") ? "/g-orders" : "/orders";
 
   return _request("DELETE", urlPath, query, apiKey, secretRaw, "") as Promise<Record<string, unknown>>;
+}
+
+/** Cancel ALL open orders (including untriggered) for a given symbol. */
+export async function cancelOrders(
+  params: CancelOrdersParams,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<Record<string, unknown>> {
+  const urlPath = params.symbol.endsWith("USDT") ? "/g-orders/all" : "/orders/all";
+  const untriggered = params.untriggered ?? true;
+  const query = `symbol=${params.symbol}&untriggered=${untriggered}`;
+  return request("DELETE", urlPath, query, apiKey, secretRaw, "");
 }
 
 export async function fetchProductInfo(
