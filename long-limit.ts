@@ -23,26 +23,28 @@ const LEVERAGE = 100;
 
 function usage(): never {
   console.log(`
-Usage: ./long-limit.ts [--qty <quantity>] [--spread <value>] [--cancel] [--sleep <seconds>]
+Usage: ./long-limit.ts [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--cancel] [--sleep <seconds>]
 
 Place a Long (Buy) limit order on ${SYMBOL} at the last known price with stop-loss.
 Reads the latest price from ${PRICE_FILE}.
 
 Options:
-  --qty <quantity>   Contract quantity (default: 0.01)
-  --spread <value>   Spread count: +N one-sided above, -N one-sided below, N symmetric
-  --cancel           Cancel the order immediately after placing (test flow)
-  --sleep <seconds>  Seconds to wait between placing and cancelling (requires --cancel)
-  --help, -h         Show this help message
+  --qty <quantity>      Contract quantity (default: 0.01)
+  --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
+  --dispersion <value>  Tick spacing multiplier (default: 1.0)
+  --cancel              Cancel the order immediately after placing (test flow)
+  --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
+  --help, -h            Show this help message
 
 Examples:
   ./long-limit.ts
   ./long-limit.ts --qty 0.05
   ./long-limit.ts --spread +5
-  ./long-limit.ts --spread -3
-  ./long-limit.ts --spread 6
+  ./long-limit.ts --spread -3 --dispersion 2
+  ./long-limit.ts --spread 6 --dispersion 2
   ./long-limit.ts --qty 0.01 --spread 2 --cancel
   ./long-limit.ts --qty 0.01 --spread 2 --cancel --sleep 30
+  ./long-limit.ts --spread 3 --dispersion 2
 `);
   process.exit(0);
 }
@@ -66,19 +68,20 @@ function parseSpread(raw: string): { value: number; explicitSign: boolean } {
   };
 }
 
-function buildSpreadPrices(referencePrice: number, spread: number, explicitSign: boolean): number[] {
+function buildSpreadPrices(referencePrice: number, spread: number, explicitSign: boolean, dispersion: number): number[] {
   if (spread === 0) return [referencePrice];
+  const tick = 0.01 * dispersion;
 
   // One-sided: +N = N ticks above ref (inclusive), -N = N ticks below ref (inclusive)
   if (explicitSign) {
     const orders = [referencePrice];
     if (spread > 0) {
       for (let i = 1; i <= spread; i++) {
-        orders.push(+(referencePrice + i * 0.01).toFixed(2));
+        orders.push(+(referencePrice + i * tick).toFixed(2));
       }
     } else {
       for (let i = 1; i <= Math.abs(spread); i++) {
-        orders.unshift(+(referencePrice - i * 0.01).toFixed(2));
+        orders.unshift(+(referencePrice - i * tick).toFixed(2));
       }
     }
     return orders;
@@ -89,11 +92,11 @@ function buildSpreadPrices(referencePrice: number, spread: number, explicitSign:
   const orders: number[] = [];
   const steps = Math.abs(spread);
   for (let i = steps; i >= 1; i--) {
-    orders.push(+(referencePrice - i * 0.01).toFixed(2));
+    orders.push(+(referencePrice - i * tick).toFixed(2));
   }
   orders.push(referencePrice);
   for (let i = 1; i <= steps; i++) {
-    orders.push(+(referencePrice + i * 0.01).toFixed(2));
+    orders.push(+(referencePrice + i * tick).toFixed(2));
   }
   return orders;
 }
@@ -124,9 +127,16 @@ async function main(): Promise<void> {
   const sleepRaw = getArgValue("--sleep");
   const SLEEP_SECONDS = sleepRaw !== undefined ? parseFloat(sleepRaw) : 0;
   const spreadRaw = getArgValue("--spread") ?? "0";
+  const dispersionRaw = getArgValue("--dispersion");
+  const DISPERSION = dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0;
 
   if (isNaN(QTY) || QTY <= 0) {
     console.error("✗  --qty must be a positive number");
+    process.exit(1);
+  }
+
+  if (isNaN(DISPERSION) || DISPERSION <= 0) {
+    console.error("✗  --dispersion must be a positive number");
     process.exit(1);
   }
 
@@ -151,8 +161,8 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  const orderPrices = buildSpreadPrices(lastPrice, spreadValue, spreadExplicitSign);
-  console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  100x`);
+  const orderPrices = buildSpreadPrices(lastPrice, spreadValue, spreadExplicitSign, DISPERSION);
+  console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  100x`);
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
