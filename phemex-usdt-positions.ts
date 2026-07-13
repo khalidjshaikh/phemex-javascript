@@ -57,12 +57,14 @@ Retrieve USDT-M (linear perpetual) open positions from Phemex.
 Credentials are read from .phemex-credentials.json.
 
 Options:
-  --close-all   Close all open positions via market orders
-  --help, -h    Show this help message
+  --close-all            Close all open positions via market orders
+  --close-from <size>    Close positions with size > <size> (e.g. --close-from 1)
+  --help, -h             Show this help message
 
 Examples:
-  ./phemex-usdt-positions.ts             Show open positions
-  ./phemex-usdt-positions.ts --close-all  Show positions then close them all
+  ./phemex-usdt-positions.ts                     Show open positions
+  ./phemex-usdt-positions.ts --close-all          Show positions then close them all
+  ./phemex-usdt-positions.ts --close-from 1       Close positions where size > 1
 `);
   process.exit(0);
 }
@@ -95,6 +97,13 @@ async function main(): Promise<void> {
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const CLOSE_ALL = process.argv.includes("--close-all");
+
+  const closeFromIdx = process.argv.indexOf("--close-from");
+  const CLOSE_FROM = closeFromIdx !== -1 ? parseFloat(process.argv[closeFromIdx + 1]) : NaN;
+  if (closeFromIdx !== -1 && (isNaN(CLOSE_FROM) || CLOSE_FROM <= 0)) {
+    console.error("error: --close-from requires a positive number, e.g. --close-from 1");
+    process.exit(1);
+  }
 
   /* -- Query USDT-M positions for each settlement currency -------- */
   const settlementCurrencies = ["USDT", "USD"];
@@ -159,22 +168,39 @@ async function main(): Promise<void> {
   }
   console.log("─".repeat(136));
 
-  /* -- Close all open positions (--close-all) ---------------------- */
-  if (CLOSE_ALL) {
-    console.log(`\n⟐  Closing ${allPositions.length} position(s) via market orders …`);
+  /* -- Close positions (--close-all or --close-from) ------------------ */
+  const DO_CLOSE = CLOSE_ALL || !isNaN(CLOSE_FROM);
+  if (DO_CLOSE) {
+    const toClose = CLOSE_ALL
+      ? allPositions
+      : allPositions.filter((p) => parseFloat(p.size || "0") > CLOSE_FROM);
+
+    if (toClose.length === 0) {
+      console.log(`\nNo positions with size > ${CLOSE_FROM} to close.`);
+      process.exit(0);
+    }
+
+    console.log(`\n⟐  Closing / trimming ${toClose.length} position(s) via market orders …`);
     const results = await Promise.allSettled(
-      allPositions.map(async (p) => {
-        // API side: "Buy" → Long position, "Sell" → Short position
+      toClose.map(async (p) => {
         const posSide = p.side === "Sell" ? "Short" : "Long";
         const closeSide = p.side === "Buy" ? "Sell" : "Buy";
         const size = parseFloat(p.size || "0");
-        console.log(`   ${p.symbol} — closing ${posSide} ${size} (${closeSide}) …`);
+
+        // For XTIUSDT: only sell the excess above CLOSE_FROM (leave 1 unit)
+        // For other symbols: sell the full position
+        const qty = (!CLOSE_ALL && p.symbol === "XTIUSDT")
+          ? parseFloat((size - CLOSE_FROM).toFixed(8))
+          : size;
+
+        const label = qty === size ? "closing" : `trimming by ${qty}`;
+        console.log(`   ${p.symbol} — ${label} (${posSide} → ${closeSide}) …`);
         await placeMarketOrder(
-          { account: "usdt-m", symbol: p.symbol, side: closeSide, qty: size, posSide, price: 0 },
+          { account: "usdt-m", symbol: p.symbol, side: closeSide, qty, posSide, price: 0 },
           creds.PHEMEX_API_KEY,
           secretRaw,
         );
-        console.log(`   ✓  ${p.symbol} — closed`);
+        console.log(`   ✓  ${p.symbol} — done`);
       }),
     );
     for (const r of results) {
