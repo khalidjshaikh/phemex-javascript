@@ -184,6 +184,7 @@ async function main(): Promise<void> {
   const hasFailures = placedOrders.some((order) => order.error !== undefined);
 
   if (CANCEL_FLAG) {
+    const sleep = createSleep(SLEEP_SECONDS || 0.001);
     let phase: "sleep" | "cancel" = "sleep";
 
     const onSigint = () => {
@@ -196,42 +197,40 @@ async function main(): Promise<void> {
     };
     process.on("SIGINT", onSigint);
 
-    const sleep = createSleep(SLEEP_SECONDS || 0.001);
-
+    if (SLEEP_SECONDS > 0) {
+      console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
+    }
     try {
-      if (SLEEP_SECONDS > 0) {
-        console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
-      }
       await sleep.promise;
-
-      phase = "cancel";
-
-      const cancelPromises = placedOrders.map(async (placedOrder) => {
-        if (!placedOrder.orderId) {
-          console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
-          return;
-        }
-        console.log(`   Cancelling order ${placedOrder.orderId} …`);
-        try {
-          await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: POS_SIDE }, creds.PHEMEX_API_KEY, secretRaw);
-          console.log(`   ✓  Order cancelled`);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`   ✗  Cancel failed for order ${placedOrder.orderId} — ${msg}`);
-        }
-      });
-
-      const cancelResults = await Promise.allSettled(cancelPromises);
-      if (cancelResults.some((result) => result.status === "rejected")) {
-        console.error("✗  One or more cancellations failed.");
-        process.exit(1);
-      }
     } catch (err) {
       if (!(err instanceof Error && err.message === "Sleep cancelled")) {
+        process.removeListener("SIGINT", onSigint);
         throw err;
       }
-    } finally {
-      process.removeListener("SIGINT", onSigint);
+    }
+
+    phase = "cancel";
+
+    const cancelPromises = placedOrders.map(async (placedOrder) => {
+      if (!placedOrder.orderId) {
+        console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
+        return;
+      }
+      console.log(`   Cancelling order ${placedOrder.orderId} …`);
+      try {
+        await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: POS_SIDE }, creds.PHEMEX_API_KEY, secretRaw);
+        console.log(`   ✓  Order cancelled`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`   ✗  Cancel failed for order ${placedOrder.orderId} — ${msg}`);
+      }
+    });
+
+    const cancelResults = await Promise.allSettled(cancelPromises);
+    process.removeListener("SIGINT", onSigint);
+    if (cancelResults.some((result) => result.status === "rejected")) {
+      console.error("✗  One or more cancellations failed.");
+      process.exit(1);
     }
   }
 
