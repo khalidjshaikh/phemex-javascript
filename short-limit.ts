@@ -205,6 +205,7 @@ async function main(): Promise<void> {
 
   const placedOrders = await Promise.all(placeOrderPromises);
   const hasFailures = placedOrders.some((order) => order.error !== undefined);
+  let hasCancelled = false;
 
   if (CANCEL_FLAG) {
     const sleep = createSleep(SLEEP_SECONDS || 0.001);
@@ -213,6 +214,7 @@ async function main(): Promise<void> {
     const onSigint = () => {
       if (phase === "sleep") {
         console.log("   ✗  Interrupted during sleep, cancelling wait …");
+        hasCancelled = true;
         sleep.cancel();
       } else {
         console.log("   ⏳  Still cancelling orders, please wait …");
@@ -258,6 +260,7 @@ async function main(): Promise<void> {
   }
 
   if (hasFailures) process.exit(1);
+  if (hasCancelled) process.exit(2);
 
 }
 
