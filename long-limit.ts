@@ -136,20 +136,25 @@ async function main(): Promise<void> {
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
   const placedOrders: Array<{ orderPrice: number; orderId?: string }> = [];
+  let hasFailures = false;
 
   for (const orderPrice of orderPrices) {
     const stopLoss = +(orderPrice - 0.01).toFixed(2);
-    const result = await placeLimitOrder(
-      { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: orderPrice, qty: QTY,
-        posSide: "Long", stopLoss },
-      creds.PHEMEX_API_KEY,
-      secretRaw,
-    );
+    try {
+      const result = await placeLimitOrder(
+        { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: orderPrice, qty: QTY,
+          posSide: "Long", stopLoss },
+        creds.PHEMEX_API_KEY,
+        secretRaw,
+      );
 
-    const orderId = result.orderID ?? undefined;
-    placedOrders.push({ orderPrice, orderId });
-
-    console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+      const orderId = result.orderID ?? undefined;
+      placedOrders.push({ orderPrice, orderId });
+      console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+    } catch (err) {
+      hasFailures = true;
+      console.error(`   ✗  Order failed at price ${orderPrice} — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   if (CANCEL_FLAG) {
@@ -163,6 +168,8 @@ async function main(): Promise<void> {
       console.log(`   ✓  Order cancelled`);
     }
   }
+
+  if (hasFailures) process.exit(1);
 
 }
 
