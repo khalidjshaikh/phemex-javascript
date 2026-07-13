@@ -312,7 +312,7 @@ const ws = new ReconnectingWs(WS_URL, {
             }
           }
 
-          // console.log(getFlag("purchase"))
+          console.log(await getFlag("purchase"))
 
           if(true) {
             const symbol = "XTIUSDT";
