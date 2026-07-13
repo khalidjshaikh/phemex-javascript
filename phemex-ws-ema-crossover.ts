@@ -25,10 +25,10 @@
  */
 
 import path from "node:path";
-import fs from "node:fs";
 import { exec } from "node:child_process";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { EMACalculator } from "./src/ema-calculator.js";
+import { loadJson, saveJson } from "./src/persistence.js";
 
 function runCommand(cmd: string): void {
   exec(cmd, (error, stdout, stderr) => {
@@ -238,22 +238,9 @@ const ws = new ReconnectingWs(WS_URL, {
 
 /*  Graceful shutdown on Ctrl+C                                        */
 
-function saveState(): void {
-  try {
-    const data = JSON.stringify(ema.getPrices());
-    fs.writeFileSync(PERSIST_PATH, data, "utf8");
-  } catch (e) {
-    console.error("Failed to save price history:", e);
-  }
-  try {
-    fs.writeFileSync(POSITION_PATH, JSON.stringify({ position }), "utf8");
-  } catch (e) {
-    console.error("Failed to save position:", e);
-  }
-}
-
 process.on("SIGINT", () => {
-  saveState();
+  saveJson(PERSIST_PATH, ema.getPrices());
+  saveJson(POSITION_PATH, { position });
   ws.shutdown();
   process.exit(0);
 });
@@ -261,32 +248,18 @@ process.on("SIGINT", () => {
 /*  Start                                                              */
 
 // Restore persisted price history so EMAs are available immediately
-try {
-  if (fs.existsSync(PERSIST_PATH)) {
-    const raw = fs.readFileSync(PERSIST_PATH, "utf8");
-    const prices: number[] = JSON.parse(raw);
-    if (Array.isArray(prices) && prices.length > 0) {
-      ema.loadPrices(prices);
-      console.log(`⟐  Restored ${prices.length} prices from ${PERSIST_PATH}`);
-    }
-  }
-} catch (e) {
-  console.error("Failed to load price history:", e);
+const prices = loadJson<number[]>(PERSIST_PATH);
+if (prices && Array.isArray(prices) && prices.length > 0) {
+  ema.loadPrices(prices);
+  console.log(`⟐  Restored ${prices.length} prices from ${PERSIST_PATH}`);
 }
 
 // Restore persisted position
-try {
-  if (fs.existsSync(POSITION_PATH)) {
-    const raw = fs.readFileSync(POSITION_PATH, "utf8");
-    const data = JSON.parse(raw);
-    if (data.position === "NONE" || data.position === "LONG" || data.position === "SHORT") {
-      position = data.position;
-      lastPosition = data.position;
-      console.log(`⟐  Restored position: ${position}`);
-    }
-  }
-} catch (e) {
-  console.error("Failed to load position:", e);
+const posData = loadJson<{ position: string }>(POSITION_PATH);
+if (posData && (posData.position === "NONE" || posData.position === "LONG" || posData.position === "SHORT")) {
+  position = posData.position;
+  lastPosition = posData.position;
+  console.log(`⟐  Restored position: ${position}`);
 }
 
 ws.connect();

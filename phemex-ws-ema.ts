@@ -17,9 +17,9 @@
  */
 
 import path from "node:path";
-import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { EMACalculator } from "./src/ema-calculator.js";
+import { loadJson, saveJson } from "./src/persistence.js";
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
@@ -87,17 +87,8 @@ const ws = new ReconnectingWs(WS_URL, {
 
 /*  Graceful shutdown on Ctrl+C                                        */
 
-function savePrices(): void {
-  try {
-    const data = JSON.stringify(ema.getPrices());
-    fs.writeFileSync(PERSIST_PATH, data, "utf8");
-  } catch (e) {
-    console.error("Failed to save price history:", e);
-  }
-}
-
 process.on("SIGINT", () => {
-  savePrices();
+  saveJson(PERSIST_PATH, ema.getPrices());
   ws.shutdown();
   process.exit(0);
 });
@@ -105,17 +96,10 @@ process.on("SIGINT", () => {
 /*  Start                                                              */
 
 // Restore persisted price history so EMAs are available immediately
-try {
-  if (fs.existsSync(PERSIST_PATH)) {
-    const raw = fs.readFileSync(PERSIST_PATH, "utf8");
-    const prices: number[] = JSON.parse(raw);
-    if (Array.isArray(prices) && prices.length > 0) {
-      ema.loadPrices(prices);
-      console.log(`⟐  Restored ${prices.length} prices from ${PERSIST_PATH}`);
-    }
-  }
-} catch (e) {
-  console.error("Failed to load price history:", e);
+const prices = loadJson<number[]>(PERSIST_PATH);
+if (prices && Array.isArray(prices) && prices.length > 0) {
+  ema.loadPrices(prices);
+  console.log(`⟐  Restored ${prices.length} prices from ${PERSIST_PATH}`);
 }
 
 ws.connect();

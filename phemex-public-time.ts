@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env npx tsx
 
 /**
  * Phemex Public Time — fetches the server timestamp.
@@ -7,37 +7,10 @@
  * Usage:  npx tsx phemex-public-time.ts
  */
 
-import https from "node:https";
-
-const BASE = "api.phemex.com";
-
-async function getTime(): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: BASE,
-        path: "/public/time",
-        method: "GET",
-      },
-      (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            reject(new Error(`Bad JSON: ${data.slice(0, 200)}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.end();
-  });
-}
+import { publicGet } from "./src/http-client.js";
 
 async function main(): Promise<void> {
-  const resp = await getTime();
+  const resp = await publicGet("/public/time", null);
 
   if (resp.code !== 0) {
     console.error("API error:", resp.msg || "unknown error");
@@ -59,6 +32,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error("Fatal:", e.message);
+  console.error("Fatal:", (e as Error).message);
   process.exit(1);
 });

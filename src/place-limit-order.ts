@@ -315,6 +315,57 @@ export async function setLeverageUsdtM(
   }
 }
 
+/**
+ * Set cross-margin leverage for a Coin-M (inverse) perpetual symbol.
+ *
+ * The Phemex API expects negative values for cross-margin.
+ * Fetches product info to determine the correct ratioScale.
+ *
+ * @param symbol    Trading pair (e.g. BTCUSD)
+ * @param leverage  Leverage (positive value; negated internally for API)
+ * @param apiKey    Phemex API key
+ * @param secretRaw Decoded API secret
+ */
+export async function setLeverageCoinM(
+  symbol: string,
+  leverage: number,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<void> {
+  const apiLeverage = leverage > 0 ? -leverage : 0;
+
+  // Fetch product info for ratioScale
+  const resp = (await request(
+    "GET",
+    "/public/products",
+    null,
+    apiKey,
+    secretRaw,
+    "",
+  )) as Record<string, unknown>;
+
+  let ratioScale = 100_000_000; // default fallback
+  if (resp.code === 0) {
+    const data = resp.data as Record<string, unknown> | undefined;
+    const candidates = [
+      ...((data?.products as Record<string, unknown>[]) ?? []),
+      ...((data?.perpProductsV2 as Record<string, unknown>[]) ?? []),
+      ...((data?.perpProductsV1 as Record<string, unknown>[]) ?? []),
+    ];
+    const product = candidates.find((p) => String(p.symbol) === symbol);
+    if (product) {
+      ratioScale = 10 ** Number(product.ratioScale || 8);
+    }
+  }
+
+  const leverageEr = Math.round(apiLeverage * ratioScale);
+  const qs = `symbol=${symbol}&leverageEr=${leverageEr}`;
+  const res = await request("PUT", "/positions/leverage", qs, apiKey, secretRaw, "");
+  if (res.code !== 0) {
+    throw new Error(`Leverage API error: ${res.msg ?? res.code}`);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main API                                                           */
 /* ------------------------------------------------------------------ */

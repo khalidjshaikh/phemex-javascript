@@ -44,6 +44,7 @@ import { request, base64UrlDecode } from "./src/http-client.js";
 import { uuid } from "./src/uuid.js";
 import { getArg, hasFlag } from "./src/cli-utils.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
+import { setLeverageCoinM, setLeverageUsdtM } from "./src/place-limit-order.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -292,93 +293,6 @@ async function fetchProductInfo(symbol: string): Promise<ProductInfo | null> {
 /* ------------------------------------------------------------------ */
 /*  Leverage                                                            */
 /* ------------------------------------------------------------------ */
-
-/** Set leverage for Coin-M (inverse) account. Positive user value = cross-margin. */
-async function setLeverageCoinM(
-  symbol: string,
-  leverage: number,
-  apiKey: string,
-  secretRaw: Buffer,
-): Promise<void> {
-  // User passes positive value for cross-margin; Phemex API expects negative
-  const apiLeverage = leverage > 0 ? -leverage : 0;
-
-  // Fetch product info for ratioScale
-  const creds = loadCredentialsLocal();
-  const secretRaw2 = base64UrlDecode(creds.PHEMEX_API_SECRET);
-  const resp = (await request(
-    "GET",
-    "/public/products",
-    null,
-    apiKey,
-    secretRaw2,
-    ""
-  )) as Record<string, unknown>;
-
-  let ratioScale = 100_000_000; // default fallback
-  if (resp.code === 0) {
-    const data = resp.data as Record<string, unknown> | undefined;
-    const candidates = [
-      ...((data?.products as Record<string, unknown>[]) ?? []),
-      ...((data?.perpProductsV2 as Record<string, unknown>[]) ?? []),
-      ...((data?.perpProductsV1 as Record<string, unknown>[]) ?? []),
-    ];
-    const product = candidates.find((p) => String(p.symbol) === symbol);
-    if (product) {
-      ratioScale = 10 ** Number(product.ratioScale || 8);
-    }
-  }
-
-  const leverageEr = Math.round(apiLeverage * ratioScale);
-
-  // console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
-
-  const qs = `symbol=${symbol}&leverageEr=${leverageEr}`;
-  const res = await request("PUT", "/positions/leverage", qs, apiKey, secretRaw, "");
-  if (res.code !== 0) {
-    throw new Error(`Leverage API error: ${res.msg ?? res.code}`);
-  }
-}
-
-/** Set leverage for USDⓈ-M (linear) account. Positive user value = cross-margin. */
-async function setLeverageUsdtM(
-  symbol: string,
-  leverage: number,
-  posSide: string,
-  apiKey: string,
-  secretRaw: Buffer,
-): Promise<void> {
-  // User passes positive value for cross-margin; Phemex API expects negative
-  const apiLeverage = leverage > 0 ? -leverage : 0;
-
-  // console.log(`   Setting cross-margin leverage for ${symbol}: ${leverage}x`);
-
-  // The hedged perpetual API uses different query params based on position mode:
-  //   Merged (one-way) → leverageRr only
-  //   Long/Short (hedge) → longLeverageRr + shortLeverageRr (no posSide param)
-  let qs: string;
-  if (posSide === "Merged") {
-    qs = `symbol=${symbol}&leverageRr=${apiLeverage}`;
-  } else {
-    qs = `symbol=${symbol}&longLeverageRr=${apiLeverage}&shortLeverageRr=${apiLeverage}`;
-  }
-
-  const res = await request("PUT", "/g-positions/leverage", qs, apiKey, secretRaw, "");
-  if (res.code !== 0) {
-    const msg = String(res.msg ?? res.code);
-    if (msg.includes("INCONSISTENT_POS_MODE")) {
-      throw new Error(
-        `Leverage API error: ${msg} — the account position mode may not support this endpoint. ` +
-        `Try setting leverage via the Phemex web UI for this account.`
-      );
-    }
-    throw new Error(`Leverage API error: ${msg}`);
-  }
-}
-
-function accountLabel(_leverage: number): string {
-  return "cross-margin";
-}
 
 /* ------------------------------------------------------------------ */
 /*  Order placement by account type                                    */

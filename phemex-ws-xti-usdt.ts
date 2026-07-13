@@ -11,20 +11,11 @@
  */
 
 import { ReconnectingWs } from "./src/ws-client.js";
+import { logPriceIfChanged } from "./src/ws-utils.js";
 
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XTIUSDT";
 const PRICE_SCALE = 10_000;
-
-let lastPrintedPrice: number | undefined;
-
-function logPriceIfChanged(price: number): void {
-  if (lastPrintedPrice === undefined || price !== lastPrintedPrice) {
-    const now = new Date().toLocaleString();
-    process.stdout.write(`\n${now}  ${price.toFixed(2)} `);
-    lastPrintedPrice = price;
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /*  Main                                                              */

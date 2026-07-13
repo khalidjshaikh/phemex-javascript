@@ -50,3 +50,9 @@ calculatePnL({
   takeProfit: 73.92,
   stopLoss: 73.96,
 });
+calculatePnL({
+  side: "Buy",
+  price: 73.00,
+  qty: 273,
+  takeProfit: 110,
+});

@@ -14,3 +14,8 @@ kt-ticker/gradlew
 kt-ticker/gradlew.bat
 java-ticker/gradlew
 java-ticker/gradlew.bat
+java-ticker/.gradle
+java-ticker/bin
+java-ticker/build
+kt-ticker/.gradle
+kt-ticker/build
