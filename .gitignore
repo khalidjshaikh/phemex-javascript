@@ -21,3 +21,4 @@ kt-ticker/.gradle
 kt-ticker/build
 xtiusdt-last-price.txt
 *.pid
+.short-limit.pid
