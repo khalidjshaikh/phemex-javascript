@@ -306,7 +306,7 @@ const ws = new ReconnectingWs(WS_URL, {
           if(flag) {
             flag = false;
             deltaOrder = {
-              price: 2,
+              price: 1,
               takeProfit: 0.00,
               stopLoss: 0.01
             }
