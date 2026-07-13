@@ -23,6 +23,7 @@ import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limi
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
 const LEVERAGE = 100;
+const PID_FILE = ".long-limit.pid";
 
 function usage(): never {
   console.log(`
@@ -124,6 +125,18 @@ function createSleep(seconds: number): { promise: Promise<void>; cancel: () => v
   };
 }
 
+function registerPidFile(): void {
+  fs.writeFileSync(PID_FILE, String(process.pid), "utf8");
+}
+
+function unregisterPidFile(): void {
+  try {
+    fs.unlinkSync(PID_FILE);
+  } catch {
+    // Ignore if the file was already removed.
+  }
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
 
@@ -174,6 +187,9 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
+  process.once("exit", unregisterPidFile);
+  registerPidFile();
+
   const adjustedReferencePrice = lastPrice + GAP;
   const orderPrices = buildSpreadPrices(adjustedReferencePrice, spreadValue, spreadExplicitSign, DISPERSION);
   console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  gap: ${GAP}  100x`);
@@ -208,16 +224,23 @@ async function main(): Promise<void> {
     const sleep = createSleep(SLEEP_SECONDS || 0.001);
     let phase: "sleep" | "cancel" = "sleep";
 
-    const onSigint = () => {
+    const triggerCancellation = () => {
       if (phase === "sleep") {
-        console.log("   ✗  Interrupted during sleep, cancelling wait …");
-        hasCancelled = true;
+        console.log("   ✗  Price update detected, cancelling wait …");
+        // hasCancelled = true;
         sleep.cancel();
       } else {
-        console.log("   ⏳  Still cancelling orders, please wait …");
+        console.log("   ⏳  Price update detected while cancelling orders, continuing …");
       }
     };
+    const onSigint = () => {
+      triggerCancellation();
+    };
+    const onExternalNotify = () => {
+      triggerCancellation();
+    };
     process.on("SIGINT", onSigint);
+    process.on("SIGUSR1", onExternalNotify);
 
     if (SLEEP_SECONDS > 0) {
       console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
@@ -227,6 +250,7 @@ async function main(): Promise<void> {
     } catch (err) {
       if (!(err instanceof Error && err.message === "Sleep cancelled")) {
         process.removeListener("SIGINT", onSigint);
+        process.removeListener("SIGUSR1", onExternalNotify);
         throw err;
       }
     }
@@ -250,6 +274,7 @@ async function main(): Promise<void> {
 
     const cancelResults = await Promise.allSettled(cancelPromises);
     process.removeListener("SIGINT", onSigint);
+    process.removeListener("SIGUSR1", onExternalNotify);
     if (cancelResults.some((result) => result.status === "rejected")) {
       console.error("✗  One or more cancellations failed.");
       process.exit(1);

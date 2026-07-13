@@ -5,6 +5,8 @@ import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
 
 const PRICE_FILE = "xtiusdt-last-price.txt";
+const LONG_PID_FILE = ".long-limit.pid";
+const SHORT_PID_FILE = ".short-limit.pid";
 
 /**
  * Phemex WebSocket XTIUSDT Ticker — subscribes to the XTIUSDT 24h ticker
@@ -32,6 +34,20 @@ const SYMBOL = "XTIUSDT";
 // Cache the last known ticker values so we can do incremental updates
 let lastPrice = 0;
 
+function notifyLimitScripts(): void {
+  for (const pidFile of [LONG_PID_FILE, SHORT_PID_FILE]) {
+    try {
+      const pidText = fs.readFileSync(pidFile, "utf8").trim();
+      const pid = Number(pidText);
+      if (!Number.isNaN(pid)) {
+        process.kill(pid, "SIGUSR1");
+      }
+    } catch {
+      // Ignore if the target process is not running or the PID file is absent.
+    }
+  }
+}
+
 function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const open = Number(ticker.openRp ?? 0);
   const high = Number(ticker.highRp ?? 0);
@@ -55,6 +71,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
     console.log();
     lastPrice = last;
     fs.writeFileSync(PRICE_FILE, String(last), "utf8");
+    notifyLimitScripts();
   }
 }
 
@@ -98,6 +115,7 @@ const ws = new ReconnectingWs(WS_URL, {
           console.log();
           lastPrice = last;
           fs.writeFileSync(PRICE_FILE, String(last), "utf8");
+          notifyLimitScripts();
         }
       }
     }
