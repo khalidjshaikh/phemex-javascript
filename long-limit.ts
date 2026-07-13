@@ -98,6 +98,23 @@ function buildSpreadPrices(referencePrice: number, spread: number, explicitSign:
   return orders;
 }
 
+function createSleep(seconds: number): { promise: Promise<void>; cancel: () => void } {
+  let timeoutId: NodeJS.Timeout;
+  let rejectFn: (reason?: unknown) => void = () => {};
+  const promise = new Promise<void>((resolve, reject) => {
+    rejectFn = reject;
+    timeoutId = setTimeout(resolve, seconds * 1000);
+  });
+
+  return {
+    promise,
+    cancel: () => {
+      clearTimeout(timeoutId);
+      rejectFn(new Error("Sleep cancelled"));
+    },
+  };
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
 
@@ -165,7 +182,21 @@ async function main(): Promise<void> {
   if (CANCEL_FLAG) {
     if (SLEEP_SECONDS > 0) {
       console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
-      await new Promise((resolve) => setTimeout(resolve, SLEEP_SECONDS * 1000));
+      const sleep = createSleep(SLEEP_SECONDS);
+      const onSigint = () => {
+        console.log("   ✗  Interrupted during sleep, cancelling wait …");
+        sleep.cancel();
+      };
+      process.once("SIGINT", onSigint);
+      try {
+        await sleep.promise;
+      } catch (err) {
+        if (!(err instanceof Error && err.message === "Sleep cancelled")) {
+          throw err;
+        }
+      } finally {
+        process.removeListener("SIGINT", onSigint);
+      }
     }
 
     const cancelPromises = placedOrders.map(async (placedOrder) => {
