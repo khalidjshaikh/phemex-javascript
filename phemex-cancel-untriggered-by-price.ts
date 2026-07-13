@@ -113,8 +113,7 @@ async function main(): Promise<void> {
 
   console.log(`  ✓  Found ${targets.length} untriggered order(s) with price > ${minPrice}. Cancelling …\n`);
 
-  let ok = 0, fail = 0;
-  for (const o of targets) {
+  const cancelPromises = targets.map(async (o) => {
     const orderId = String(o.orderID ?? "");
     const side = String(o.side ?? "Buy");
     const price = String(o.priceRp ?? o.price ?? "?");
@@ -126,16 +125,20 @@ async function main(): Promise<void> {
       const r = await cancelOrder({ symbol, orderId, posSide }, creds.PHEMEX_API_KEY, secretRaw);
       if (r.code === 0) {
         console.log("✓");
-        ok++;
+        return { ok: 1, fail: 0 };
       } else {
         console.log(`✗  ${String(r.msg ?? r.code)}`);
-        fail++;
+        return { ok: 0, fail: 1 };
       }
     } catch (err: unknown) {
       console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
-      fail++;
+      return { ok: 0, fail: 1 };
     }
-  }
+  });
+
+  const results = await Promise.all(cancelPromises);
+  const ok = results.reduce((s, r) => s + r.ok, 0);
+  const fail = results.reduce((s, r) => s + r.fail, 0);
 
   console.log(`\n  Done — ${ok} cancelled, ${fail} failed`);
   if (fail > 0) process.exit(1);
