@@ -184,41 +184,54 @@ async function main(): Promise<void> {
   const hasFailures = placedOrders.some((order) => order.error !== undefined);
 
   if (CANCEL_FLAG) {
-    if (SLEEP_SECONDS > 0) {
-      console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
-      const sleep = createSleep(SLEEP_SECONDS);
-      const onSigint = () => {
+    let phase: "sleep" | "cancel" = "sleep";
+
+    const onSigint = () => {
+      if (phase === "sleep") {
         console.log("   ✗  Interrupted during sleep, cancelling wait …");
         sleep.cancel();
-      };
-      process.once("SIGINT", onSigint);
-      try {
-        await sleep.promise;
-      } catch (err) {
-        if (err instanceof Error && err.message === "Sleep cancelled") {
-          // Continue to cancellation loop after the user pressed CTRL-C.
-        } else {
-          throw err;
+      } else {
+        console.log("   ⏳  Still cancelling orders, please wait …");
+      }
+    };
+    process.on("SIGINT", onSigint);
+
+    const sleep = createSleep(SLEEP_SECONDS || 0.001);
+
+    try {
+      if (SLEEP_SECONDS > 0) {
+        console.log(`   Sleeping ${SLEEP_SECONDS}s before cancelling …`);
+      }
+      await sleep.promise;
+
+      phase = "cancel";
+
+      const cancelPromises = placedOrders.map(async (placedOrder) => {
+        if (!placedOrder.orderId) {
+          console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
+          return;
         }
-      } finally {
-        process.removeListener("SIGINT", onSigint);
-      }
-    }
+        console.log(`   Cancelling order ${placedOrder.orderId} …`);
+        try {
+          await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: POS_SIDE }, creds.PHEMEX_API_KEY, secretRaw);
+          console.log(`   ✓  Order cancelled`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`   ✗  Cancel failed for order ${placedOrder.orderId} — ${msg}`);
+        }
+      });
 
-    const cancelPromises = placedOrders.map(async (placedOrder) => {
-      if (!placedOrder.orderId) {
-        console.warn(`   ⚠  Skipping cancel for order at price ${placedOrder.orderPrice} because no orderID was returned.`);
-        return;
+      const cancelResults = await Promise.allSettled(cancelPromises);
+      if (cancelResults.some((result) => result.status === "rejected")) {
+        console.error("✗  One or more cancellations failed.");
+        process.exit(1);
       }
-      console.log(`   Cancelling order ${placedOrder.orderId} …`);
-      await cancelOrder({ symbol: SYMBOL, orderId: placedOrder.orderId, posSide: POS_SIDE }, creds.PHEMEX_API_KEY, secretRaw);
-      console.log(`   ✓  Order cancelled`);
-    });
-
-    const cancelResults = await Promise.allSettled(cancelPromises);
-    if (cancelResults.some((result) => result.status === "rejected")) {
-      console.error("✗  One or more cancellations failed.");
-      process.exit(1);
+    } catch (err) {
+      if (!(err instanceof Error && err.message === "Sleep cancelled")) {
+        throw err;
+      }
+    } finally {
+      process.removeListener("SIGINT", onSigint);
     }
   }
 
