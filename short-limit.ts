@@ -4,8 +4,12 @@
  * short-limit.ts  —  Place a Short (Sell) limit order on XTIUSDT at the last
  * known price with stop-loss.  Reads latest price from xtiusdt-last-price.txt.
  *
- * Usage:  ./short-limit.ts [qty]
- *         (default qty: 0.01)
+ * Usage:  ./short-limit.ts [--qty <quantity>] [--cancel]
+ *
+ * Options:
+ *   --qty <quantity>  Contract quantity (default: 0.01)
+ *   --cancel          Cancel the order immediately after placing (test flow)
+ *   --help, -h        Show this help message
  */
 
 import fs from "node:fs";
@@ -15,11 +19,40 @@ import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limi
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
-const QTY = parseFloat(process.argv[2] ?? "0.01");
 const LEVERAGE = 100;
-const CANCEL_FLAG = process.argv.includes("--cancel");
+
+function usage(): never {
+  console.log(`
+Usage: ./short-limit.ts [--qty <quantity>] [--cancel]
+
+Place a Short (Sell) limit order on ${SYMBOL} at the last known price with stop-loss.
+Reads the latest price from ${PRICE_FILE}.
+
+Options:
+  --qty <quantity>  Contract quantity (default: 0.01)
+  --cancel          Cancel the order immediately after placing (test flow)
+  --help, -h        Show this help message
+
+Examples:
+  ./short-limit.ts
+  ./short-limit.ts --qty 0.05
+  ./short-limit.ts --qty 0.01 --cancel
+`);
+  process.exit(0);
+}
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
+
+  const qtyIdx = process.argv.indexOf("--qty");
+  const QTY = qtyIdx !== -1 ? parseFloat(process.argv[qtyIdx + 1]) : 0.01;
+  const CANCEL_FLAG = process.argv.includes("--cancel");
+
+  if (isNaN(QTY) || QTY <= 0) {
+    console.error("✗  --qty must be a positive number");
+    process.exit(1);
+  }
+
   const priceRaw = fs.readFileSync(PRICE_FILE, "utf8").trim();
   const lastPrice = parseFloat(priceRaw);
   if (isNaN(lastPrice)) {
