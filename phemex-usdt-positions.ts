@@ -59,12 +59,15 @@ Credentials are read from .phemex-credentials.json.
 Options:
   --close-all            Close all open positions via market orders
   --close-from <size>    Close positions with size > <size> (e.g. --close-from 1)
+  --close-long <symbol>  Close long (Buy) positions for a specific symbol only
+  --close-short <symbol> Close short (Sell) positions for a specific symbol only
   --help, -h             Show this help message
 
 Examples:
-  ./phemex-usdt-positions.ts                     Show open positions
-  ./phemex-usdt-positions.ts --close-all          Show positions then close them all
-  ./phemex-usdt-positions.ts --close-from 1       Close positions where size > 1
+  ./phemex-usdt-positions.ts                           Show open positions
+  ./phemex-usdt-positions.ts --close-all                Show positions then close them all
+  ./phemex-usdt-positions.ts --close-from 1             Close positions where size > 1
+  ./phemex-usdt-positions.ts --close-long BTCUSDT       Close long positions for BTCUSDT only
 `);
   process.exit(0);
 }
@@ -102,6 +105,20 @@ async function main(): Promise<void> {
   const CLOSE_FROM = closeFromIdx !== -1 ? parseFloat(process.argv[closeFromIdx + 1]) : NaN;
   if (closeFromIdx !== -1 && (isNaN(CLOSE_FROM) || CLOSE_FROM <= 0)) {
     console.error("error: --close-from requires a positive number, e.g. --close-from 1");
+    process.exit(1);
+  }
+
+  const closeLongIdx = process.argv.indexOf("--close-long");
+  const CLOSE_LONG_SYMBOL = closeLongIdx !== -1 ? process.argv[closeLongIdx + 1] ?? "" : "";
+  if (closeLongIdx !== -1 && !CLOSE_LONG_SYMBOL) {
+    console.error("error: --close-long requires a symbol, e.g. --close-long BTCUSDT");
+    process.exit(1);
+  }
+
+  const closeShortIdx = process.argv.indexOf("--close-short");
+  const CLOSE_SHORT_SYMBOL = closeShortIdx !== -1 ? process.argv[closeShortIdx + 1] ?? "" : "";
+  if (closeShortIdx !== -1 && !CLOSE_SHORT_SYMBOL) {
+    console.error("error: --close-short requires a symbol, e.g. --close-short BTCUSDT");
     process.exit(1);
   }
 
@@ -168,15 +185,30 @@ async function main(): Promise<void> {
   }
   console.log("─".repeat(136));
 
-  /* -- Close positions (--close-all or --close-from) ------------------ */
-  const DO_CLOSE = CLOSE_ALL || !isNaN(CLOSE_FROM);
+  /* -- Close positions (--close-all, --close-from, or --close-long) ------ */
+  const DO_CLOSE = CLOSE_ALL || !isNaN(CLOSE_FROM) || !!CLOSE_LONG_SYMBOL || !!CLOSE_SHORT_SYMBOL;
   if (DO_CLOSE) {
-    const toClose = CLOSE_ALL
-      ? allPositions
-      : allPositions.filter((p) => parseFloat(p.size || "0") > CLOSE_FROM);
+    let toClose: Position[];
+    if (CLOSE_ALL) {
+      toClose = allPositions;
+    } else if (!isNaN(CLOSE_FROM)) {
+      toClose = allPositions.filter((p) => parseFloat(p.size || "0") > CLOSE_FROM);
+    } else if (!!CLOSE_LONG_SYMBOL) {
+      toClose = allPositions.filter((p) => p.symbol === CLOSE_LONG_SYMBOL && p.side === "Buy");
+    } else {
+      toClose = allPositions.filter((p) => p.symbol === CLOSE_SHORT_SYMBOL && p.side === "Sell");
+    }
 
     if (toClose.length === 0) {
-      console.log(`\nNo positions with size > ${CLOSE_FROM} to close.`);
+      if (CLOSE_ALL) {
+        console.log("\nNo positions to close.");
+      } else if (!isNaN(CLOSE_FROM)) {
+        console.log(`\nNo positions with size > ${CLOSE_FROM} to close.`);
+      } else if (!!CLOSE_LONG_SYMBOL) {
+        console.log(`\nNo long positions for ${CLOSE_LONG_SYMBOL} to close.`);
+      } else {
+        console.log(`\nNo short positions for ${CLOSE_SHORT_SYMBOL} to close.`);
+      }
       process.exit(0);
     }
 
@@ -187,9 +219,9 @@ async function main(): Promise<void> {
         const closeSide = p.side === "Buy" ? "Sell" : "Buy";
         const size = parseFloat(p.size || "0");
 
-        // For XTIUSDT: only sell the excess above CLOSE_FROM (leave 1 unit)
-        // For other symbols: sell the full position
-        const qty = (!CLOSE_ALL && p.symbol === "XTIUSDT")
+        // XTIUSDT special: only trim excess above CLOSE_FROM (leave 1 unit).
+        // Not applicable for --close-all or --close-long.
+        const qty = (!isNaN(CLOSE_FROM) && p.symbol === "XTIUSDT")
           ? parseFloat((size - CLOSE_FROM).toFixed(8))
           : size;
 
