@@ -19,6 +19,7 @@ import fs from "node:fs";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
 import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { getFlag, setFlag } from "./src/dynamodb-flag.js";
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
@@ -199,6 +200,9 @@ async function main(): Promise<void> {
   const placeOrderPromises = orderPrices.map(async (orderPrice) => {
     const stopLoss = +(orderPrice - 0.01).toFixed(2);
     try {
+      const purchaseEnabled = await getFlag("purchase");
+      if (!purchaseEnabled) throw new Error("purchase flag is false");
+
       const result = await placeLimitOrder(
         { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: orderPrice, qty: QTY,
           posSide: "Long", stopLoss },
