@@ -225,8 +225,8 @@ async function main(): Promise<void> {
     let phase: "sleep" | "cancel" = "sleep";
 
     const triggerCancellation = () => {
-      if (hasCancelled) return;
-      hasCancelled = true;
+      // if (hasCancelled) return;
+      // hasCancelled = true;
       if (phase === "sleep") {
         console.log("   ✗  Price update detected, cancelling wait …");
         sleep.cancel();
@@ -236,6 +236,9 @@ async function main(): Promise<void> {
     };
     const onSigint = () => {
       triggerCancellation();
+      if (hasCancelled) {
+        process.exitCode = 2;
+      }
     };
     const onExternalNotify = () => {
       triggerCancellation();
@@ -276,10 +279,6 @@ async function main(): Promise<void> {
     const cancelResults = await Promise.allSettled(cancelPromises);
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGUSR1", onExternalNotify);
-    if (hasCancelled) {
-      process.exitCode = 2;
-      return;
-    }
     if (cancelResults.some((result) => result.status === "rejected")) {
       console.error("✗  One or more cancellations failed.");
       process.exitCode = 1;
