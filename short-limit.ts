@@ -19,7 +19,7 @@ import fs from "node:fs";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentialsLocal } from "./src/credentials.js";
 import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
-import { getFlag, setFlag } from "./src/dynamodb-flag.js";
+import { getFlag } from "./src/dynamodb-flag.js";
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";
@@ -232,8 +232,8 @@ async function main(): Promise<void> {
     let phase: "sleep" | "cancel" = "sleep";
 
     const triggerCancellation = () => {
-      // if (hasCancelled) return;
-      // hasCancelled = true;
+      if (hasCancelled) return;
+      hasCancelled = true;
       if (phase === "sleep") {
         console.log("   ✗  Price update detected, cancelling wait …");
         sleep.cancel();
