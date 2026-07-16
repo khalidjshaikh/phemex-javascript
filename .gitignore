@@ -23,3 +23,4 @@ kt-ticker/build
 xtiusdt-last-price.txt
 *.pid
 .short-limit.pid
+csharp-ticker/obj
