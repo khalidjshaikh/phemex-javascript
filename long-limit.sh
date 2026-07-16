@@ -1,4 +1,4 @@
-#!/usr/binenv bash
+#!/usr/bin/env bash
 while true; do
     err=$(mktemp)
     out=$(./long-limit.ts --cancel --spread -64 --gap -.0 --qty .01 --dispersion 1 --sleep 10 2>"$err")
