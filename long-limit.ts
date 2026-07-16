@@ -38,6 +38,7 @@ Options:
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
   --gap <number>        Add this value to the entry price before applying spread and dispersion
+  --takeProfit <price>  Optional take-profit trigger price for the order
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
   --help, -h            Show this help message
@@ -151,6 +152,8 @@ async function main(): Promise<void> {
   const DISPERSION = dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0;
   const gapRaw = getArgValue("--gap");
   const GAP = gapRaw !== undefined ? parseFloat(gapRaw) : 0.0;
+  const takeProfitRaw = getArgValue("--takeProfit");
+  const TAKE_PROFIT = takeProfitRaw !== undefined ? parseFloat(takeProfitRaw) : undefined;
 
   if (isNaN(QTY) || QTY <= 0) {
     console.error("✗  --qty must be a positive number");
@@ -164,6 +167,11 @@ async function main(): Promise<void> {
 
   if (isNaN(GAP)) {
     console.error("✗  --gap must be a number");
+    process.exit(1);
+  }
+
+  if (takeProfitRaw !== undefined && (isNaN(TAKE_PROFIT) || TAKE_PROFIT <= 0)) {
+    console.error("✗  --takeProfit must be a positive number");
     process.exit(1);
   }
 
@@ -193,7 +201,8 @@ async function main(): Promise<void> {
 
   const adjustedReferencePrice = lastPrice + GAP;
   const orderPrices = buildSpreadPrices(adjustedReferencePrice, spreadValue, spreadExplicitSign, DISPERSION);
-  console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  gap: ${GAP}  100x`);
+  const stopLoss = +(adjustedReferencePrice - 0.03).toFixed(2);
+  console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  gap: ${GAP}  Leverage: 100x`);
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
 
@@ -204,14 +213,20 @@ async function main(): Promise<void> {
       if (!purchaseEnabled) throw new Error("purchase flag is false");
 
       const result = await placeLimitOrder(
-        { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: orderPrice, qty: QTY,
-          posSide: "Long", stopLoss },
+        { account: "usdt-m", 
+          symbol: SYMBOL, 
+          side: "Buy", 
+          price: orderPrice, 
+          qty: QTY,
+          posSide: "Long", 
+          stopLoss: stopLoss, 
+          takeProfit: TAKE_PROFIT },
         creds.PHEMEX_API_KEY,
         secretRaw,
       );
 
       const orderId = result.orderID ?? undefined;
-      console.log(`   ✓  Order placed — price: ${orderPrice} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+      console.log(`   ✓  Order placed — price: ${orderPrice} — stopLoss: ${stopLoss} — takeProfit: ${TAKE_PROFIT ?? "—"} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
       return { orderPrice, orderId, error: undefined as Error | undefined };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
