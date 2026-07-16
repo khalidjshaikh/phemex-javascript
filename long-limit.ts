@@ -195,6 +195,7 @@ async function main(): Promise<void> {
 
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+  console.log(creds, secretRaw)
 
   process.once("exit", unregisterPidFile);
   registerPidFile();
