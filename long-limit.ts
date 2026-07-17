@@ -202,7 +202,6 @@ async function main(): Promise<void> {
 
   const adjustedReferencePrice = lastPrice + GAP;
   const orderPrices = buildSpreadPrices(adjustedReferencePrice, spreadValue, spreadExplicitSign, DISPERSION);
-  const stopLoss = +(adjustedReferencePrice - 0.03).toFixed(2);
   console.log(`⟐  Limit Long ${SYMBOL}  qty: ${QTY}  spread: ${spreadRaw}  dispersion: ${DISPERSION}  gap: ${GAP}  Leverage: 100x`);
 
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", creds.PHEMEX_API_KEY, secretRaw);
