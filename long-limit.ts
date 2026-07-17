@@ -210,7 +210,12 @@ async function main(): Promise<void> {
   const placeOrderPromises = orderPrices.map(async (orderPrice) => {
     const stopLoss = +(orderPrice - 0.01).toFixed(2);
     try {
-      const purchaseEnabled = await getFlag("purchase");
+      let purchaseEnabled: boolean | null = true;
+      try {
+        purchaseEnabled = await getFlag("purchase");
+      } catch (flagErr) {
+        console.warn(`   ⚠  Could not check purchase flag (DynamoDB unavailable) — proceeding with order`);
+      }
       if (!purchaseEnabled) throw new Error("purchase flag is false");
 
       const result = await placeLimitOrder(
