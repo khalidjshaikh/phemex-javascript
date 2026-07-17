@@ -18,6 +18,6 @@ while true; do
     [ "$rc" -eq 2 ] && break
 
     date
-    sleep 3600
+    sleep 5
 done
 
