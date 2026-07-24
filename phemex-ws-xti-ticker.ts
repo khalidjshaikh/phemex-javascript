@@ -306,13 +306,13 @@ const ws = new ReconnectingWs(WS_URL, {
           if(flag) {
             flag = false;
             deltaOrder = {
-              price: 1,
+              price: .5, // 1
               takeProfit: 0.00,
               stopLoss: 0.01
             }
           }
 
-          if(false && await getFlag("purchase")) {
+          if(true && await getFlag("purchase")) {
             const symbol = "XTIUSDT";
             const side = "Long";
             const entryPrice = Number((last - deltaOrder.price).toFixed(2));
