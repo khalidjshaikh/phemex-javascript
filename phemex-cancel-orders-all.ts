@@ -7,9 +7,18 @@
  * Endpoint:  DELETE /orders/all  (COIN-M)  or  DELETE /g-orders/all  (USDT-M)
  *           selected automatically based on symbol suffix (USDT → USDT-M, else COIN-M)
  *
- * Usage:
+ * Arguments:
+ *   --symbol  <pair>   (required) Trading pair symbol, e.g. BTCUSD, ETHUSD, BTCUSDT
+ *   --posSide <side>   (optional)  Position side: Long or Short (default: both sides)
+ *   --dry-run          (optional)  Print the request without sending it
+ *   --help, -h         (optional)  Show this help message and exit
+ *
+ * Examples:
  *   npx tsx phemex-cancel-orders-all.ts --symbol BTCUSD
  *   npx tsx phemex-cancel-orders-all.ts --symbol ETHUSD  --dry-run
+ *   npx tsx phemex-cancel-orders-all.ts --symbol XTIUSDT  --posSide Long
+ *   npx tsx phemex-cancel-orders-all.ts --symbol XTIUSDT  --posSide Short --dry-run
+ *   npx tsx phemex-cancel-orders-all.ts --help
  */
 
 import { request, base64UrlDecode } from "./src/http-client.js";
@@ -26,19 +35,26 @@ import { loadCredentialsLocal } from "./src/credentials.js";
 
 function usage(): never {
   console.log(`
-Usage: ./phemex-cancel-orders-all.ts --symbol <symbol> [--dry-run]
+Usage: ./phemex-cancel-orders-all.ts --symbol <pair> [options]
 
 Cancel ALL orders (including untriggered trigger orders) for a symbol.
 
-Options:
-  --symbol <symbol>   Trading pair (e.g. BTCUSD, ETHUSD, BTCUSDT)
-  --dry-run           Show what would be sent without executing
-  --help, -h          Show this help message
+Arguments:
+  --symbol  <pair>   (required) Trading pair symbol, e.g. BTCUSD, ETHUSD, BTCUSDT
+  --posSide <side>   (optional)  Position side: Long or Short (default: both sides)
+  --dry-run          (optional)  Print the request details without sending it
+  --help, -h         (optional)  Show this help message and exit
+
+Endpoint selection:
+  Symbol ending in "USDT"  →  USDT-M  (DELETE /g-orders/all)
+  All other symbols        →  COIN-M  (DELETE /orders/all)
 
 Examples:
-  ./phemex-cancel-orders-all.ts --symbol BTCUSD       # COIN-M
-  ./phemex-cancel-orders-all.ts --symbol XTIUSDT      # USDT-M
-  ./phemex-cancel-orders-all.ts --symbol ETHUSD  --dry-run
+  ./phemex-cancel-orders-all.ts --symbol BTCUSD              # COIN-M
+  ./phemex-cancel-orders-all.ts --symbol ETHUSD              # COIN-M
+  ./phemex-cancel-orders-all.ts --symbol XTIUSDT             # USDT-M
+  ./phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long   # cancel only Long positions
+  ./phemex-cancel-orders-all.ts --symbol ETHUSD  --dry-run   # dry run only
 `);
   process.exit(0);
 }
@@ -54,8 +70,18 @@ async function main(): Promise<void> {
   if (!symbol) usage();
 
   const dryRun = hasFlag("--dry-run");
+  const posSideRaw = getArg("--posSide");
+  const posSide = posSideRaw
+    ? posSideRaw.charAt(0).toUpperCase() + posSideRaw.slice(1).toLowerCase()
+    : undefined;
+  if (posSide && !["Long", "Short"].includes(posSide)) {
+    console.error(`✗  Invalid --posSide "${posSideRaw}" — must be Long or Short`);
+    process.exit(1);
+  }
+
   const path = apiPath(symbol);
-  const query = `symbol=${symbol}&untriggered=false`;
+  let query = `symbol=${symbol}&untriggered=false`;
+  if (posSide) query += `&posSide=${posSide}`;
 
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);

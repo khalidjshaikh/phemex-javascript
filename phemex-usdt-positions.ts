@@ -134,6 +134,7 @@ async function main(): Promise<void> {
         console.log(`API error: ${resp.msg ?? resp.code}`);
         continue;
       }
+      console.dir(resp, { depth: null });
       const positions = resp.data?.positions ?? [];
       // Keep only OPEN positions (side = Long/Short, not "None")
       const open = positions.filter((p) => p.side !== "None" && p.size !== "0");
