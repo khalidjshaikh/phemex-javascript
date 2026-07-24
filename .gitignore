@@ -1,3 +1,4 @@
+*.txt
 err
 node_modules/
 .env

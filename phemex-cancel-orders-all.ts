@@ -79,13 +79,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const path = apiPath(symbol);
-  let query = `symbol=${symbol}&untriggered=false`;
-  if (posSide) query += `&posSide=${posSide}`;
+  const path = apiPath(symbol, "/all");
+  const isUsdtM = symbol.endsWith("USDT");
+
+  // USDT-M requires two API calls to cancel ALL orders (active + conditional):
+  //   1. untriggered=false  — cancels active / already-triggered orders
+  //   2. untriggered=true   — cancels conditional (untriggered) orders
+  // USDT-M also requires posSide.
+  const untriggeredValues = isUsdtM ? ["false", "true"] : ["false"];
 
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);
-    console.log(`  DELETE ${path}?${query}`);
+    for (const u of untriggeredValues) {
+      let q = `symbol=${symbol}&untriggered=${u}`;
+      if (posSide) q += `&posSide=${posSide}`;
+      console.log(`  DELETE ${path}?${q}`);
+    }
     console.log();
     process.exit(0);
   }
@@ -93,29 +102,38 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  const accountType = symbol.endsWith("USDT") ? "USDT-M" : "COIN-M";
+  const accountType = isUsdtM ? "USDT-M" : "COIN-M";
   console.log(`⟐  [${accountType}] Cancelling ALL orders for ${symbol} (including untriggered) …`);
 
-  const resp = await request("DELETE", path, query, creds.PHEMEX_API_KEY, secretRaw, "");
+  let totalClosed = 0;
+  let totalUntriggered = 0;
 
-  if (resp.code === 0) {
-    const data = resp.data as Record<string, unknown> | undefined;
-    const closedOrders = (data?.closedOrders as Record<string, unknown>[] | undefined) ?? [];
-    const untriggered = (data?.untriggered as Record<string, unknown>[] | undefined) ?? [];
-    console.log(`  ✓  Done — ${closedOrders.length} open + ${untriggered.length} untriggered order(s) cancelled`);
-    if (closedOrders.length > 0 || untriggered.length > 0) {
-      console.log();
-      for (const o of closedOrders) {
-        console.log(`     Closed:   ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}  @ ${String(o.price ?? "?")}`);
+  for (const u of untriggeredValues) {
+    let query = `symbol=${symbol}&untriggered=${u}`;
+    if (posSide) query += `&posSide=${posSide}`;
+
+    const resp = await request("DELETE", path, query, creds.PHEMEX_API_KEY, secretRaw, "");
+
+    if (resp.code === 0) {
+      const data = resp.data as Record<string, unknown> | undefined;
+      const closedOrders = (data?.closedOrders as Record<string, unknown>[] | undefined) ?? [];
+      const untriggered = (data?.untriggered as Record<string, unknown>[] | undefined) ?? [];
+      totalClosed += closedOrders.length;
+      totalUntriggered += untriggered.length;
+      if (closedOrders.length > 0 || untriggered.length > 0) {
+        for (const o of closedOrders) {
+          console.log(`  ✓  Cancelled: ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+        }
+        for (const o of untriggered) {
+          console.log(`  ✓  Cancelled (conditional): ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+        }
       }
-      for (const o of untriggered) {
-        console.log(`     Untrig'd: ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}  @ ${String(o.stopPx ?? "?")}`);
-      }
+    } else {
+      console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
     }
-  } else {
-    console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
-    process.exit(1);
   }
+
+  console.log(`  ✓  Done — ${totalClosed} open + ${totalUntriggered} conditional order(s) cancelled`);
 }
 
 main().catch((err) => {
