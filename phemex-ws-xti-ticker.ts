@@ -312,7 +312,7 @@ const ws = new ReconnectingWs(WS_URL, {
             }
           }
 
-          if(true && await getFlag("purchase")) {
+          if(false && await getFlag("purchase")) {
             const symbol = "XTIUSDT";
             const side = "Long";
             const entryPrice = Number((last - deltaOrder.price).toFixed(2));

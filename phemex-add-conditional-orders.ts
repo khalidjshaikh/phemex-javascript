@@ -10,9 +10,14 @@
  *
  * Endpoint:  PUT /g-orders/create
  *
+ * The trigger source can be set to mark price or last price via --trigger-type.
+ * A separate --sl-trigger / --tp-trigger overrides the trigger source for the
+ * stop-loss or take-profit order individually.
+ *
  * Usage:
  *   npx tsx phemex-add-conditional-orders.ts --symbol XBRUSDT --pos-side Long \
- *       [--stop-loss 69] [--take-profit 200] [--qty 0.01] [--dry-run]
+ *       [--stop-loss 69] [--take-profit 200] [--qty 0.01] \
+ *       [--trigger-type ByMarkPrice|ByLastPrice] [--dry-run]
  *
  * At least one of --stop-loss or --take-profit must be specified.
  * If --qty is omitted, the full position size (from the API) is used.
@@ -43,22 +48,24 @@ function usage(): never {
   console.log(`
 Usage:  npx tsx phemex-add-conditional-orders.ts --symbol <symbol> --pos-side <Side> \\
             [--stop-loss <price>] [--take-profit <price>] \\
-            [--qty <size>] [--dry-run] [--help]
+            [--qty <size>] [--trigger-type ByMarkPrice|ByLastPrice] \\
+            [--dry-run] [--help]
 
 Create conditional orders (stop-loss / take-profit) for an existing USDT-M position.
 
 Arguments:
-  --symbol <symbol>     Trading pair, e.g. XBRUSDT, XTIUSDT (required)
-  --pos-side <Side>     Position side: Long or Short (required)
-  --stop-loss <price>   Stop-loss trigger price (optional)
-  --take-profit <price> Take-profit trigger price (optional)
-  --qty <size>          Quantity to close (default: full position size from API)
-  --dry-run             Print what would be sent without executing
-  --help, -h            Show this help message
+  --symbol <symbol>          Trading pair, e.g. XBRUSDT, XTIUSDT (required)
+  --pos-side <Side>          Position side: Long or Short (required)
+  --stop-loss <price>        Stop-loss trigger price (optional)
+  --take-profit <price>      Take-profit trigger price (optional)
+  --qty <size>               Quantity to close (default: full position size from API)
+  --trigger-type <type>      Trigger source: ByMarkPrice (default) or ByLastPrice
+  --dry-run                  Print what would be sent without executing
+  --help, -h                 Show this help message
 
 Examples:
   ./phemex-add-conditional-orders.ts --symbol XBRUSDT --pos-side Long --stop-loss 69 --take-profit 200
-  ./phemex-add-conditional-orders.ts --symbol XTIUSDT --pos-side Long --stop-loss 80 --take-profit 105 --dry-run
+  ./phemex-add-conditional-orders.ts --symbol XTIUSDT --pos-side Long --stop-loss 80 --take-profit 105 --trigger-type ByLastPrice --dry-run
 `);
   process.exit(0);
 }
@@ -116,6 +123,7 @@ async function main(): Promise<void> {
   const stopLossPrice = parseFloat(getArg("--stop-loss"));
   const takeProfitPrice = parseFloat(getArg("--take-profit"));
   const cliQty = parseFloat(getArg("--qty"));
+  const triggerType = getArg("--trigger-type") || "ByMarkPrice";
   const dryRun = hasFlag("--dry-run");
 
   /* -- Validate args ----------------------------------------------- */
@@ -125,6 +133,10 @@ async function main(): Promise<void> {
   }
   if (!["Long", "Short"].includes(posSide)) {
     console.error("✗  --pos-side must be 'Long' or 'Short'");
+    process.exit(1);
+  }
+  if (!["ByMarkPrice", "ByLastPrice"].includes(triggerType)) {
+    console.error("✗  --trigger-type must be 'ByMarkPrice' or 'ByLastPrice'");
     process.exit(1);
   }
   if (isNaN(stopLossPrice) && isNaN(takeProfitPrice)) {
@@ -191,7 +203,9 @@ async function main(): Promise<void> {
       `reduceOnly=true`,
       `closeOnTrigger=true`,
       `timeInForce=GoodTillCancel`,
-      `triggerType=ByMarkPrice`,
+      `triggerType=${triggerType}`,
+      `slTrigger=${triggerType}`,
+      `tpTrigger=${triggerType}`,
     ];
     if (o.ordType === "LimitIfTouched" && o.price > 0) {
       paramsList.push(`priceRp=${o.price}`);
