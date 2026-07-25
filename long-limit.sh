@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 while true; do
     err=$(mktemp)
-    out=$(./long-limit.ts --cancel --spread -64 --gap -.0 --qty .01 --dispersion 1 --sleep 10 2>"$err")
+    out=$(./long-limit.ts --cancel --spread -64 --gap -.5 --qty .01 --dispersion 1 --sleep 60 2>"$err")
     rc=$?
 
     cat "$err"
@@ -18,6 +18,6 @@ while true; do
     [ "$rc" -eq 2 ] && break
 
     date
-    sleep 5
+    sleep 0
 done
 
