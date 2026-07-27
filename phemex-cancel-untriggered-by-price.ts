@@ -59,7 +59,9 @@ async function main(): Promise<void> {
 
   const isUsdtM = symbol.toUpperCase().endsWith("USDT");
   const endpoint = isUsdtM ? "/g-orders/activeList" : "/orders/activeList";
-  const query = `ordStatus=Untriggered&symbol=${symbol}`;
+  // Both USDT-M and Coin-M use "Untriggered" as the ordStatus string value
+  const ordStatusVal = "Untriggered";
+  const query = `ordStatus=${ordStatusVal}&symbol=${symbol}`;
 
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -68,7 +70,8 @@ async function main(): Promise<void> {
 
   const resp = await request("GET", endpoint, query, creds.PHEMEX_API_KEY, secretRaw, "");
 
-  if (resp.code !== 0) {
+  // code 10002 / "OM_ORDER_NOT_FOUND" means no orders — not an error
+  if (resp.code !== 0 && resp.code !== 10002) {
     console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
     process.exit(1);
   }

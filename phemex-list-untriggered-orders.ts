@@ -52,7 +52,11 @@ async function main(): Promise<void> {
   if (!symbol) usage();
 
   const dryRun = hasFlag("--dry-run");
-  const query = `ordStatus=Untriggered&symbol=${symbol}`;
+
+  // Both USDT-M and Coin-M use "Untriggered" as the ordStatus string value
+  const isUsdtM = symbol.toUpperCase().endsWith("USDT");
+  const ordStatusVal = "Untriggered";
+  const query = `ordStatus=${ordStatusVal}&symbol=${symbol}`;
 
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);
@@ -64,7 +68,6 @@ async function main(): Promise<void> {
   // Determine the correct endpoint based on symbol suffix:
   //   *USDT  → USDT-M perpetual  → /g-orders/activeList
   //   *USD   → Coin-M perpetual   → /orders/activeList
-  const isUsdtM = symbol.toUpperCase().endsWith("USDT");
   const endpoint = isUsdtM ? "/g-orders/activeList" : "/orders/activeList";
 
   const creds = loadCredentialsLocal();
@@ -74,7 +77,8 @@ async function main(): Promise<void> {
 
   const resp = await request("GET", endpoint, query, creds.PHEMEX_API_KEY, secretRaw, "");
 
-  if (resp.code === 0) {
+  // code 10002 / "OM_ORDER_NOT_FOUND" means no orders — not an error
+  if (resp.code === 0 || resp.code === 10002) {
     const data = resp.data as Record<string, unknown> | undefined;
     const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
 

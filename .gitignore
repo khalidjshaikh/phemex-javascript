@@ -25,3 +25,5 @@ xtiusdt-last-price.txt
 *.pid
 .short-limit.pid
 csharp-ticker/obj
+.phemex-credentials-gmail.json
+.phemex-credentials-meta.json

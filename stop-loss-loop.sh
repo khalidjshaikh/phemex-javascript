@@ -48,6 +48,10 @@ while true; do
   sl_price="$(python3 -c "print(max(0, round(float('$price') - 0.05, 2)))")"
   log "XTIUSDT: price=$price → stop-loss=\$${sl_price}"
 
+  # ── Cancel existing stop-loss orders ──────────────────────────
+  ./phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long \
+    || log "⚠  Cancel orders failed"
+
   # ── Place stop-loss conditional order ──────────────────────────
   npx tsx "$CONDITIONAL" \
     --symbol XTIUSDT \
