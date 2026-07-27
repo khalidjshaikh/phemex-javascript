@@ -37,15 +37,17 @@ let lastPrice = 0;
 // Track consecutive same-direction price moves
 let direction: '↑' | '↓' = '↑';
 let streak = 0;
+let streakStartPrice = 0;
+let streakStartTime = Date.now();
 
 
 function updateDirection(last: number, prev: number): void {
   if (last > prev) {
     if (direction === '↑') streak++;
-    else { direction = '↑'; streak = 1; }
+    else { direction = '↑'; streak = 1; streakStartPrice = prev; streakStartTime = Date.now(); }
   } else if (last < prev) {
     if (direction === '↓') streak++;
-    else { direction = '↓'; streak = 1; }
+    else { direction = '↓'; streak = 1; streakStartPrice = prev; streakStartTime = Date.now(); }
   }
 }
 
@@ -83,7 +85,11 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 
   if (last !== lastPrice) {
     updateDirection(last, lastPrice);
-    const streakStr = ` (${direction}×${streak})`;
+    const elapsed = Math.floor((Date.now() - streakStartTime) / 1000);
+    const durationStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+    const delta = last - streakStartPrice;
+    const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
+    const streakStr = ` (${direction}×${streak}, ${deltaStr}, ${durationStr})`;
     process.stdout.write(line + streakStr);
     console.log();
     lastPrice = last;
@@ -129,7 +135,11 @@ const ws = new ReconnectingWs(WS_URL, {
         const arrow = direction === '↑' ? '↑' : '↓';
         if (last !== lastPrice) {
           updateDirection(last, lastPrice);
-          const streakStr = ` (${direction}×${streak})`;
+          const elapsed = Math.floor((Date.now() - streakStartTime) / 1000);
+          const durationStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+          const delta = last - streakStartPrice;
+          const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
+          const streakStr = ` (${direction}×${streak}, ${deltaStr}, ${durationStr})`;
           process.stdout.write(`${now}  ${SYMBOL}  ${arrow}$${last.toFixed(2)}${streakStr}`);
           console.log();
           lastPrice = last;

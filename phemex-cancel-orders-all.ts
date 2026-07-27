@@ -109,23 +109,36 @@ async function main(): Promise<void> {
   let totalUntriggered = 0;
 
   for (const u of untriggeredValues) {
-    let query = `symbol=${symbol}&untriggered=${u}`;
-    if (posSide) query += `&posSide=${posSide}`;
+    const query = `symbol=${symbol}&untriggered=${u}`;
 
     const resp = await request("DELETE", path, query, creds.PHEMEX_API_KEY, secretRaw, "");
 
     if (resp.code === 0) {
-      const data = resp.data as Record<string, unknown> | undefined;
-      const closedOrders = (data?.closedOrders as Record<string, unknown>[] | undefined) ?? [];
-      const untriggered = (data?.untriggered as Record<string, unknown>[] | undefined) ?? [];
-      totalClosed += closedOrders.length;
-      totalUntriggered += untriggered.length;
-      if (closedOrders.length > 0 || untriggered.length > 0) {
-        for (const o of closedOrders) {
-          console.log(`  ✓  Cancelled: ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+      // USDT-M returns data as an integer (count of cancelled orders).
+      // COIN-M returns data as an object with closedOrders / untriggered arrays.
+      if (isUsdtM && typeof resp.data === "number") {
+        const count = resp.data as number;
+        if (u === "true") {
+          totalUntriggered += count;
+        } else {
+          totalClosed += count;
         }
-        for (const o of untriggered) {
-          console.log(`  ✓  Cancelled (conditional): ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+        if (count > 0) {
+          console.log(`  ✓  ${count} order(s) cancelled (${u === "true" ? "conditional" : "active"})`);
+        }
+      } else {
+        const data = resp.data as Record<string, unknown> | undefined;
+        const closedOrders = (data?.closedOrders as Record<string, unknown>[] | undefined) ?? [];
+        const untriggered = (data?.untriggered as Record<string, unknown>[] | undefined) ?? [];
+        totalClosed += closedOrders.length;
+        totalUntriggered += untriggered.length;
+        if (closedOrders.length > 0 || untriggered.length > 0) {
+          for (const o of closedOrders) {
+            console.log(`  ✓  Cancelled: ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+          }
+          for (const o of untriggered) {
+            console.log(`  ✓  Cancelled (conditional): ${String(o.orderID ?? "?")}  ${String(o.side ?? "?")}  qty ${String(o.qty ?? "?")}`);
+          }
         }
       }
     } else {

@@ -12,6 +12,10 @@
 # Default delay between iterations: 60 seconds.
 # Press Ctrl-C to stop.
 
+export PHEMEX_API_KEY="c9567d8a-cea7-403a-9d74-fa8395876aef"
+export PHEMEX_API_SECRET="YiEqDwq34pOc9z1PkN1TTbLXUuj2VhFa9uXasR6JC503YzMzY2U5MC03M2E2LTQ5MjItOTI5YS1hODYxMjE3MzY0Zjg"
+export PHEMEX_API_URL=https://api.phemex.com
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -45,12 +49,12 @@ while true; do
   fi
 
   # ── Stop-loss = price − $0.05 ──────────────────────────────────
-  sl_price="$(python3 -c "print(max(0, round(float('$price') - 0.05, 2)))")"
+  sl_price="$(python3 -c "print(max(0, round(float('$price') - 0.01, 2)))")"
   log "XTIUSDT: price=$price → stop-loss=\$${sl_price}"
 
   # ── Cancel existing stop-loss orders ──────────────────────────
-  ./phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long \
-    || log "⚠  Cancel orders failed"
+  # ./phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long \
+  ./cancel-orders.rb   || log "⚠  Cancel orders failed"
 
   # ── Place stop-loss conditional order ──────────────────────────
   npx tsx "$CONDITIONAL" \
