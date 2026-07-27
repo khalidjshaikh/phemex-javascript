@@ -45,6 +45,7 @@ function notifyLimitScripts(): void {
     } catch {
       // Ignore if the target process is not running or the PID file is absent.
     }
+  }
 }
 
 function printTicker(symbol: string, ticker: Record<string, unknown>): void {
