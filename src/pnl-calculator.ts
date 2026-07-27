@@ -70,10 +70,13 @@ export function calculatePnL(input: PnLInput): PnLResult {
   };
 
   // Human-readable summary
+  const fmt = (n: number, d: number = 2) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  const positionValue = qty * price;
   console.log("─".repeat(50));
-  console.log(`  Position : ${positionType} ${qty} @ ${price}`);
-  console.log(`  Take-Profit @ ${takeProfit}  →  P&L: ${takeProfitPnl >= 0 ? "+" : ""}${takeProfitPnl.toFixed(4)}`);
-  console.log(`  Stop-Loss   @ ${stopLoss}    →  P&L: ${stopLossPnl >= 0 ? "+" : ""}${stopLossPnl.toFixed(4)}`);
+  console.log(`  Position : ${positionType} ${qty} @ ${price}  (value: ${fmt(positionValue)})`);
+  console.log(`  Take-Profit @ ${takeProfit}  →  P&L: ${takeProfitPnl >= 0 ? "+" : ""}${fmt(takeProfitPnl, 4)}`);
+  console.log(`  Stop-Loss   @ ${stopLoss}    →  P&L: ${stopLossPnl >= 0 ? "+" : ""}${fmt(stopLossPnl, 4)}`);
   console.log("─".repeat(50));
 
   return result;

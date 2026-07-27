@@ -12,6 +12,8 @@
 # Default delay between iterations: 60 seconds.
 # Press Ctrl-C to stop.
 
+# ./phemex-ws-xtiusdt-ticker-simple.t &
+
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -31,7 +33,7 @@ log() { echo "[$(date '+%F %T')] $*"; }
 run_iteration() {
   local sym label price_file price sl_price order_id_file
 
-#  for sym in XTIUSDT XBRUSDT; do
+  # for sym in XTIUSDT XBRUSDT; do
   for sym in XTIUSDT; do
     case "$sym" in
       XTIUSDT) label="XTI"; price_file="$PRICE_FILE_XTI"; order_id_file="$ORDER_ID_FILE_XTI" ;;
