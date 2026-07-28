@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-import { base64UrlDecode, httpGet } from "../http-client.js";
-import { placeMarketOrder, setLeverageUsdtM } from "../place-limit-order.js";
+import { base64UrlDecode, httpGet, request } from "../http-client.js";
+import { cancelOrders, placeMarketOrder, setLeverageUsdtM } from "../place-limit-order.js";
+import { uuid } from "../uuid.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -143,4 +144,47 @@ export async function openLong(
     secretRaw,
   );
   console.log(`[${new Date().toLocaleString()}]  ✓  Long position opened`);
+}
+
+/**
+ * Set (or update) a stop-market order on a USDT-M position.
+ *
+ * Cancels any existing untriggered orders for the symbol first,
+ * then places a new stop-market order at `stopPrice` via
+ * `/g-orders/create` with `ordType=Stop` (there is no separate
+ * stop-order endpoint for the USDT-M API).
+ */
+export async function setStopLoss(
+  symbol: string,
+  side: "Buy" | "Sell",
+  posSide: string,
+  stopPrice: number,
+  qty: number,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<void> {
+  // Cancel any existing stop orders for this symbol
+  await cancelOrders({ symbol, untriggered: true }, apiKey, secretRaw);
+
+  // Place a stop-market order via /g-orders/create
+  const paramsList: string[] = [
+    `clOrdID=${uuid()}`,
+    `symbol=${symbol}`,
+    `side=${side}`,
+    `posSide=${posSide}`,
+    `ordType=Stop`,
+    `stopPxRp=${stopPrice}`,
+    `orderQtyRq=${qty}`,
+    `reduceOnly=true`,
+    `closeOnTrigger=true`,
+    `triggerType=ByMarkPrice`,
+    `timeInForce=ImmediateOrCancel`,
+  ];
+  const query = paramsList.join("&");
+
+  const resp = await request("PUT", "/g-orders/create", query, apiKey, secretRaw, "");
+
+  if ((resp as Record<string, unknown>).code !== 0) {
+    throw new Error(String((resp as Record<string, unknown>).msg ?? `API code ${(resp as Record<string, unknown>).code}`));
+  }
 }

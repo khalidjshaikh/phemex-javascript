@@ -15,7 +15,7 @@
 
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { fetchPositions, calcPnlPct, closePosition, openLong } from "./src/lib/positions.js";
+import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss } from "./src/lib/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
@@ -26,6 +26,7 @@ const POSITION_QTY = 0.01;       // contracts to open on each new long
 const PNL_THRESHOLD_PCT = -100;   // close when PnL < this % of margin
 const LEVERAGE = 100;             // leverage to set
 const POLL_INTERVAL_MS = 2_000;  // ms between position polls
+const STOP_LOSS_INTERVAL_MS = 60_000;  // ms between stop-loss updates
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -55,8 +56,13 @@ async function main(): Promise<void> {
   console.log(`     Poll every:   ${POLL_INTERVAL_MS / 1000}s`);
   console.log("");
 
+  // Rolling mark-price samples (one per 60 s, kept for 1 hour)
+  const markSamples: { price: number; time: number }[] = [];
+  const MARK_SAMPLE_WINDOW_MS = 3_600_000;  // 1 hour
+
   // Register Ctrl+C handler
   let running = true;
+  let nextStopLossUpdate = 0;  // set stop loss on the first tick with a position
   process.on("SIGINT", () => {
     console.log(`\n[${fmtTime()}]  ⏹  Shutting down …`);
     running = false;
@@ -66,11 +72,13 @@ async function main(): Promise<void> {
     try {
       const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
       const xtiPos = positions.find((p) => p.symbol === SYMBOL);
+      let reopened = false;
 
       if (!xtiPos) {
         // No position — open a new long
         console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position found — opening new long …`);
         await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
+        reopened = true;
       } else {
         const pnlPct = calcPnlPct(xtiPos);
         const entry = parseFloat(xtiPos.avgEntryPriceRp || "0");
@@ -99,7 +107,44 @@ async function main(): Promise<void> {
 
           // Open new long
           await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
+          reopened = true;
         }
+      }
+
+      // Stop-loss update: every 60 s (skip this tick if we just reopened —
+      // the position data is stale; next tick will use fresh data)
+      if (reopened) {
+        nextStopLossUpdate = 0;  // schedule stop-loss on next tick
+      }
+
+      const now = Date.now();
+      if (xtiPos && !reopened && now >= nextStopLossUpdate) {
+        const markPrice = parseFloat(xtiPos.markPriceRp || "0");
+        const size = parseFloat(xtiPos.size || "0");
+
+        if (markPrice > 0 && size > 0) {
+          // Record this mark-price sample
+          markSamples.push({ price: markPrice, time: now });
+
+          // Prune samples older than 1 hour
+          const cutoff = now - MARK_SAMPLE_WINDOW_MS;
+          while (markSamples.length > 0 && markSamples[0].time < cutoff) {
+            markSamples.shift();
+          }
+
+          // Stop-loss = max of last hour's samples − $0.10
+          const maxMark = Math.max(...markSamples.map((s) => s.price));
+          const stopPrice = Math.round((maxMark - 0.10) * 100) / 100;
+
+          if (stopPrice > 0) {
+            await setStopLoss(SYMBOL, "Sell", "Long", stopPrice, size, creds.PHEMEX_API_KEY, secretRaw);
+            console.log(
+              `[${fmtTime()}]  ✓  Stop-loss updated to $${fmtNum(stopPrice, 2)} ` +
+              `(max mark: $${fmtNum(maxMark, 2)}, samples: ${markSamples.length})`
+            );
+          }
+        }
+        nextStopLossUpdate = now + STOP_LOSS_INTERVAL_MS;
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
