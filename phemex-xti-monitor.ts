@@ -15,7 +15,7 @@
 
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { placeMarketOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { fetchPositions, calcPnlPct, closePosition, openLong } from "./src/lib/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
@@ -28,32 +28,6 @@ const LEVERAGE = 100;             // leverage to set
 const POLL_INTERVAL_MS = 2_000;  // ms between position polls
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-interface Position {
-  symbol: string;
-  side: "Buy" | "Sell" | "None";
-  size: string;
-  avgEntryPrice: string;
-  avgEntryPriceRp: string;
-  markPriceRp: string;
-  posCostRv: string;
-  leverageRr: string;
-  unrealisedPnl?: string;
-  [key: string]: unknown;
-}
-
-interface ApiResponse {
-  code: number;
-  msg?: string;
-  data?: {
-    account?: Record<string, unknown>;
-    positions?: Position[];
-  };
-}
-
-/* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -63,112 +37,6 @@ function fmtTime(): string {
 
 function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-}
-
-/* ------------------------------------------------------------------ */
-/*  API — one signed GET                                              */
-/* ------------------------------------------------------------------ */
-
-import { httpGet } from "./src/http-client.js";
-
-async function fetchPositions(
-  apiKey: string,
-  secretRaw: Buffer,
-): Promise<Position[]> {
-  const resp = (await httpGet(
-    "/g-accounts/accountPositions",
-    "currency=USDT",
-    apiKey,
-    secretRaw,
-  )) as unknown as ApiResponse;
-
-  if (resp.code !== 0) {
-    console.error(`[${fmtTime()}]  ✗  API error: ${resp.msg ?? resp.code}`);
-    return [];
-  }
-  const positions = resp.data?.positions ?? [];
-  // Return only open positions (side !== "None")
-  return positions.filter((p) => p.side !== "None" && p.size !== "0");
-}
-
-/* ------------------------------------------------------------------ */
-/*  Core logic                                                         */
-/* ------------------------------------------------------------------ */
-
-/**
- * Calculate the unrealized PnL as a percentage of the position margin.
- *
- * The Phemex API returns Rv (valueRt) fields already in USDT (human-readable).
- * No scaling by 10000 is needed.
- *
- * margin  = posCostRv         (USDT)
- * pnl     = (markPriceRp - avgEntryPriceRp) * size
- * pnlPct  = pnl / margin * 100
- */
-function calcPnlPct(pos: Position): number {
-  const size = parseFloat(pos.size || "0");
-  const entry = parseFloat(pos.avgEntryPriceRp || "0");
-  const mark = parseFloat(pos.markPriceRp || "0");
-  const margin = parseFloat(pos.posCostRv || "0");
-
-  if (margin <= 0) return 0;
-
-  // Unrealized PnL: (mark - entry) * size for longs; (entry - mark) * size for shorts
-  const pnl = pos.side === "Buy"
-    ? (mark - entry) * size
-    : (entry - mark) * size;
-
-  return (pnl / margin) * 100;
-}
-
-async function closePosition(
-  pos: Position,
-  apiKey: string,
-  secretRaw: Buffer,
-): Promise<void> {
-  const closeSide = pos.side === "Buy" ? "Sell" : "Buy";
-  const closePosSide = pos.side === "Buy" ? "Long" : "Short";
-  const size = parseFloat(pos.size || "0");
-
-  console.log(`[${fmtTime()}]  ⟐  Closing ${pos.symbol} (${pos.side} → ${closeSide})  qty: ${size} …`);
-  await placeMarketOrder(
-    {
-      account: "usdt-m",
-      symbol: pos.symbol,
-      side: closeSide,
-      qty: size,
-      posSide: closePosSide,
-      price: 0,
-    },
-    apiKey,
-    secretRaw,
-  );
-  console.log(`[${fmtTime()}]  ✓  Position closed`);
-}
-
-async function openLong(
-  apiKey: string,
-  secretRaw: Buffer,
-): Promise<void> {
-  console.log(`[${fmtTime()}]  ⟐  Opening long ${SYMBOL}  qty: ${POSITION_QTY} …`);
-
-  // Set leverage first
-  await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", apiKey, secretRaw);
-
-  // Place market order
-  await placeMarketOrder(
-    {
-      account: "usdt-m",
-      symbol: SYMBOL,
-      side: "Buy",
-      qty: POSITION_QTY,
-      posSide: "Long",
-      price: 0,
-    },
-    apiKey,
-    secretRaw,
-  );
-  console.log(`[${fmtTime()}]  ✓  Long position opened`);
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,7 +70,7 @@ async function main(): Promise<void> {
       if (!xtiPos) {
         // No position — open a new long
         console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position found — opening new long …`);
-        await openLong(creds.PHEMEX_API_KEY, secretRaw);
+        await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
       } else {
         const pnlPct = calcPnlPct(xtiPos);
         const entry = parseFloat(xtiPos.avgEntryPriceRp || "0");
@@ -230,7 +98,7 @@ async function main(): Promise<void> {
           await new Promise((r) => setTimeout(r, 1_000));
 
           // Open new long
-          await openLong(creds.PHEMEX_API_KEY, secretRaw);
+          await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
         }
       }
     } catch (err: unknown) {
