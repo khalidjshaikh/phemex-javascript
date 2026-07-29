@@ -14,6 +14,7 @@ Usage:
 import os
 import re
 import sys
+import time
 from collections import deque
 from datetime import datetime
 
@@ -51,7 +52,7 @@ def parse_line(line: str):
 
 # ── File tailing ─────────────────────────────────────────────────────
 
-def follow(filepath: str):
+def follow(filepath: str, fig):
     """Yield new lines appended to a file (poll-based, cross-platform)."""
     with open(filepath, "r") as f:
         f.seek(0, os.SEEK_END)  # skip existing content in tail mode
@@ -60,8 +61,9 @@ def follow(filepath: str):
             if line:
                 yield line
             else:
-                # Process GUI events while waiting so the window stays alive
-                plt.pause(0.2)
+                # Lightweight event processing — no full redraw
+                fig.canvas.flush_events()
+                time.sleep(0.1)
 
 
 # ── Plot setup ───────────────────────────────────────────────────────
@@ -188,35 +190,54 @@ def main():
     times: deque = deque(maxlen=MAX_POINTS)
     prices: deque = deque(maxlen=MAX_POINTS)
 
-    # ── Phase 1: read & plot every existing line ──────────────────────
+    # ── Phase 1: read all existing lines, then plot once ──────────────
     print(f"Reading existing data from {LOG_FILE} …")
     with open(LOG_FILE, "r") as f:
         existing = f.readlines()
 
-    def process_and_plot(line: str):
+    for line in existing:
         parsed = parse_line(line)
         if parsed is None:
-            return
+            continue
         dt, price = parsed
         times.append(dt)
         prices.append(price)
-        if len(times) < 2:
-            return
+
+    if len(times) >= 2:
         t_list = list(times)
         p_list = list(prices)
         d1, d1_t, d2, d2_t = derivatives(t_list, p_list)
         update_plot(fig, ax1, ax2, ax3, l1, l2, l3,
                     t_list, p_list, d1, d1_t, d2, d2_t)
-        plt.pause(0.001)
-
-    for line in existing:
-        process_and_plot(line)
+        plt.pause(0.05)
+        print(f"Loaded {len(times)} ticks.")
 
     # ── Phase 2: tail for new lines ───────────────────────────────────
     print("Tailing for new ticks …  (Ctrl+C to stop)")
+    last_plot = 0.0
     try:
-        for new_line in follow(LOG_FILE):
-            process_and_plot(new_line)
+        for new_line in follow(LOG_FILE, fig):
+            parsed = parse_line(new_line)
+            if parsed is None:
+                continue
+            dt, price = parsed
+            times.append(dt)
+            prices.append(price)
+            if len(times) < 2:
+                fig.canvas.flush_events()
+                continue
+
+            now = time.monotonic()
+            if now - last_plot >= 0.12:          # throttle: max ~8 fps
+                last_plot = now
+                t_list = list(times)
+                p_list = list(prices)
+                d1, d1_t, d2, d2_t = derivatives(t_list, p_list)
+                update_plot(fig, ax1, ax2, ax3, l1, l2, l3,
+                            t_list, p_list, d1, d1_t, d2, d2_t)
+            else:
+                # Keep the window responsive between throttled redraws
+                fig.canvas.flush_events()
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:

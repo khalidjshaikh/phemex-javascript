@@ -15,7 +15,7 @@
 
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss } from "./src/lib/positions.js";
+import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss, Position } from "./src/lib/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
@@ -60,11 +60,75 @@ async function main(): Promise<void> {
   const markSamples: { price: number; time: number }[] = [];
   const MARK_SAMPLE_WINDOW_MS = 3_600_000;  // 1 hour
 
+  // Set stdin to raw mode so we can detect any keypress
+  const stdinRaw = process.stdin.isRaw;
+  if (!stdinRaw) process.stdin.setRawMode(true);
+  process.stdin.resume();
+
+  function restoreStdin() {
+    try { process.stdin.setRawMode(stdinRaw); } catch { /* ignore */ }
+    // process.stdin.pause();
+  }
+
+  process.stdin.on("data", (buf: Buffer) => {
+    // Ctrl+C (byte 0x03) is consumed by raw-mode stdin instead of
+    // generating SIGINT — detect it manually.
+    if (buf.length === 1 && buf[0] === 3) {
+      console.log(`\n[${fmtTime()}]  ⏹  Shutting down …`);
+      running = false;
+      return;
+    }
+    // 'r' → manually update stop-loss (same logic as the 60s auto-update)
+    if (buf.length === 1 && (buf[0] === 0x72 || buf[0] === 0x52)) {
+      (async () => {
+        // try {
+        //   const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+        //   const pos = positions.find((p) => p.symbol === SYMBOL);
+        //   if (!pos) { console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position — skipping stop-loss`); return; }
+        //   await doStopLossUpdate(pos, Date.now());
+        // } catch (err: unknown) {
+        //   const msg = err instanceof Error ? err.message : String(err);
+        //   console.error(`[${fmtTime()}]  ✗  Stop-loss key error: ${msg}`);
+        // }
+      })();
+    }
+  });
+
   // Register Ctrl+C handler
   let running = true;
   let nextStopLossUpdate = 0;  // set stop loss on the first tick with a position
+  let nextOpenLongTime = 0;    // rate-limit: openLong at most every 60 s
+
+  /**
+   * Sample the current mark price, prune the rolling 1h window,
+   * and set the stop-loss at max(mark samples) − $0.10.
+   */
+  async function doStopLossUpdate(pos: Position, now: number): Promise<void> {
+    const markPrice = parseFloat(pos.markPriceRp || "0");
+    const size = parseFloat(pos.size || "0");
+    if (markPrice <= 0 || size <= 0) return;
+
+    markSamples.push({ price: markPrice, time: now });
+    const cutoff = now - MARK_SAMPLE_WINDOW_MS;
+    while (markSamples.length > 0 && markSamples[0].time < cutoff) {
+      markSamples.shift();
+    }
+
+    const maxMark = Math.max(...markSamples.map((s) => s.price));
+    const stopPrice = Math.round((maxMark - 0.10) * 100) / 100;
+
+    if (stopPrice > 0) {
+      await setStopLoss(SYMBOL, "Sell", "Long", stopPrice, size, creds.PHEMEX_API_KEY, secretRaw);
+      console.log(
+        `[${fmtTime()}]  ✓  Stop-loss updated to $${fmtNum(stopPrice, 2)} ` +
+        `(max mark: $${fmtNum(maxMark, 2)}, samples: ${markSamples.length})`
+      );
+    }
+  }
+
   process.on("SIGINT", () => {
     console.log(`\n[${fmtTime()}]  ⏹  Shutting down …`);
+    restoreStdin();
     running = false;
   });
 
@@ -75,9 +139,15 @@ async function main(): Promise<void> {
       let reopened = false;
 
       if (!xtiPos) {
+        const now = Date.now();
+        if (now < nextOpenLongTime) {
+          console.log(`[${fmtTime()}]  ⏳  No ${SYMBOL} position, but rate-limited — skipping openLong`);
+          continue;
+        }
         // No position — open a new long
         console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position found — opening new long …`);
         await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
+        nextOpenLongTime = now + 60_000;
         reopened = true;
       } else {
         const pnlPct = calcPnlPct(xtiPos);
@@ -106,7 +176,13 @@ async function main(): Promise<void> {
           await new Promise((r) => setTimeout(r, 1_000));
 
           // Open new long
-          await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
+          const openLongNow = Date.now();
+          if (openLongNow >= nextOpenLongTime) {
+            await openLong(SYMBOL, POSITION_QTY, LEVERAGE, creds.PHEMEX_API_KEY, secretRaw);
+            nextOpenLongTime = openLongNow + 60_000;
+          } else {
+            console.log(`[${fmtTime()}]  ⏳  PnL below threshold, but openLong rate-limited — skipping reopen`);
+          }
           reopened = true;
         }
       }
@@ -117,35 +193,11 @@ async function main(): Promise<void> {
         nextStopLossUpdate = 0;  // schedule stop-loss on next tick
       }
 
-      const now = Date.now();
-      if (xtiPos && !reopened && now >= nextStopLossUpdate) {
-        const markPrice = parseFloat(xtiPos.markPriceRp || "0");
-        const size = parseFloat(xtiPos.size || "0");
-
-        if (markPrice > 0 && size > 0) {
-          // Record this mark-price sample
-          markSamples.push({ price: markPrice, time: now });
-
-          // Prune samples older than 1 hour
-          const cutoff = now - MARK_SAMPLE_WINDOW_MS;
-          while (markSamples.length > 0 && markSamples[0].time < cutoff) {
-            markSamples.shift();
-          }
-
-          // Stop-loss = max of last hour's samples − $0.10
-          const maxMark = Math.max(...markSamples.map((s) => s.price));
-          const stopPrice = Math.round((maxMark - 0.10) * 100) / 100;
-
-          if (stopPrice > 0) {
-            await setStopLoss(SYMBOL, "Sell", "Long", stopPrice, size, creds.PHEMEX_API_KEY, secretRaw);
-            console.log(
-              `[${fmtTime()}]  ✓  Stop-loss updated to $${fmtNum(stopPrice, 2)} ` +
-              `(max mark: $${fmtNum(maxMark, 2)}, samples: ${markSamples.length})`
-            );
-          }
-        }
-        nextStopLossUpdate = now + STOP_LOSS_INTERVAL_MS;
-      }
+      // const now = Date.now();
+      // if (xtiPos && !reopened && now >= nextStopLossUpdate) {
+        // await doStopLossUpdate(xtiPos, now);
+        // nextStopLossUpdate = now + STOP_LOSS_INTERVAL_MS;
+      // }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${fmtTime()}]  ✗  Error: ${msg}`);
