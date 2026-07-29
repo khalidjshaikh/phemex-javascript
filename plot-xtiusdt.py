@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 
 LOG_FILE = "xtiusdt-ticks.log"
 MAX_POINTS = 500  # rolling window of data points
+ZOOM_STEP = 1.5  # multiplier per +/- key press
 
 
 # ── Log-line parser ──────────────────────────────────────────────────
@@ -141,28 +142,51 @@ def derivatives(times, prices):
 # ── Plot update ──────────────────────────────────────────────────────
 
 def update_plot(fig, ax1, ax2, ax3, l1, l2, l3, times, prices,
-                d1, d1_t, d2, d2_t):
-    """Redraw all three subplots."""
+                d1, d1_t, d2, d2_t, zoom_level=1.0,
+                pan_x=0.0, pan_y=0.0):
+    """Redraw all three subplots, applying zoom and pan offsets."""
     l1.set_data(times, prices)
-    ax1.set_xlim(times[0], times[-1])
+
+    # Convert time to numeric, compute base center + pan offset
+    t0 = mdates.date2num(times[0])
+    t1 = mdates.date2num(times[-1])
+    data_center = (t0 + t1) / 2
+    t_half = (t1 - t0) / 2
+    t_range = t_half / zoom_level if zoom_level > 0 else t_half
+    t_center = data_center + pan_x * t_range
+    ax1.set_xlim(mdates.num2date(t_center - t_range),
+                 mdates.num2date(t_center + t_range))
+
     margin1 = (max(prices) - min(prices)) * 0.15 or 0.5
-    ax1.set_ylim(min(prices) - margin1, max(prices) + margin1)
+    p_data_center = (max(prices) + min(prices)) / 2
+    p_half = (max(prices) - min(prices)) / 2 + margin1
+    p_range = p_half / zoom_level if zoom_level > 0 else p_half
+    p_center = p_data_center + pan_y * p_range
+    ax1.set_ylim(p_center - p_range, p_center + p_range)
 
     if d1:
         l2.set_data(d1_t, d1)
-        ax2.set_xlim(times[0], times[-1])
+        ax2.set_xlim(mdates.num2date(t_center - t_range),
+                     mdates.num2date(t_center + t_range))
         lo, hi = min(d1), max(d1)
         margin2 = (hi - lo) * 0.2 or 0.1
-        ax2.set_ylim(lo - margin2, hi + margin2)
+        d1_center = (lo + hi) / 2
+        d1_half = (hi - lo) / 2 + margin2
+        d1_range = d1_half / zoom_level if zoom_level > 0 else d1_half
+        ax2.set_ylim(d1_center - d1_range, d1_center + d1_range)
     else:
         l2.set_data([], [])
 
     if d2:
         l3.set_data(d2_t, d2)
-        ax3.set_xlim(times[0], times[-1])
+        ax3.set_xlim(mdates.num2date(t_center - t_range),
+                     mdates.num2date(t_center + t_range))
         lo, hi = min(d2), max(d2)
         margin3 = (hi - lo) * 0.2 or 0.1
-        ax3.set_ylim(lo - margin3, hi + margin3)
+        d2_center = (lo + hi) / 2
+        d2_half = (hi - lo) / 2 + margin3
+        d2_range = d2_half / zoom_level if zoom_level > 0 else d2_half
+        ax3.set_ylim(d2_center - d2_range, d2_center + d2_range)
     else:
         l3.set_data([], [])
 
@@ -187,6 +211,57 @@ def main():
     # Keep the window behind other apps on macOS
     fig.canvas.manager.window.lower()
 
+    # ── Zoom / pan state ────────────────────────────────────────────────
+    zoom_state = [1.0]   # 1.0 = fit all data
+    pan_x = [0.0]        # fractional offset of current view width
+    pan_y = [0.0]        # fractional offset of current view height
+    PAN_STEP = 0.25      # fraction of visible range per arrow press
+
+    def on_key(event):
+        print(f"[debug] key pressed: {event.key!r}")
+        changed = False
+        if event.key in ("+", "=", "add"):
+            zoom_state[0] = min(zoom_state[0] * ZOOM_STEP, 50.0)
+            print(f"[zoom] in → {zoom_state[0]:.2f}x")
+            changed = True
+        elif event.key in ("-", "_", "subtract"):
+            zoom_state[0] = max(zoom_state[0] / ZOOM_STEP, 0.05)
+            print(f"[zoom] out → {zoom_state[0]:.2f}x")
+            changed = True
+        elif event.key in ("r", "R"):
+            zoom_state[0] = 1.0
+            pan_x[0] = 0.0
+            pan_y[0] = 0.0
+            print("[zoom/pan] reset")
+            changed = True
+        elif event.key == "left":
+            pan_x[0] -= PAN_STEP
+            print(f"[pan] left → x={pan_x[0]:.2f}")
+            changed = True
+        elif event.key == "right":
+            pan_x[0] += PAN_STEP
+            print(f"[pan] right → x={pan_x[0]:.2f}")
+            changed = True
+        elif event.key == "up":
+            pan_y[0] += PAN_STEP
+            print(f"[pan] up → y={pan_y[0]:.2f}")
+            changed = True
+        elif event.key == "down":
+            pan_y[0] -= PAN_STEP
+            print(f"[pan] down → y={pan_y[0]:.2f}")
+            changed = True
+
+        if changed and len(times) >= 2:
+            t_list = list(times)
+            p_list = list(prices)
+            d1, d1_t, d2, d2_t = derivatives(t_list, p_list)
+            update_plot(fig, ax1, ax2, ax3, l1, l2, l3,
+                        t_list, p_list, d1, d1_t, d2, d2_t,
+                        zoom_level=zoom_state[0],
+                        pan_x=pan_x[0], pan_y=pan_y[0])
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
     times: deque = deque(maxlen=MAX_POINTS)
     prices: deque = deque(maxlen=MAX_POINTS)
 
@@ -208,7 +283,9 @@ def main():
         p_list = list(prices)
         d1, d1_t, d2, d2_t = derivatives(t_list, p_list)
         update_plot(fig, ax1, ax2, ax3, l1, l2, l3,
-                    t_list, p_list, d1, d1_t, d2, d2_t)
+                    t_list, p_list, d1, d1_t, d2, d2_t,
+                    zoom_level=zoom_state[0],
+                    pan_x=pan_x[0], pan_y=pan_y[0])
         plt.pause(0.05)
         print(f"Loaded {len(times)} ticks.")
 
@@ -234,7 +311,9 @@ def main():
                 p_list = list(prices)
                 d1, d1_t, d2, d2_t = derivatives(t_list, p_list)
                 update_plot(fig, ax1, ax2, ax3, l1, l2, l3,
-                            t_list, p_list, d1, d1_t, d2, d2_t)
+                            t_list, p_list, d1, d1_t, d2, d2_t,
+                            zoom_level=zoom_state[0],
+                            pan_x=pan_x[0], pan_y=pan_y[0])
             else:
                 # Keep the window responsive between throttled redraws
                 fig.canvas.flush_events()
