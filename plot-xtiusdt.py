@@ -173,7 +173,8 @@ def update_plot(fig, ax1, ax2, ax3, l1, l2, l3, times, prices,
         d1_center = (lo + hi) / 2
         d1_half = (hi - lo) / 2 + margin2
         d1_range = d1_half / zoom_level if zoom_level > 0 else d1_half
-        ax2.set_ylim(d1_center - d1_range, d1_center + d1_range)
+        ax2.set_ylim(d1_center + pan_y * d1_range - d1_range,
+                     d1_center + pan_y * d1_range + d1_range)
     else:
         l2.set_data([], [])
 
@@ -186,7 +187,8 @@ def update_plot(fig, ax1, ax2, ax3, l1, l2, l3, times, prices,
         d2_center = (lo + hi) / 2
         d2_half = (hi - lo) / 2 + margin3
         d2_range = d2_half / zoom_level if zoom_level > 0 else d2_half
-        ax3.set_ylim(d2_center - d2_range, d2_center + d2_range)
+        ax3.set_ylim(d2_center + pan_y * d2_range - d2_range,
+                     d2_center + pan_y * d2_range + d2_range)
     else:
         l3.set_data([], [])
 
