@@ -18,9 +18,11 @@ import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
+import { placeLimitOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
 import {
   fetchPositions,
   calcPnlPct,
+  closePosition,
   Position,
 } from "./src/lib/positions.js";
 
@@ -53,6 +55,13 @@ let direction: "↑" | "↓" = "↑";
 let streak = 0;
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
 let allPositions: Position[] = [];
+/** Tracks a position opened by the auto-trader so we know when to close it */
+let botPosition: { side: "Long" | "Short"; qty: number; entryPrice: number } | null = null;
+/** Previous arrow direction — used to detect flips and close the bot position */
+let prevDirection: "↑" | "↓" = "↑";
+/** API credentials, set once in main() */
+let apiKey = "";
+let secretRaw: Buffer = Buffer.alloc(0);
 
 function updateDirection(last: number, prev: number): void {
   if (last > prev) {
@@ -118,13 +127,70 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 /*  Trade print (from trade_p channel)                                 */
 /* ------------------------------------------------------------------ */
 
-function printTrade(symbol: string, price: number): void {
+async function printTrade(symbol: string, price: number): Promise<void> {
   if (price !== lastTickerPrice) {
+    console.log(price, lastTickerPrice)
     updateDirection(price, lastTickerPrice);
     const arrow = direction;
-    console.log(allPositions)
     const streakStr = ` (${arrow}×${streak})`;
     console.log(`${fmtTime()}  ${symbol}  ${arrow} $${price.toFixed(2)}${streakStr}`);
+
+    // ── Auto-trade logic ──────────────────────────────────────────
+    const delta = price - lastTickerPrice;
+
+    // Close bot position when the arrow flips
+    if (botPosition && direction !== prevDirection) {
+      const pos = allPositions.find((p) => p.symbol === symbol);
+      if (pos) {
+        await closePosition(pos, apiKey, secretRaw);
+      }
+      botPosition = null;
+    }
+
+    // Enter new position when conditions are met
+    if (!botPosition) {
+      if ((streak >= 3 || delta > 0.10) && lastTickerPrice != 0) {
+        await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
+        await placeLimitOrder(
+          {
+            account: "usdt-m",
+            symbol,
+            side: "Buy",
+            price,
+            qty: 0.01,
+            posSide: "Long",
+            timeInForce: "GoodTillCancel",
+            stopLoss: +(price - 0.01).toFixed(2),
+          },
+          apiKey,
+          secretRaw,
+        );
+        botPosition = { side: "Long", qty: 0.01, entryPrice: price };
+        console.log(`[${fmtTime()}]  🤖  LONG limit @ $${price.toFixed(2)}  SL: $${(price - 0.01).toFixed(2)}`);
+      } else if ((streak >= 3 || delta < -0.10) && lastTickerPrice != 0) {
+        await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
+        await placeLimitOrder(
+          {
+            account: "usdt-m",
+            symbol,
+            side: "Sell",
+            price,
+            qty: 0.01,
+            posSide: "Short",
+            timeInForce: "GoodTillCancel",
+            stopLoss: +(price + 0.01).toFixed(2),
+          },
+          apiKey,
+          secretRaw,
+        );
+        botPosition = { side: "Short", qty: 0.01, entryPrice: price };
+        console.log(`[${fmtTime()}]  🤖  SHORT limit @ $${price.toFixed(2)}  SL: $${(price + 0.01).toFixed(2)}`);
+      }
+    }
+
+    prevDirection = direction;
+    // ───────────────────────────────────────────────────────────────
+
     lastTickerPrice = price;
     savePrice(price);
     notifyLimitScripts();
@@ -137,7 +203,8 @@ function printTrade(symbol: string, price: number): void {
 
 async function main(): Promise<void> {
   const creds = loadCredentials(import.meta.dirname);
-  const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+  apiKey = creds.PHEMEX_API_KEY;
+  secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
   console.log(`  Symbol:       ${SYMBOL}`);
@@ -152,7 +219,7 @@ async function main(): Promise<void> {
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [SYMBOL], id: 1 });
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
     },
-    onMessage: (msg) => {
+    onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
       // 24h ticker (columnar USDT-M format)
       if (
@@ -172,7 +239,7 @@ async function main(): Promise<void> {
         const trades = m.trades_p as unknown[][];
         if (trades.length > 0 && trades[0].length >= 3) {
           const last = Number(trades[0][2]);
-          printTrade(SYMBOL, last);
+          await printTrade(SYMBOL, last);
         }
       }
     },
