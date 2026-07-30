@@ -143,12 +143,13 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 /* ------------------------------------------------------------------ */
 
 async function printTrade(symbol: string, price: number): Promise<void> {
-  console.log(`printTrade ${symbol} ${price}`)
+  console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
   if (lastTradePrice === 0) {
     lastTradePrice = price
     streakStartPrice = price
     console.log("lastTradePrice")
   }
+  console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
   if (price !== lastTradePrice) {
     updateDirection(price, lastTradePrice);
     const arrow = direction;
@@ -307,7 +308,7 @@ async function main(): Promise<void> {
             `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(3)} ${bigMove.padEnd(3)}`
           );
           prevPrice = p;
-        }        
+        }
       }
       // 24h ticker (columnar USDT-M format)
       if (
@@ -324,10 +325,16 @@ async function main(): Promise<void> {
 
       // Real-time trades
       if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
+        console.log("Received")
+        console.log(m.trades_p.length)
         const trades = m.trades_p as unknown[][];
-        if (trades.length > 0 && trades[0].length >= 3) {
-          const last = Number(trades[0][2]);
-          await printTrade(SYMBOL, last);
+        if (trades.length > 0) {
+          for (const trade of trades) {
+            if (trade.length >= 3) {
+              const last = Number(trade[2]);
+              await printTrade(SYMBOL, last);
+            }
+          }
         }
       }
     },
