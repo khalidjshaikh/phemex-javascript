@@ -60,8 +60,8 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-lastTickerPrice ??= 0
-lastTradePrice ??= 0
+//homelastTickerPrice ??= 0
+//lastTradePrice ??= 0
 // streak ??= 0
 // streakStartPrice ??= 0
 
