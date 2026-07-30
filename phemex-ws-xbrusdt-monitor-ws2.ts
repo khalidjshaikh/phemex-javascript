@@ -18,7 +18,7 @@ import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { placeLimitOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { placeLimitOrder, cancelOrders, setLeverageUsdtM } from "./src/place-limit-order.js";
 import {
   fetchPositions,
   calcPnlPct,
@@ -148,6 +148,8 @@ async function printTrade(symbol: string, price: number): Promise<void> {
 
     // Close bot position when the arrow flips
     if (botPosition && direction !== prevDirection) {
+      await cancelOrders({ symbol }, apiKey, secretRaw);
+      console.log(`[${fmtTime()}]  🗑  Cancelled all ${prevDirection === "↑" ? "Long" : "Short"} orders`);
       const pos = allPositions.find((p) => p.symbol === symbol);
       if (pos) {
         await closePosition(pos, apiKey, secretRaw);
