@@ -139,6 +139,70 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 }
 
 
+/* ── Order helpers (used by auto_trade) ───────────────────────────── */
+
+/**
+ * Place `spread` Long limit orders at descending prices (price - cent * 0.01),
+ * each with a stop-loss 1 tick below the entry.
+ */
+async function placeLongLimitOrders(
+  price: number,
+  spread: number,
+  symbol: string,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<void> {
+  for (let cent = 0; cent < spread; cent++) {
+    const entryPrice = +(price - cent * 0.01).toFixed(2);
+    const slPrice = +(entryPrice - 0.01).toFixed(2);
+    await placeLimitOrder(
+      {
+        account: "usdt-m",
+        symbol,
+        side: "Buy",
+        price: entryPrice,
+        qty: 0.01,
+        posSide: "Long",
+        timeInForce: "GoodTillCancel",
+        stopLoss: slPrice,
+      },
+      apiKey,
+      secretRaw,
+    );
+  }
+}
+
+/**
+ * Place `spread` Short limit orders at ascending prices (price + cent * 0.01),
+ * each with a stop-loss 1 tick above the entry.
+ */
+async function placeShortLimitOrders(
+  price: number,
+  spread: number,
+  symbol: string,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<void> {
+  for (let cent = 0; cent < spread; cent++) {
+    const entryPrice = +(price + cent * 0.01).toFixed(2);
+    const slPrice = +(entryPrice + 0.01).toFixed(2);
+    await placeLimitOrder(
+      {
+        account: "usdt-m",
+        symbol,
+        side: "Sell",
+        price: entryPrice,
+        qty: 0.01,
+        posSide: "Short",
+        timeInForce: "GoodTillCancel",
+        stopLoss: slPrice,
+      },
+      apiKey,
+      secretRaw,
+    );
+  }
+}
+
 /*  Trade batch processor (encapsulates streak tracking for 1000-trade batches) */
 /* ------------------------------------------------------------------ */
 
@@ -244,57 +308,13 @@ class TradeBatchProcessor {
 
     if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
       await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-      for (let cent = 0; cent < 10; cent++) {
-        const entryPrice = +(price - cent * 0.01).toFixed(2);
-        const slPrice = +(entryPrice - 0.01).toFixed(2);
-        // console.log(
-        //   `[${fmtTime()}]  🤖  before LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
-        // );
-        await placeLimitOrder(
-          {
-            account: "usdt-m",
-            symbol,
-            side: "Buy",
-            price: entryPrice,
-            qty: 0.01,
-            posSide: "Long",
-            timeInForce: "GoodTillCancel",
-            stopLoss: slPrice,
-          },
-          apiKey,
-          secretRaw,
-        );
-        // console.log(
-        //   `[${fmtTime()}]  🤖  after LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
-        // );
-      }
+      await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      //await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Long", qty: 0.05, entryPrice: price };
     } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
       await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-      for (let cent = 0; cent < 10; cent++) {
-        const entryPrice = +(price + cent * 0.01).toFixed(2);
-        const slPrice = +(entryPrice + 0.01).toFixed(2);
-        // console.log(
-        //   `[${fmtTime()}]  🤖  before SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
-        // );
-        await placeLimitOrder(
-          {
-            account: "usdt-m",
-            symbol,
-            side: "Sell",
-            price: entryPrice,
-            qty: 0.01,
-            posSide: "Short",
-            timeInForce: "GoodTillCancel",
-            stopLoss: slPrice,
-          },
-          apiKey,
-          secretRaw,
-        );
-        // console.log(
-        //   `[${fmtTime()}]  🤖  after SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
-        // );
-      }
+      await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      //await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Short", qty: 0.05, entryPrice: price };
     }
   }
