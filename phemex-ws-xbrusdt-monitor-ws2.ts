@@ -13,6 +13,7 @@
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
 
+import "./src/lib/globals.js";
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
@@ -59,6 +60,7 @@ function fmtNum(n: number, d: number = 2): string {
 }
 
 let lastTickerPrice = 0;
+let lastTradePrice = 0;
 let direction: "↑" | "↓" = "↑";
 let streak = 0;
 let streakStartPrice = 0;
@@ -139,12 +141,14 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 /* ------------------------------------------------------------------ */
 
 async function printTrade(symbol: string, price: number): Promise<void> {
-  if (lastTickerPrice === 0) {
-    lastTickerPrice = price
+  console.log(`printTrade ${symbol} ${price}`)
+  if (lastTradePrice === 0) {
+    lastTradePrice = price
     streakStartPrice = price
+    console.log("lastTradePrice")
   }
-  if (price !== lastTickerPrice) {
-    updateDirection(price, lastTickerPrice);
+  if (price !== lastTradePrice) {
+    updateDirection(price, lastTradePrice);
     const arrow = direction;
     const streakDelta = price - streakStartPrice;
     const deltaStr = streakDelta >= 0 ? `Δ+$${streakDelta.toFixed(2)}` : `Δ-$${Math.abs(streakDelta).toFixed(2)}`;
@@ -152,7 +156,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
     console.log(`${fmtTime()}  ${symbol}  ${arrow} $${price.toFixed(2)}${streakStr}`);
 
     // ── Auto-trade logic ──────────────────────────────────────────
-    const delta = price - lastTickerPrice;
+    const delta = price - lastTradePrice;
 
     // Close bot position when the arrow flips
     if (botPosition && direction !== prevDirection) {
@@ -218,7 +222,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
     prevDirection = direction;
     // ───────────────────────────────────────────────────────────────
 
-    lastTickerPrice = price;
+    lastTradePrice = price;
     savePrice(price);
     notifyLimitScripts();
   }
@@ -249,7 +253,19 @@ async function main(): Promise<void> {
     onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
       console.log(msg)
-      if(msg.trades_p){
+      if(msg.dts)
+      {
+        console.log({ dts: new Date(Number(msg.dts/1e6)),
+                      locale: (new Date(Number(msg.dts/1e6)).toLocaleString())
+        })
+      }
+      if(msg.mts)
+      {
+        console.log({ dts: new Date(Number(msg.mts/1e6)),
+                      locale: (new Date(Number(msg.mts/1e6)).toLocaleString())
+        })
+      }
+      if(msg.trades_p && msg.trades_p.length == 1000){
         let prevPrice: number | null = null;
         let prevDirection: string | null = null;
         let streak = 0;
@@ -284,22 +300,10 @@ async function main(): Promise<void> {
           const bigMove = Math.abs(lastDelta) >= 0.10 ? '≥0.10' : '';
           arrow = arrow ? `${arrow.padEnd(2)} Δ${deltaStr.padEnd(5)}` : '';
           console.log(
-            `${date.toLocaleString().padEnd(21)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(3)} ${bigMove.padEnd(3)}`
+            `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(3)} ${bigMove.padEnd(3)}`
           );
           prevPrice = p;
         }        
-        if(msg.dts)
-        {
-          console.log({ dts: new Date(Number(msg.dts/1e6)),
-                        locale: (new Date(Number(msg.dts/1e6)).toLocaleString())
-          })
-        }
-        if(msg.mts)
-        {
-          console.log({ dts: new Date(Number(msg.mts/1e6)),
-                        locale: (new Date(Number(msg.mts/1e6)).toLocaleString())
-          })
-        }
       }
       // 24h ticker (columnar USDT-M format)
       if (
@@ -315,7 +319,7 @@ async function main(): Promise<void> {
       }
 
       // Real-time trades
-      if (m.trades_p && m.symbol === SYMBOL) {
+      if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
         const trades = m.trades_p as unknown[][];
         if (trades.length > 0 && trades[0].length >= 3) {
           const last = Number(trades[0][2]);

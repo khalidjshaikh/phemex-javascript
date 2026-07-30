@@ -520,16 +520,39 @@ export async function placeLimitOrder(
   secretRaw: Buffer,
   httpRequest?: HttpRequest,
 ): Promise<PlaceOrderResult> {
+  let result: PlaceOrderResult;
+
   switch (params.account) {
     case "spot":
-      return placeSpot(params, apiKey, secretRaw, httpRequest);
+      result = await placeSpot(params, apiKey, secretRaw, httpRequest);
+      break;
     case "usdt-m":
-      return placeLinear(params, apiKey, secretRaw, httpRequest);
+      result = await placeLinear(params, apiKey, secretRaw, httpRequest);
+      break;
     case "coin-m":
-      return placeInverse(params, apiKey, secretRaw, httpRequest);
+      result = await placeInverse(params, apiKey, secretRaw, httpRequest);
+      break;
     default:
       throw new Error(`Unknown account type: ${params.account}`);
   }
+
+  // Automatically cancel the limit order after 15 seconds in the background.
+  const orderId = result.orderID ?? result.clOrdID;
+  if (orderId) {
+    const cancelDelay = 15_000;
+    setTimeout(() => {
+      cancelOrder(
+        { symbol: params.symbol, orderId, posSide: params.posSide },
+        apiKey,
+        secretRaw,
+        httpRequest,
+      ).catch(() => {
+        // Silently ignore — order may have already filled or been cancelled.
+      });
+    }, cancelDelay);
+  }
+
+  return result;
 }
 
 /**
