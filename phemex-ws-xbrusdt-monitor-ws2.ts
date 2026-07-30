@@ -131,7 +131,10 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 /* ------------------------------------------------------------------ */
 
 async function printTrade(symbol: string, price: number): Promise<void> {
-  if (lastTickerPrice === 0) lastTickerPrice = price
+  if (lastTickerPrice === 0) {
+    lastTickerPrice = price
+    streakStartPrice = price
+  }
   if (price !== lastTickerPrice) {
     updateDirection(price, lastTickerPrice);
     const arrow = direction;
@@ -157,40 +160,48 @@ async function printTrade(symbol: string, price: number): Promise<void> {
       console.log(streakDelta)
       if ((streak >= 3 || streakDelta > 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-        await placeLimitOrder(
-          {
-            account: "usdt-m",
-            symbol,
-            side: "Buy",
-            price,
-            qty: 0.01,
-            posSide: "Long",
-            timeInForce: "GoodTillCancel",
-            stopLoss: +(price - 0.01).toFixed(2),
-          },
-          apiKey,
-          secretRaw,
-        );
-        botPosition = { side: "Long", qty: 0.01, entryPrice: price };
-        console.log(`[${fmtTime()}]  🤖  LONG limit @ $${price.toFixed(2)}  SL: $${(price - 0.01).toFixed(2)}`);
+        for (let cent = 1; cent <= 5; cent++) {
+          const entryPrice = +(price + cent * 0.01).toFixed(2);
+          const slPrice = +(entryPrice - 0.01).toFixed(2);
+          await placeLimitOrder(
+            {
+              account: "usdt-m",
+              symbol,
+              side: "Buy",
+              price: entryPrice,
+              qty: 0.01,
+              posSide: "Long",
+              timeInForce: "GoodTillCancel",
+              stopLoss: slPrice,
+            },
+            apiKey,
+            secretRaw,
+          );
+          console.log(`[${fmtTime()}]  🤖  LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
+        }
+        botPosition = { side: "Long", qty: 0.05, entryPrice: price };
       } else if ((streak >= 3 || streakDelta < -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-        await placeLimitOrder(
-          {
-            account: "usdt-m",
-            symbol,
-            side: "Sell",
-            price,
-            qty: 0.01,
-            posSide: "Short",
-            timeInForce: "GoodTillCancel",
-            stopLoss: +(price + 0.01).toFixed(2),
-          },
-          apiKey,
-          secretRaw,
-        );
-        botPosition = { side: "Short", qty: 0.01, entryPrice: price };
-        console.log(`[${fmtTime()}]  🤖  SHORT limit @ $${price.toFixed(2)}  SL: $${(price + 0.01).toFixed(2)}`);
+        for (let cent = 1; cent <= 5; cent++) {
+          const entryPrice = +(price - cent * 0.01).toFixed(2);
+          const slPrice = +(entryPrice + 0.01).toFixed(2);
+          await placeLimitOrder(
+            {
+              account: "usdt-m",
+              symbol,
+              side: "Sell",
+              price: entryPrice,
+              qty: 0.01,
+              posSide: "Short",
+              timeInForce: "GoodTillCancel",
+              stopLoss: slPrice,
+            },
+            apiKey,
+            secretRaw,
+          );
+          console.log(`[${fmtTime()}]  🤖  SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
+        }
+        botPosition = { side: "Short", qty: 0.05, entryPrice: price };
       }
     }
 
