@@ -1,16 +1,17 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * phemex-xti-monitor.ts — Monitor XTIUSDT position in an infinite loop.
+ * phemex-xti-monitor.ts — Monitor a USDT-M perpetual position in an infinite loop.
  *
  * - Polls USDT-M positions every ~2 s.
- * - When unrealized PnL drops below -100% of margin (or no position exists),
- *   closes the current position via market order, then opens a new long
- *   XTIUSDT position at 0.01 contracts.
+ * - When unrealized PnL drops below threshold (or no position exists),
+ *   closes the current position via market order, then opens a new long.
  * - Loops indefinitely.  Ctrl+C (SIGINT) to stop.
  *
  * Usage:
  *   npx tsx phemex-xti-monitor.ts
+ *   npx tsx phemex-xti-monitor.ts --symbol XBRUSDT
+ *   npx tsx phemex-xti-monitor.ts --symbol XBRUSDT --qty 0.02 --leverage 50 --pnl-threshold -200
  */
 
 import { base64UrlDecode } from "./src/http-client.js";
@@ -18,15 +19,26 @@ import { loadCredentials } from "./src/credentials.js";
 import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss, Position } from "./src/lib/positions.js";
 
 /* ------------------------------------------------------------------ */
-/*  Config                                                             */
+/*  Config (defaults, overridable via CLI flags)                       */
 /* ------------------------------------------------------------------ */
 
-const SYMBOL = "XTIUSDT";
-const POSITION_QTY = 0.01;       // contracts to open on each new long
-const PNL_THRESHOLD_PCT = -100;   // close when PnL < this % of margin
-const LEVERAGE = 100;             // leverage to set
-const POLL_INTERVAL_MS = 2_000;  // ms between position polls
-const STOP_LOSS_INTERVAL_MS = 60_000;  // ms between stop-loss updates
+const SYMBOL_DEFAULT = "XTIUSDT";
+const POSITION_QTY_DEFAULT = 0.01;
+const PNL_THRESHOLD_PCT_DEFAULT = -100;
+const LEVERAGE_DEFAULT = 100;
+const POLL_INTERVAL_MS = 2_000;
+const STOP_LOSS_INTERVAL_MS = 60_000;
+
+/* Parse CLI flags like --symbol XBRUSDT --qty 0.02 --leverage 50 --pnl-threshold -200 */
+function parseArg(name: string): string | undefined {
+  const idx = process.argv.indexOf(`--${name}`);
+  return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
+}
+
+const SYMBOL      = parseArg("symbol")        ?? SYMBOL_DEFAULT;
+const POSITION_QTY = parseFloat(parseArg("qty") ?? String(POSITION_QTY_DEFAULT));
+const PNL_THRESHOLD_PCT = parseInt(parseArg("pnl-threshold") ?? String(PNL_THRESHOLD_PCT_DEFAULT), 10);
+const LEVERAGE    = parseInt(parseArg("leverage") ?? String(LEVERAGE_DEFAULT), 10);
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -48,7 +60,7 @@ async function main(): Promise<void> {
   const creds = loadCredentials(import.meta.dirname);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`[${fmtTime()}]  ⚡  Starting XTIUSDT position monitor`);
+  console.log(`[${fmtTime()}]  ⚡  Starting position monitor`);
   console.log(`     Symbol:       ${SYMBOL}`);
   console.log(`     Qty per open: ${POSITION_QTY}`);
   console.log(`     PnL trigger:  < ${PNL_THRESHOLD_PCT}%`);
