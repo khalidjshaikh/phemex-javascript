@@ -249,6 +249,58 @@ async function main(): Promise<void> {
     onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
       console.log(msg)
+      if(msg.trades_p){
+        let prevPrice: number | null = null;
+        let prevDirection: string | null = null;
+        let streak = 0;
+        let streakStartPrice: number | null = null;
+        for (const trade of msg.trades_p.reverse()) {
+          const [timestamp, side, price, quantity] = trade;
+          const p = Number(price);
+          const date = new Date(Number(timestamp / 1e6));
+          let arrow = '';
+          let delta = 0;
+          let sign = '';
+          if (prevPrice !== null) {
+            const dir = p > prevPrice ? '↑' : p < prevPrice ? '↓' : '→';
+            if (dir === prevDirection) {
+              streak++;
+            } else {
+              streak = 1;
+              streakStartPrice = prevPrice;
+            }
+            delta = streakStartPrice !== null ? p - streakStartPrice : 0;
+            sign = delta >= 0 ? '+' : '';
+            arrow = streak > 1 ? `${dir}${streak}` : dir;
+            prevDirection = dir;
+          } else {
+            streak = 1;
+            streakStartPrice = p;
+            prevDirection = '→';
+          }
+          const deltaStr = `${sign}${delta.toFixed(2)}`.padStart(5);
+          const lastDelta = prevPrice !== null ? p - prevPrice : 0;
+          const lastDeltaStr = prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
+          const bigMove = Math.abs(lastDelta) >= 0.10 ? '≥0.10' : '';
+          arrow = arrow ? `${arrow.padEnd(2)} Δ${deltaStr.padEnd(5)}` : '';
+          console.log(
+            `${date.toLocaleString().padEnd(21)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(3)} ${bigMove.padEnd(3)}`
+          );
+          prevPrice = p;
+        }        
+        if(msg.dts)
+        {
+          console.log({ dts: new Date(Number(msg.dts/1e6)),
+                        locale: (new Date(Number(msg.dts/1e6)).toLocaleString())
+          })
+        }
+        if(msg.mts)
+        {
+          console.log({ dts: new Date(Number(msg.mts/1e6)),
+                        locale: (new Date(Number(msg.mts/1e6)).toLocaleString())
+          })
+        }
+      }
       // 24h ticker (columnar USDT-M format)
       if (
         m.method === "perp_market24h_pack_p.update" &&
