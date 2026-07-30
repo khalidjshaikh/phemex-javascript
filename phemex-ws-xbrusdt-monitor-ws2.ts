@@ -14,6 +14,7 @@
  */
 
 
+import "./src/lib/globals.js"
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
@@ -59,11 +60,10 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-lastTickerPrice = 0
-lastTradePrice = 0
-streak = 0
-streakStartPrice = 0
-
+lastTickerPrice ??= 0
+lastTradePrice ??= 0
+// streak ??= 0
+// streakStartPrice ??= 0
 
 let direction: "↑" | "↓" = "↑";
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
@@ -148,6 +148,9 @@ async function printTrade(symbol: string, price: number): Promise<void> {
   //   lastTradePrice = price
   //   streakStartPrice = price
   //   console.log("lastTradePrice")
+    // lastTradePrice = price
+    // streakStartPrice = price
+    // console.log("lastTradePrice")
   // }
   console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
   if (price !== lastTradePrice) {
@@ -177,8 +180,8 @@ async function printTrade(symbol: string, price: number): Promise<void> {
       console.log(streakDelta)
       if ((streak >= 3 && streakDelta > 0 || streakDelta >= 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-        for (let cent = 0; cent < 1; cent++) {
-          const entryPrice = +(price + cent * 0.01).toFixed(2);
+        for (let cent = 0; cent < 10; cent++) {
+          const entryPrice = +(price - cent * 0.01).toFixed(2);
           const slPrice = +(entryPrice - 0.01).toFixed(2);
           console.log(`[${fmtTime()}]  🤖  before LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
           await placeLimitOrder(
@@ -200,8 +203,8 @@ async function printTrade(symbol: string, price: number): Promise<void> {
         botPosition = { side: "Long", qty: 0.05, entryPrice: price };
       } else if ((streak >= 3 && streakDelta < 0|| streakDelta <= -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-        for (let cent = 0; cent < 1; cent++) {
-          const entryPrice = +(price - cent * 0.01).toFixed(2);
+        for (let cent = 0; cent < 10; cent++) {
+          const entryPrice = +(price + cent * 0.01).toFixed(2);
           const slPrice = +(entryPrice + 0.01).toFixed(2);  // above current market
           console.log(`[${fmtTime()}]  🤖  before SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
           await placeLimitOrder(
@@ -309,6 +312,7 @@ async function main(): Promise<void> {
           );
           prevPrice = p;
         }
+        lastTradePrice = prevPrice
       }
       // 24h ticker (columnar USDT-M format)
       if (
