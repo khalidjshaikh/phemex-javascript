@@ -144,11 +144,11 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 
 async function printTrade(symbol: string, price: number): Promise<void> {
   console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
-  if (lastTradePrice === 0) {
-    lastTradePrice = price
-    streakStartPrice = price
-    console.log("lastTradePrice")
-  }
+  // if (lastTradePrice === 0) {
+  //   lastTradePrice = price
+  //   streakStartPrice = price
+  //   console.log("lastTradePrice")
+  // }
   console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
   if (price !== lastTradePrice) {
     updateDirection(price, lastTradePrice);
