@@ -81,15 +81,15 @@ async function main(): Promise<void> {
     // 'r' → manually update stop-loss (same logic as the 60s auto-update)
     if (buf.length === 1 && (buf[0] === 0x72 || buf[0] === 0x52)) {
       (async () => {
-        // try {
-        //   const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
-        //   const pos = positions.find((p) => p.symbol === SYMBOL);
-        //   if (!pos) { console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position — skipping stop-loss`); return; }
-        //   await doStopLossUpdate(pos, Date.now());
-        // } catch (err: unknown) {
-        //   const msg = err instanceof Error ? err.message : String(err);
-        //   console.error(`[${fmtTime()}]  ✗  Stop-loss key error: ${msg}`);
-        // }
+        try {
+          const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+          const pos = positions.find((p) => p.symbol === SYMBOL);
+          if (!pos) { console.log(`[${fmtTime()}]  ℹ  No ${SYMBOL} position — skipping stop-loss`); return; }
+          await doStopLossUpdate(pos, Date.now());
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[${fmtTime()}]  ✗  Stop-loss key error: ${msg}`);
+        }
       })();
     }
   });
@@ -104,6 +104,8 @@ async function main(): Promise<void> {
    * and set the stop-loss at max(mark samples) − $0.10.
    */
   async function doStopLossUpdate(pos: Position, now: number): Promise<void> {
+    return
+    
     const markPrice = parseFloat(pos.markPriceRp || "0");
     const size = parseFloat(pos.size || "0");
     if (markPrice <= 0 || size <= 0) return;
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
     }
 
     const maxMark = Math.max(...markSamples.map((s) => s.price));
-    const stopPrice = Math.round((maxMark - 0.10) * 100) / 100;
+    const stopPrice = Math.round((maxMark - 0.01) * 100) / 100;
 
     if (stopPrice > 0) {
       await setStopLoss(SYMBOL, "Sell", "Long", stopPrice, size, creds.PHEMEX_API_KEY, secretRaw);
@@ -193,11 +195,11 @@ async function main(): Promise<void> {
         nextStopLossUpdate = 0;  // schedule stop-loss on next tick
       }
 
-      // const now = Date.now();
-      // if (xtiPos && !reopened && now >= nextStopLossUpdate) {
-        // await doStopLossUpdate(xtiPos, now);
-        // nextStopLossUpdate = now + STOP_LOSS_INTERVAL_MS;
-      // }
+      const now = Date.now();
+      if (xtiPos && !reopened && now >= nextStopLossUpdate) {
+        await doStopLossUpdate(xtiPos, now);
+        nextStopLossUpdate = now + STOP_LOSS_INTERVAL_MS;
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${fmtTime()}]  ✗  Error: ${msg}`);
