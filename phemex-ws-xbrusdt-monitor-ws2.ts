@@ -168,7 +168,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
     // Enter new position when conditions are met
     if (!botPosition) {
       console.log(streakDelta)
-      if ((streak >= 3 || streakDelta > 0.10)) {
+      if ((streak >= 3 || streakDelta >= 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
         for (let cent = 1; cent <= 5; cent++) {
           const entryPrice = +(price + cent * 0.01).toFixed(2);
@@ -190,7 +190,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
           console.log(`[${fmtTime()}]  🤖  LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
         }
         botPosition = { side: "Long", qty: 0.05, entryPrice: price };
-      } else if ((streak >= 3 || streakDelta < -0.10)) {
+      } else if ((streak >= 3 || streakDelta <= -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
         for (let cent = 1; cent <= 5; cent++) {
           const entryPrice = +(price - cent * 0.01).toFixed(2);
