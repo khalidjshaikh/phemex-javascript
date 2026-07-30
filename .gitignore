@@ -27,3 +27,4 @@ xtiusdt-last-price.txt
 csharp-ticker/obj
 .phemex-credentials-gmail.json
 .phemex-credentials-meta.json
+src/lib/globals.json

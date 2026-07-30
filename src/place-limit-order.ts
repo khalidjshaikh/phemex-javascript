@@ -256,10 +256,12 @@ export async function placeLinear(
     "",
   )) as Record<string, unknown>;
 
+  try {
   if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
   const data = resp.data as PlaceOrderResult | undefined;
   if (!data) throw new Error("Empty response data");
   return data;
+  } catch {}
 }
 
 /**
@@ -535,6 +537,8 @@ export async function placeLimitOrder(
     default:
       throw new Error(`Unknown account type: ${params.account}`);
   }
+  if (result.orderID === undefined) 
+    return result;
 
   // Automatically cancel the limit order after 15 seconds in the background.
   const orderId = result.orderID ?? result.clOrdID;

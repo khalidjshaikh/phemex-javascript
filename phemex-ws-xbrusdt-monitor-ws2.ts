@@ -13,6 +13,7 @@
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
 
+
 import "./src/lib/globals.js";
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
@@ -59,11 +60,12 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-let lastTickerPrice = 0;
-let lastTradePrice = 0;
+
+lastTickerPrice ??= 0;
+lastTradePrice ??= 0;
 let direction: "↑" | "↓" = "↑";
-let streak = 0;
-let streakStartPrice = 0;
+streak ??= 0;
+streakStartPrice ??= 0;
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
@@ -71,7 +73,7 @@ let botPosition: { side: "Long" | "Short"; qty: number; entryPrice: number } | n
 /** Previous arrow direction — used to detect flips and close the bot position */
 let prevDirection: "↑" | "↓" = "↑";
 /** API credentials, set once in main() */
-let apiKey = "";
+apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
 
 function updateDirection(last: number, prev: number): void {
@@ -152,7 +154,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
     const arrow = direction;
     const streakDelta = price - streakStartPrice;
     const deltaStr = streakDelta >= 0 ? `Δ+$${streakDelta.toFixed(2)}` : `Δ-$${Math.abs(streakDelta).toFixed(2)}`;
-    const streakStr = ` (${arrow}×${streak}, ${deltaStr})`;
+    const streakStr = ` (${arrow}×${streak}, ${deltaStr}, ${streakDelta})`;
     console.log(`${fmtTime()}  ${symbol}  ${arrow} $${price.toFixed(2)}${streakStr}`);
 
     // ── Auto-trade logic ──────────────────────────────────────────
@@ -174,7 +176,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
       console.log(streakDelta)
       if ((streak >= 3 || streakDelta >= 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-        for (let cent = 1; cent <= 5; cent++) {
+        for (let cent = 1; cent <= 10; cent++) {
           const entryPrice = +(price + cent * 0.01).toFixed(2);
           const slPrice = +(entryPrice - 0.01).toFixed(2);
           await placeLimitOrder(
@@ -196,9 +198,9 @@ async function printTrade(symbol: string, price: number): Promise<void> {
         botPosition = { side: "Long", qty: 0.05, entryPrice: price };
       } else if ((streak >= 3 || streakDelta <= -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-        for (let cent = 1; cent <= 5; cent++) {
+        for (let cent = 1; cent <= 10; cent++) {
           const entryPrice = +(price - cent * 0.01).toFixed(2);
-          const slPrice = +(entryPrice + 0.01).toFixed(2);
+          const slPrice = +(price + 0.01).toFixed(2);  // above current market
           await placeLimitOrder(
             {
               account: "usdt-m",
