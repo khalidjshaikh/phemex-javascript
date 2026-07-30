@@ -14,7 +14,6 @@
  */
 
 
-import "./src/lib/globals.js";
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
@@ -60,12 +59,13 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+lastTickerPrice = 0
+lastTradePrice = 0
+streak = 0
+streakStartPrice = 0
 
-lastTickerPrice ??= 0;
-lastTradePrice ??= 0;
+
 let direction: "↑" | "↓" = "↑";
-streak ??= 0;
-streakStartPrice ??= 0;
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
