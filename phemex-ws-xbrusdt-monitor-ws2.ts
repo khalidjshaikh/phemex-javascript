@@ -133,41 +133,102 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
     const streakStr = ` (${direction}×${streak}, ${deltaStr})`;
     console.log(line + streakStr);
     lastTickerPrice = last;
-    savePrice(last);
-    notifyLimitScripts();
+    // savePrice(last);
+    // notifyLimitScripts();
   // }
 }
 
+
+/*  Trade batch processor (encapsulates streak tracking for 1000-trade batches) */
 /* ------------------------------------------------------------------ */
-/*  Trade print (from trade_p channel)                                 */
-/* ------------------------------------------------------------------ */
 
-async function printTrade(symbol: string, price: number): Promise<void> {
-  console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
-  // if (lastTradePrice === 0) {
-  //   lastTradePrice = price
-  //   streakStartPrice = price
-  //   console.log("lastTradePrice")
-    // lastTradePrice = price
-    // streakStartPrice = price
-    // console.log("lastTradePrice")
-  // }
-  console.log(`printTrade ${symbol} ${price} ${lastTradePrice}`)
-  if (price !== lastTradePrice) {
-    updateDirection(price, lastTradePrice);
-    const arrow = direction;
-    const streakDelta = price - streakStartPrice;
-    const deltaStr = streakDelta >= 0 ? `Δ+$${streakDelta.toFixed(2)}` : `Δ-$${Math.abs(streakDelta).toFixed(2)}`;
-    const streakStr = ` (${arrow}×${streak}, ${deltaStr}, ${streakDelta})`;
-    console.log(`${fmtTime()}  ${symbol}  ${arrow} $${price.toFixed(2)}${streakStr}`);
+class TradeBatchProcessor {
+  static prevPrice: number | null = null;
+  static prevDirection: string | null = null;
+  static streak: number = 0;
+  static streakStartPrice: number | null = null;
 
-    // ── Auto-trade logic ──────────────────────────────────────────
-    const delta = price - lastTradePrice;
+  /** Set to true when the direction just changed on the most recent process_trade call. */
+  static directionChanged: boolean = false;
+  /** The direction value BEFORE the most recent process_trade call (for flip logging). */
+  static prevPrevDirection: string | null = null;
 
-    // Close bot position when the arrow flips
-    if (botPosition && direction !== prevDirection) {
+  /** Reset all static tracking state before starting a new batch. */
+  static reset(): void {
+    this.prevPrice = null;
+    this.prevDirection = null;
+    this.streak = 0;
+    this.streakStartPrice = null;
+    this.directionChanged = false;
+    this.prevPrevDirection = null;
+  }
+
+  /**
+   * Process a single trade tuple [timestamp, side, price, quantity].
+   * Logs a formatted line with direction arrows, streak count, delta,
+   * and big-move indicator.  Updates the static tracking state.
+   */
+  static process_trade(trade: unknown[]): void {
+    const [timestamp, side, price, quantity] = trade;
+    const p = Number(price);
+    const date = new Date(Number(timestamp / 1e6));
+    let arrow = '';
+    let delta = 0;
+    let sign = '';
+    if (this.prevPrice !== null) {
+      let dir: any = p > this.prevPrice ? '↑' : p < this.prevPrice ? '↓' : this.prevDirection;
+      // Save pre-update direction for auto_trade flip detection
+      this.prevPrevDirection = this.prevDirection;
+      this.directionChanged = (dir !== this.prevDirection);
+      if (dir === this.prevDirection) {
+        this.streak++;
+      } else {
+        this.streak = 1;
+        this.streakStartPrice = this.prevPrice;
+      }
+      delta = this.streakStartPrice !== null ? p - this.streakStartPrice : 0;
+      sign = delta >= 0 ? '+' : '';
+      arrow = this.streak > 1 ? `${dir}${this.streak}` : dir;
+      this.prevDirection = dir;
+    } else {
+      this.streak = 1;
+      this.streakStartPrice = p;
+      this.prevDirection = '→';
+    }
+    const deltaStr = `${sign}${delta.toFixed(2)}`.padStart(5);
+    const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
+    const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
+    const bigMove = Math.abs(lastDelta) >= 0.10 ? '≥0.10' : '';
+    arrow = arrow ? `${arrow.padEnd(2)} Δ${deltaStr.padEnd(5)}` : '';
+    console.log(
+      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
+    );
+    this.prevPrice = p;
+  }
+
+  /**
+   * Auto-trade: enter/exit bot positions based on the current streak/direction
+   * state (set by the most recent process_trade call).
+   *
+   * - Closes the bot position when the direction arrow flips.
+   * - Enters a Long position when streak≥3 with positive Δ or Δ≥$0.10.
+   * - Enters a Short position when streak≥3 with negative Δ or Δ≤−$0.10.
+   *
+   * Must be called AFTER process_trade() with the same trade tuple.
+   */
+  static async auto_trade(trade: unknown[]): Promise<void> {
+    const price = Number(trade[2]);
+    const symbol = SYMBOL;
+
+    // Nothing to evaluate on the very first trade of a batch
+    if (this.prevPrice === null) return;
+
+    // ── Close bot position when the arrow flips ──────────────────
+    if (botPosition && this.directionChanged) {
       await cancelOrders({ symbol }, apiKey, secretRaw);
-      console.log(`[${fmtTime()}]  🗑  Cancelled all ${prevDirection === "↑" ? "Long" : "Short"} orders`);
+      // console.log(
+      //   `[${fmtTime()}]  🗑  Cancelled all ${this.prevPrevDirection === "↑" ? "Long" : "Short"} orders`,
+      // );
       const pos = allPositions.find((p) => p.symbol === symbol);
       if (pos) {
         await closePosition(pos, apiKey, secretRaw);
@@ -175,68 +236,70 @@ async function printTrade(symbol: string, price: number): Promise<void> {
       botPosition = null;
     }
 
-    // Enter new position when conditions are met
-    // if (!botPosition) {
-      console.log(streakDelta)
-      if ((streak >= 3 && streakDelta > 0 || streakDelta >= 0.10)) {
-        await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-        for (let cent = 0; cent < 10; cent++) {
-          const entryPrice = +(price - cent * 0.01).toFixed(2);
-          const slPrice = +(entryPrice - 0.01).toFixed(2);
-          console.log(`[${fmtTime()}]  🤖  before LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
-          await placeLimitOrder(
-            {
-              account: "usdt-m",
-              symbol,
-              side: "Buy",
-              price: entryPrice,
-              qty: 0.01,
-              posSide: "Long",
-              timeInForce: "GoodTillCancel",
-              stopLoss: slPrice,
-            },
-            apiKey,
-            secretRaw,
-          );
-          console.log(`[${fmtTime()}]  🤖  after LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
-        }
-        botPosition = { side: "Long", qty: 0.05, entryPrice: price };
-      } else if ((streak >= 3 && streakDelta < 0|| streakDelta <= -0.10)) {
-        await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-        for (let cent = 0; cent < 10; cent++) {
-          const entryPrice = +(price + cent * 0.01).toFixed(2);
-          const slPrice = +(entryPrice + 0.01).toFixed(2);  // above current market
-          console.log(`[${fmtTime()}]  🤖  before SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
-          await placeLimitOrder(
-            {
-              account: "usdt-m",
-              symbol,
-              side: "Sell",
-              price: entryPrice,
-              qty: 0.01,
-              posSide: "Short",
-              timeInForce: "GoodTillCancel",
-              stopLoss: slPrice,
-            },
-            apiKey,
-            secretRaw,
-          );
-          console.log(`[${fmtTime()}]  🤖  after SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
-        }
-        botPosition = { side: "Short", qty: 0.05, entryPrice: price };
+    // ── Enter new position when conditions are met ───────────────
+    const streakDelta =
+      this.streakStartPrice !== null
+        ? price - this.streakStartPrice
+        : 0;
+
+    if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
+      await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
+      for (let cent = 0; cent < 10; cent++) {
+        const entryPrice = +(price - cent * 0.01).toFixed(2);
+        const slPrice = +(entryPrice - 0.01).toFixed(2);
+        // console.log(
+        //   `[${fmtTime()}]  🤖  before LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
+        // );
+        await placeLimitOrder(
+          {
+            account: "usdt-m",
+            symbol,
+            side: "Buy",
+            price: entryPrice,
+            qty: 0.01,
+            posSide: "Long",
+            timeInForce: "GoodTillCancel",
+            stopLoss: slPrice,
+          },
+          apiKey,
+          secretRaw,
+        );
+        // console.log(
+        //   `[${fmtTime()}]  🤖  after LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
+        // );
       }
-    // }
-
-    prevDirection = direction;
-    // ───────────────────────────────────────────────────────────────
-
-    lastTradePrice = price;
-    savePrice(price);
-    notifyLimitScripts();
+      botPosition = { side: "Long", qty: 0.05, entryPrice: price };
+    } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
+      await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
+      for (let cent = 0; cent < 10; cent++) {
+        const entryPrice = +(price + cent * 0.01).toFixed(2);
+        const slPrice = +(entryPrice + 0.01).toFixed(2);
+        // console.log(
+        //   `[${fmtTime()}]  🤖  before SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
+        // );
+        await placeLimitOrder(
+          {
+            account: "usdt-m",
+            symbol,
+            side: "Sell",
+            price: entryPrice,
+            qty: 0.01,
+            posSide: "Short",
+            timeInForce: "GoodTillCancel",
+            stopLoss: slPrice,
+          },
+          apiKey,
+          secretRaw,
+        );
+        // console.log(
+        //   `[${fmtTime()}]  🤖  after SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`,
+        // );
+      }
+      botPosition = { side: "Short", qty: 0.05, entryPrice: price };
+    }
   }
 }
 
-/* ------------------------------------------------------------------ */
 /*  Main                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -260,59 +323,25 @@ async function main(): Promise<void> {
     },
     onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
-      console.log(msg)
-      if(msg.dts)
-      {
-        console.log({ dts: new Date(Number(msg.dts/1e6)),
-                      locale: (new Date(Number(msg.dts/1e6)).toLocaleString())
-        })
-      }
-      if(msg.mts)
-      {
-        console.log({ dts: new Date(Number(msg.mts/1e6)),
-                      locale: (new Date(Number(msg.mts/1e6)).toLocaleString())
-        })
-      }
+      // console.log(msg)
+      // if(msg.dts)
+      // {
+      //   console.log({ dts: new Date(Number(msg.dts/1e6)),
+      //                 locale: (new Date(Number(msg.dts/1e6)).toLocaleString())
+      //   })
+      // }
+      // if(msg.mts)
+      // {
+      //   console.log({ dts: new Date(Number(msg.mts/1e6)),
+      //                 locale: (new Date(Number(msg.mts/1e6)).toLocaleString())
+      //   })
+      // }
       if(msg.trades_p && msg.trades_p.length == 1000){
-        let prevPrice: number | null = null;
-        let prevDirection: string | null = null;
-        streak = 0;
-        // let streakStartPrice: number | null = null;
+        TradeBatchProcessor.reset();
         for (const trade of msg.trades_p.reverse()) {
-          const [timestamp, side, price, quantity] = trade;
-          const p = Number(price);
-          const date = new Date(Number(timestamp / 1e6));
-          let arrow = '';
-          let delta = 0;
-          let sign = '';
-          if (prevPrice !== null) {
-            let dir: any = p > prevPrice ? '↑' : p < prevPrice ? '↓' : prevDirection;
-            if (dir === prevDirection) {
-              streak++;
-            } else {
-              streak = 1;
-              streakStartPrice = prevPrice;
-            }
-            delta = streakStartPrice !== null ? p - streakStartPrice : 0;
-            sign = delta >= 0 ? '+' : '';
-            arrow = streak > 1 ? `${dir}${streak}` : dir;
-            prevDirection = dir;
-          } else {
-            streak = 1;
-            streakStartPrice = p;
-            prevDirection = '→';
-          }
-          const deltaStr = `${sign}${delta.toFixed(2)}`.padStart(5);
-          const lastDelta = prevPrice !== null ? p - prevPrice : 0;
-          const lastDeltaStr = prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
-          const bigMove = Math.abs(lastDelta) >= 0.10 ? '≥0.10' : '';
-          arrow = arrow ? `${arrow.padEnd(2)} Δ${deltaStr.padEnd(5)}` : '';
-          console.log(
-            `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(3)} ${bigMove.padEnd(3)}`
-          );
-          prevPrice = p;
+          TradeBatchProcessor.process_trade(trade);
         }
-        lastTradePrice = prevPrice
+        // lastTradePrice = TradeBatchProcessor.prevPrice
       }
       // 24h ticker (columnar USDT-M format)
       if (
@@ -329,15 +358,13 @@ async function main(): Promise<void> {
 
       // Real-time trades
       if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
-        console.log("Received")
-        console.log(m.trades_p.length)
+        // console.log("Received")
+        // console.log(m.trades_p.length)
         const trades = m.trades_p as unknown[][];
         if (trades.length > 0) {
           for (const trade of trades) {
-            if (trade.length >= 3) {
-              const last = Number(trade[2]);
-              await printTrade(SYMBOL, last);
-            }
+            TradeBatchProcessor.process_trade(trade);
+            await TradeBatchProcessor.auto_trade(trade);
           }
         }
       }

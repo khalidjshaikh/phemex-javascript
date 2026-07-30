@@ -539,7 +539,7 @@ export async function placeLimitOrder(
     default:
       throw new Error(`Unknown account type: ${params.account}`);
   }
-  console.log(result)
+  // console.log(result)
   if (result === undefined || result.orderID === undefined) 
     return result;
 
@@ -548,7 +548,7 @@ export async function placeLimitOrder(
   if (orderId) {
     const cancelDelay = 60_000;
     setTimeout(() => {
-      console.log(`[${(new Date()).toLocaleString()}] cancelOrder ${params.symbol} ${orderId} ${params.posSide}`)
+      // console.log(`[${(new Date()).toLocaleString()}] cancelOrder ${params.symbol} ${orderId} ${params.posSide}`)
       cancelOrder(
         { symbol: params.symbol, orderId, posSide: params.posSide },
         apiKey,
