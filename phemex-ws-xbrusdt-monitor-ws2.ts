@@ -53,6 +53,7 @@ function fmtNum(n: number, d: number = 2): string {
 let lastTickerPrice = 0;
 let direction: "↑" | "↓" = "↑";
 let streak = 0;
+let streakStartPrice = 0;
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
@@ -66,10 +67,10 @@ let secretRaw: Buffer = Buffer.alloc(0);
 function updateDirection(last: number, prev: number): void {
   if (last > prev) {
     if (direction === "↑") streak++;
-    else { direction = "↑"; streak = 1; }
+    else { direction = "↑"; streak = 1; streakStartPrice = prev; }
   } else if (last < prev) {
     if (direction === "↓") streak++;
-    else { direction = "↓"; streak = 1; }
+    else { direction = "↓"; streak = 1; streakStartPrice = prev; }
   }
 }
 
@@ -115,7 +116,9 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 
   // if (last !== lastTickerPrice) {
     updateDirection(last, lastTickerPrice);
-    const streakStr = ` (${direction}×${streak})`;
+    const delta = last - streakStartPrice;
+    const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
+    const streakStr = ` (${direction}×${streak}, ${deltaStr})`;
     console.log(line + streakStr);
     lastTickerPrice = last;
     savePrice(last);
@@ -128,11 +131,13 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 /* ------------------------------------------------------------------ */
 
 async function printTrade(symbol: string, price: number): Promise<void> {
+  if (lastTickerPrice === 0) lastTickerPrice = price
   if (price !== lastTickerPrice) {
-    console.log(price, lastTickerPrice)
     updateDirection(price, lastTickerPrice);
     const arrow = direction;
-    const streakStr = ` (${arrow}×${streak})`;
+    const streakDelta = price - streakStartPrice;
+    const deltaStr = streakDelta >= 0 ? `Δ+$${streakDelta.toFixed(2)}` : `Δ-$${Math.abs(streakDelta).toFixed(2)}`;
+    const streakStr = ` (${arrow}×${streak}, ${deltaStr})`;
     console.log(`${fmtTime()}  ${symbol}  ${arrow} $${price.toFixed(2)}${streakStr}`);
 
     // ── Auto-trade logic ──────────────────────────────────────────
@@ -149,7 +154,8 @@ async function printTrade(symbol: string, price: number): Promise<void> {
 
     // Enter new position when conditions are met
     if (!botPosition) {
-      if ((streak >= 3 || delta > 0.10) && lastTickerPrice != 0) {
+      console.log(streakDelta)
+      if ((streak >= 3 || streakDelta > 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
         await placeLimitOrder(
           {
@@ -167,7 +173,7 @@ async function printTrade(symbol: string, price: number): Promise<void> {
         );
         botPosition = { side: "Long", qty: 0.01, entryPrice: price };
         console.log(`[${fmtTime()}]  🤖  LONG limit @ $${price.toFixed(2)}  SL: $${(price - 0.01).toFixed(2)}`);
-      } else if ((streak >= 3 || delta < -0.10) && lastTickerPrice != 0) {
+      } else if ((streak >= 3 || streakDelta < -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
         await placeLimitOrder(
           {
@@ -221,6 +227,7 @@ async function main(): Promise<void> {
     },
     onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
+      console.log(msg)
       // 24h ticker (columnar USDT-M format)
       if (
         m.method === "perp_market24h_pack_p.update" &&
