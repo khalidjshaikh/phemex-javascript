@@ -172,13 +172,14 @@ async function printTrade(symbol: string, price: number): Promise<void> {
     }
 
     // Enter new position when conditions are met
-    if (!botPosition) {
+    // if (!botPosition) {
       console.log(streakDelta)
-      if ((streak >= 3 || streakDelta >= 0.10)) {
+      if ((streak >= 3 && streakDelta > 0 || streakDelta >= 0.10)) {
         await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-        for (let cent = 1; cent <= 10; cent++) {
+        for (let cent = 0; cent < 1; cent++) {
           const entryPrice = +(price + cent * 0.01).toFixed(2);
           const slPrice = +(entryPrice - 0.01).toFixed(2);
+          console.log(`[${fmtTime()}]  🤖  before LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
           await placeLimitOrder(
             {
               account: "usdt-m",
@@ -193,14 +194,15 @@ async function printTrade(symbol: string, price: number): Promise<void> {
             apiKey,
             secretRaw,
           );
-          console.log(`[${fmtTime()}]  🤖  LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
+          console.log(`[${fmtTime()}]  🤖  after LONG limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
         }
         botPosition = { side: "Long", qty: 0.05, entryPrice: price };
-      } else if ((streak >= 3 || streakDelta <= -0.10)) {
+      } else if ((streak >= 3 && streakDelta < 0|| streakDelta <= -0.10)) {
         await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-        for (let cent = 1; cent <= 10; cent++) {
+        for (let cent = 0; cent < 1; cent++) {
           const entryPrice = +(price - cent * 0.01).toFixed(2);
-          const slPrice = +(price + 0.01).toFixed(2);  // above current market
+          const slPrice = +(entryPrice + 0.01).toFixed(2);  // above current market
+          console.log(`[${fmtTime()}]  🤖  before SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
           await placeLimitOrder(
             {
               account: "usdt-m",
@@ -215,11 +217,11 @@ async function printTrade(symbol: string, price: number): Promise<void> {
             apiKey,
             secretRaw,
           );
-          console.log(`[${fmtTime()}]  🤖  SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
+          console.log(`[${fmtTime()}]  🤖  after SHORT limit #${cent} @ $${entryPrice}  SL: $${slPrice}`);
         }
         botPosition = { side: "Short", qty: 0.05, entryPrice: price };
       }
-    }
+    // }
 
     prevDirection = direction;
     // ───────────────────────────────────────────────────────────────
@@ -270,8 +272,8 @@ async function main(): Promise<void> {
       if(msg.trades_p && msg.trades_p.length == 1000){
         let prevPrice: number | null = null;
         let prevDirection: string | null = null;
-        let streak = 0;
-        let streakStartPrice: number | null = null;
+        streak = 0;
+        // let streakStartPrice: number | null = null;
         for (const trade of msg.trades_p.reverse()) {
           const [timestamp, side, price, quantity] = trade;
           const p = Number(price);
@@ -280,7 +282,7 @@ async function main(): Promise<void> {
           let delta = 0;
           let sign = '';
           if (prevPrice !== null) {
-            const dir = p > prevPrice ? '↑' : p < prevPrice ? '↓' : '→';
+            let dir: any = p > prevPrice ? '↑' : p < prevPrice ? '↓' : prevDirection;
             if (dir === prevDirection) {
               streak++;
             } else {
@@ -374,6 +376,15 @@ async function main(): Promise<void> {
         `PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  ` +
         `margin: $${fmtNum(margin, 4)}`
       );
+
+      // Auto-close position if PnL drops below -10%
+      if (pnlPct < -10) {
+        console.log(
+          `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < -10%. Closing position …`
+        );
+        await closePosition(pos, apiKey, secretRaw);
+      }
+
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${fmtTime()}]  ✗  Position poll error: ${msg}`);

@@ -455,10 +455,12 @@ export async function placeMarketLinear(
     "",
   )) as Record<string, unknown>;
 
+  try {
   if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
   const data = resp.data as PlaceOrderResult | undefined;
   if (!data) throw new Error("Empty response data");
   return data;
+  } catch {}
 }
 
 /**
@@ -537,14 +539,16 @@ export async function placeLimitOrder(
     default:
       throw new Error(`Unknown account type: ${params.account}`);
   }
-  if (result.orderID === undefined) 
+  console.log(result)
+  if (result === undefined || result.orderID === undefined) 
     return result;
 
   // Automatically cancel the limit order after 15 seconds in the background.
   const orderId = result.orderID ?? result.clOrdID;
   if (orderId) {
-    const cancelDelay = 15_000;
+    const cancelDelay = 60_000;
     setTimeout(() => {
+      console.log(`[${(new Date()).toLocaleString()}] cancelOrder ${params.symbol} ${orderId} ${params.posSide}`)
       cancelOrder(
         { symbol: params.symbol, orderId, posSide: params.posSide },
         apiKey,
