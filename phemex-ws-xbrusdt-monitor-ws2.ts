@@ -320,8 +320,8 @@ class TradeBatchProcessor {
         : 0;
 
     if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
-      console.log(this.lastLongPrice, price)
-      if (this.lastLongPrice && this.lastLongPrice >= price) return;
+      console.log(price, this.lastLongPrice)
+      if (this.lastLongPrice && price > this.lastLongPrice) return;
 
         {
           let posSide = "Long"
@@ -344,8 +344,8 @@ class TradeBatchProcessor {
       //await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Long", entryPrice: price };
     } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
-      console.log(this.lastLongPrice, price)
-      if (this.lastLongPrice && this.lastShortPrice <= price) return;
+      console.log(price, this.lastLongPrice)
+      if (this.lastLongPrice && price < this.lastShortPrice) return;
 
       { 
         let posSide = "Short"
