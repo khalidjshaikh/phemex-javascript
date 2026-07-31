@@ -12,15 +12,18 @@
  *
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
-
-
 import "./src/lib/globals.js"
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { placeLimitOrder, cancelOrders, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { 
+  placeLimitOrder, 
+  cancelOrders, 
+  setLeverageUsdtM,
+  placeMarketOrder
+ } from "./src/place-limit-order.js";
 import {
   fetchPositions,
   calcPnlPct,
@@ -73,8 +76,12 @@ let botPosition: { side: "Long" | "Short"; qty: number; entryPrice: number } | n
 /** Previous arrow direction — used to detect flips and close the bot position */
 let prevDirection: "↑" | "↓" = "↑";
 /** API credentials, set once in main() */
-apiKey = "";
+let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
+
+const creds = loadCredentials(import.meta.dirname);
+apiKey = creds.PHEMEX_API_KEY;
+secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
 function updateDirection(last: number, prev: number): void {
   if (last > prev) {
@@ -267,7 +274,7 @@ class TradeBatchProcessor {
     const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
     const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
     const bigMove = Math.abs(lastDelta) >= 0.10 ? '≥0.10' : '';
-    arrow = arrow ? `${arrow.padEnd(2)} Δ${deltaStr.padEnd(5)}` : '';
+    arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     console.log(
       `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
     );
@@ -293,6 +300,8 @@ class TradeBatchProcessor {
 
     // ── Close bot position when the arrow flips ──────────────────
     if (botPosition && this.directionChanged) {
+      this.lastShortPrice = null;
+
       await cancelOrders({ symbol }, apiKey, secretRaw);
       // console.log(
       //   `[${fmtTime()}]  🗑  Cancelled all ${this.prevPrevDirection === "↑" ? "Long" : "Short"} orders`,
@@ -311,21 +320,53 @@ class TradeBatchProcessor {
         : 0;
 
     if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
-      if (this.lastLongPrice === price) return;
+      console.log(this.lastLongPrice, price)
+      if (this.lastLongPrice && this.lastLongPrice >= price) return;
+
+        {
+          let posSide = "Long"
+          let symbol = "XBRUSDT"
+          await setLeverageUsdtM(symbol, 100, posSide, creds.PHEMEX_API_KEY, secretRaw);
+          const result = await placeMarketOrder(
+          {
+            account: "usdt-m", symbol, posSide, price, qty: 0.01,
+            side: "Buy"
+          },
+          creds.PHEMEX_API_KEY,
+          secretRaw,
+          );
+        }
+        this.lastLongPrice = price;
+
       // await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
       // await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
-      this.lastLongPrice = price;
       // this.lastShortPrice = null;
       //await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
-      botPosition = { side: "Long", qty: 0.05, entryPrice: price };
+      botPosition = { side: "Long", entryPrice: price };
     } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
-      if (this.lastShortPrice === price) return;
+      console.log(this.lastLongPrice, price)
+      if (this.lastLongPrice && this.lastShortPrice <= price) return;
+
+      { 
+        let posSide = "Short"
+        let symbol = "XBRUSDT"
+        await setLeverageUsdtM(symbol, 100, posSide, creds.PHEMEX_API_KEY, secretRaw);
+        const result = await placeMarketOrder(
+          {
+            account: "usdt-m", symbol, posSide, price: price, qty: 0.01,
+            side: "Sell"
+          },
+          creds.PHEMEX_API_KEY,
+          secretRaw,
+        );
+      }
+      this.lastLongPrice = price;
+
       // await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
       // await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
-      this.lastShortPrice = price;
       // this.lastLongPrice = null;
       //await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
-      botPosition = { side: "Short", qty: 0.05, entryPrice: price };
+      botPosition = { side: "Short", entryPrice: price };
     }
   }
 }
@@ -334,9 +375,6 @@ class TradeBatchProcessor {
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
-  const creds = loadCredentials(import.meta.dirname);
-  apiKey = creds.PHEMEX_API_KEY;
-  secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
   console.log(`  Symbol:       ${SYMBOL}`);
@@ -411,6 +449,7 @@ async function main(): Promise<void> {
   // Position polling loop (REST)
   // ---------------------------------------------------------------
   let running = true;
+  let maxPnlPct: number | null = null; // peak PnL% seen since monitor start (trailing stop anchor)
 
   process.on("SIGINT", () => {
     console.log(`\n[${fmtTime()}]  ⏹  Shutting down …`);
@@ -445,10 +484,15 @@ async function main(): Promise<void> {
         `margin: $${fmtNum(margin, 4)}`
       );
 
-      // Auto-close position if PnL drops below -10%
-      if (pnlPct < -10) {
+      // Trailing stop: track the peak PnL% and close if the current PnL%
+      // deviates to less than 10% of that peak (e.g. peak +20% → close below +2%).
+      // Positions that never reach a positive peak keep the -10% hard stop.
+      if (maxPnlPct === null || pnlPct > maxPnlPct) maxPnlPct = pnlPct;
+      const stopFloor = maxPnlPct > 0 ? maxPnlPct * 0.1 : -10;
+      if (pnlPct < stopFloor) {
         console.log(
-          `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < -10%. Closing position …`
+          `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < ` +
+          `${fmtNum(stopFloor, 2)}% (floor, peak ${fmtNum(maxPnlPct, 2)}%). Closing position …`
         );
         await closePosition(pos, apiKey, secretRaw);
       }
