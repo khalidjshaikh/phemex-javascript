@@ -312,16 +312,16 @@ class TradeBatchProcessor {
 
     if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
       if (this.lastLongPrice === price) return;
-      await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
-      await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      // await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
+      // await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
       this.lastLongPrice = price;
       // this.lastShortPrice = null;
       //await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Long", qty: 0.05, entryPrice: price };
     } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
       if (this.lastShortPrice === price) return;
-      await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
-      await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      // await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
+      // await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
       this.lastShortPrice = price;
       // this.lastLongPrice = null;
       //await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
