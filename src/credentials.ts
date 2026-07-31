@@ -27,10 +27,11 @@ export interface Credentials {
 /**
  * Load credentials from `.phemex-credentials.json` in the given directory.
  * @param credsDir  Directory containing the credentials file.
- *                  Defaults to this module's directory (src/).
+ *                  Defaults to the project root (one level above this
+ *                  module's directory, i.e. the parent of src/).
  */
 export function loadCredentials(credsDir?: string): Credentials {
-  const dir = credsDir ?? import.meta.dirname;
+  const dir = credsDir ?? path.resolve(import.meta.dirname, "..");
   const credsPath = path.resolve(dir, ".phemex-credentials.json");
   if (!fs.existsSync(credsPath)) {
     console.error("✗  Missing .phemex-credentials.json");
@@ -44,5 +45,6 @@ export function loadCredentials(credsDir?: string): Credentials {
  * Equivalent to `loadCredentials(import.meta.dirname)`.
  */
 export function loadCredentialsLocal(): Credentials {
-  return loadCredentials(import.meta.dirname);
+  //return loadCredentials(import.meta.dirname);
+  return loadCredentials();
 }
