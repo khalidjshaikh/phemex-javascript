@@ -211,6 +211,8 @@ class TradeBatchProcessor {
   static prevDirection: string | null = null;
   static streak: number = 0;
   static streakStartPrice: number | null = null;
+  static lastLongPrice: number | null = null;
+  static lastShortPrice: number | null = null;
 
   /** Set to true when the direction just changed on the most recent process_trade call. */
   static directionChanged: boolean = false;
@@ -223,6 +225,8 @@ class TradeBatchProcessor {
     this.prevDirection = null;
     this.streak = 0;
     this.streakStartPrice = null;
+    this.lastLongPrice = null;
+    this.lastShortPrice = null;
     this.directionChanged = false;
     this.prevPrevDirection = null;
   }
@@ -307,13 +311,19 @@ class TradeBatchProcessor {
         : 0;
 
     if ((this.streak >= 3 && streakDelta > 0) || streakDelta >= 0.10) {
+      if (this.lastLongPrice === price) return;
       await setLeverageUsdtM(symbol, 100, "Long", apiKey, secretRaw);
       await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      this.lastLongPrice = price;
+      // this.lastShortPrice = null;
       //await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Long", qty: 0.05, entryPrice: price };
     } else if ((this.streak >= 3 && streakDelta < 0) || streakDelta <= -0.10) {
+      if (this.lastShortPrice === price) return;
       await setLeverageUsdtM(symbol, 100, "Short", apiKey, secretRaw);
       await placeShortLimitOrders(price, 10, symbol, apiKey, secretRaw);
+      this.lastShortPrice = price;
+      // this.lastLongPrice = null;
       //await placeLongLimitOrders(price, 10, symbol, apiKey, secretRaw);
       botPosition = { side: "Short", qty: 0.05, entryPrice: price };
     }
