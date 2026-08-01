@@ -21,6 +21,7 @@ const gpu = create([]);
 
 // Adds two numbers on the GPU and returns the result.
 export async function add(a, b) {
+  console.log(`Adding ${a} + ${b} on the GPU...`);
   const adapter = await gpu.requestAdapter();
   if (!adapter) throw new Error('No GPU adapter available');
   const device = await adapter.requestDevice();
