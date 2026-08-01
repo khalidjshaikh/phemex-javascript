@@ -8,11 +8,12 @@
  *   flag = 0  whenever the last price changes
  *   flag = 1  once a threshold has fired
  *
- * Triggers (only while flag == 0):
+ * Triggers (only while flag == 0 and outside the order cooldown):
  *   Δ >  +$0.10  →  market BUY  (long)  qty 1, 100x leverage
  *   Δ <  −$0.10  →  market SELL (short) qty 1, 100x leverage
  *
- * The flag resets to 0 whenever the last price changes, arming the next trigger.
+ * The flag resets to 0 whenever the last price changes; a cooldown
+ * (COOLDOWN_MS) between orders keeps rapid re-firing in check.
  */
 
 import { watchMarkPrice } from "../src/mark-price.js";
@@ -25,11 +26,15 @@ const QTY = 0.01;
 const LEVERAGE = 100;
 /** Trigger when |mark − last| exceeds this (quote currency units). */
 const THRESHOLD = 0.10;
+/** Minimum gap between consecutive orders (ms) — prevents rapid re-firing. */
+const COOLDOWN_MS = 30_000;
 
 /** Trade flag — 0 when the last price changes, 1 after a trigger fires. */
 let flag = 0;
 /** Last price from the previous update, used to detect last-price changes. */
 let prevLast = 0;
+/** Timestamp of the last placed order (ms epoch), for the cooldown. */
+let lastOrderAt = 0;
 
 const creds = loadCredentialsLocal();
 const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -56,13 +61,15 @@ watchMarkPrice(
     }
     prevLast = lastPrice;
 
-    if (flag === 0) {
+    if (flag === 0 && Date.now() - lastOrderAt >= COOLDOWN_MS) {
       try {
         if (delta >= THRESHOLD) {
           flag = 1;
+          lastOrderAt = Date.now();
           await place("Buy", "Long");
         } else if (delta <= -THRESHOLD) {
           flag = 1;
+          lastOrderAt = Date.now();
           await place("Sell", "Short");
         }
       } catch (err) {

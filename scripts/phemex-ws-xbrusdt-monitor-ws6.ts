@@ -62,8 +62,8 @@ const ENTRY_STREAK_MIN = 1;           // consecutive ↓/↑ ticks confirming a 
 const ENTRY_DELTA_MIN = 0.25;         // shared threshold for the ≥ markers in the trade log
 const ENTRY_DELTA_MIN_LONG = 0.30;    // $ move from streak start required to open a Long
 const ENTRY_DELTA_MIN_SHORT = 0.20;   // $ move from streak start required to open a Short
-const ALLOW_LONG_ENTRY = true;        // enable/disable the bot opening Long positions
-const ALLOW_SHORT_ENTRY = true;       // enable/disable the bot opening Short positions
+const ALLOW_LONG_ENTRY = false;        // enable/disable the bot opening Long positions
+const ALLOW_SHORT_ENTRY = false;       // enable/disable the bot opening Short positions
 const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
