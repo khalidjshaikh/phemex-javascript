@@ -2,7 +2,8 @@
   "type": "commonjs",
   "private": true,
   "scripts": {
-    "gpu": "tsx app.js"
+    "gpu": "tsx app.js",
+    "npu": "node npu-app.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",
@@ -10,6 +11,8 @@
     "@webgpu/types": "^0.1.71",
     "dotenv": "^17.4.2",
     "nodemailer": "^9.0.3",
+    "onnx-proto": "^8.0.1",
+    "onnxruntime-node": "^1.27.0",
     "webgpu": "^0.4.0"
   },
   "devDependencies": {
