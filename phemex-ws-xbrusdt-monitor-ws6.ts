@@ -59,7 +59,11 @@ const AUTO_TRADE_ENABLED = true;      // master switch for placing real orders
 const AUTO_TRADE_LEVERAGE = 100;      // leverage used for bot positions
 const AUTO_TRADE_QTY = 0.01;          // position size (also filters our own fills)
 const ENTRY_STREAK_MIN = 1;           // consecutive ↓/↑ ticks confirming a move has started
-const ENTRY_DELTA_MIN = 0.25;         // $ move from streak start marking a "long" drop/rise
+const ENTRY_DELTA_MIN = 0.25;         // shared threshold for the ≥ markers in the trade log
+const ENTRY_DELTA_MIN_LONG = 0.30;    // $ move from streak start required to open a Long
+const ENTRY_DELTA_MIN_SHORT = 0.10;   // $ move from streak start required to open a Short
+const ALLOW_LONG_ENTRY = true;        // enable/disable the bot opening Long positions
+const ALLOW_SHORT_ENTRY = true;       // enable/disable the bot opening Short positions
 const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
@@ -181,7 +185,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
     const delta = last - streakStartPrice;
     const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
     const streakStr = ` (${direction}×${streak}, ${deltaStr})`;
-    console.log(`[${now}] #184 ` + line + streakStr);
+    console.log(`[${now}] #188 ` + line + streakStr);
     lastTickerPrice = last;
     // savePrice(last);
     // notifyLimitScripts();
@@ -319,7 +323,7 @@ class TradeBatchProcessor {
     const bigMove = Math.abs(lastDelta) >= ENTRY_DELTA_MIN ? `≥${ENTRY_DELTA_MIN}` : "";
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     console.log(
-      `[${date.toLocaleString().padEnd(22)}] #321 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
+      `[${date.toLocaleString().padEnd(22)}] #325 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${(Math.abs(delta) >= ENTRY_DELTA_MIN ? "≥" + ENTRY_DELTA_MIN : "").padEnd(5)} ${bigMove.padEnd(3)}`
     );
     this.prevPrice = p;
   }
@@ -330,9 +334,9 @@ class TradeBatchProcessor {
    *
    * Entry — the BEGINNING of a move:
    * - Long  when a rise is starting: ≥ ENTRY_STREAK_MIN consecutive ↑ ticks
-   *   with a cumulative Δ ≥ ENTRY_DELTA_MIN from the streak start.
+   *   with a cumulative Δ ≥ ENTRY_DELTA_MIN_LONG from the streak start.
    * - Short when a drop is starting: ≥ ENTRY_STREAK_MIN consecutive ↓ ticks
-   *   with a cumulative Δ ≤ -ENTRY_DELTA_MIN from the streak start.
+   *   with a cumulative Δ ≤ -ENTRY_DELTA_MIN_SHORT from the streak start.
    *
    * Exit — the END of the move:
    * - When the direction flips (the graph starts going the other way) the bot
@@ -360,7 +364,7 @@ class TradeBatchProcessor {
         ?? (await fetchPositions(apiKey, secretRaw)).find((p) => p.symbol === symbol);
       if (pos) {
         console.log(
-          `[${fmtTime()}] #362 ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
+          `[${fmtTime()}] #366 ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
           `(entry $${botPosition.entryPrice} → $${price}) …`,
         );
         await closePosition(pos, apiKey, secretRaw);
@@ -383,9 +387,9 @@ class TradeBatchProcessor {
     const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
 
     // ── Entry: beginning of a rise → Long ─────────────────────────────
-    if (this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN) {
+    if (ALLOW_LONG_ENTRY && this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN_LONG) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
-      console.log(`[${fmtTime()}] #388 🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+      console.log(`[${fmtTime()}] #392 🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
       botEntryPending = true; // claim the slot before any await — prevents a double open
       pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
       try {
@@ -397,7 +401,7 @@ class TradeBatchProcessor {
         );
         this.lastLongPrice = price;
         botPosition = { side: "Long", entryPrice: price };
-        console.log(`[${fmtTime()}] #400 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+        console.log(`[${fmtTime()}] #404 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
       } finally {
         botEntryPending = false; // release on success or failure
       }
@@ -405,9 +409,9 @@ class TradeBatchProcessor {
     }
 
     // ── Entry: beginning of a drop → Short ────────────────────────────
-    if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
+    if (ALLOW_SHORT_ENTRY && this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN_SHORT) {
       // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
-      console.log(`[${fmtTime()}] #410 🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+      console.log(`[${fmtTime()}] #414 🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
       botEntryPending = true; // claim the slot before any await — prevents a double open
       pendingOwnFill = { side: "Sell", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
       try {
@@ -419,7 +423,7 @@ class TradeBatchProcessor {
         );
         this.lastShortPrice = price;
         botPosition = { side: "Short", entryPrice: price };
-        console.log(`[${fmtTime()}] #422 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+        console.log(`[${fmtTime()}] #426 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
       } finally {
         botEntryPending = false; // release on success or failure
       }
@@ -433,10 +437,10 @@ class TradeBatchProcessor {
 
 async function main(): Promise<void> {
 
-  console.log(`[${fmtTime()}] #436 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
-  console.log(`[${fmtTime()}] #437   Symbol:       ${SYMBOL}`);
-  console.log(`[${fmtTime()}] #438   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
-  console.log(`[${fmtTime()}] #439 ═════════════════════════════════════════════════════════════`);
+  console.log(`[${fmtTime()}] #440 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
+  console.log(`[${fmtTime()}] #441   Symbol:       ${SYMBOL}`);
+  console.log(`[${fmtTime()}] #442   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
+  console.log(`[${fmtTime()}] #443 ═════════════════════════════════════════════════════════════`);
 
   // ---------------------------------------------------------------
   // WebSocket — ticker + trade feed
@@ -487,7 +491,7 @@ async function main(): Promise<void> {
     },
     onReconnect: (delayMs) => {
       process.stdout.write("\n");
-      console.log(`[${fmtTime()}] #490 ⟐  WebSocket reconnecting in ${delayMs / 1000}s …`);
+      console.log(`[${fmtTime()}] #494 ⟐  WebSocket reconnecting in ${delayMs / 1000}s …`);
     },
   });
 
@@ -499,7 +503,7 @@ async function main(): Promise<void> {
   let running = true;
 
   process.on("SIGINT", () => {
-    console.log(`\n[${fmtTime()}] #502 ⏹  Shutting down …`);
+    console.log(`\n[${fmtTime()}] #506 ⏹  Shutting down …`);
     running = false;
     ws.shutdown();
     process.exit(0);
@@ -528,7 +532,7 @@ async function main(): Promise<void> {
       const pnl = pos.side === "Buy" ? (mark - entry) * size : (entry - mark) * size; // PnL from the data structure
       const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
       console.log(
-        `[${fmtTime()}] #530 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
+        `[${fmtTime()}] #534 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
         `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
         `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 2)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%)  ` +
         `margin: $${fmtNum(margin, 4)}`
@@ -540,22 +544,22 @@ async function main(): Promise<void> {
       if (botPosition === null && !botEntryPending && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
         botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
         console.log(
-          `[${fmtTime()}] #542 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
+          `[${fmtTime()}] #546 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
           `(${fmtNum(size, 4)} @ $${fmtNum(entry)}) — flip-exit active`,
         );
       }
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[${fmtTime()}] #550  ✗  Position poll error: ${msg}`);
+      console.error(`[${fmtTime()}] #554  ✗  Position poll error: ${msg}`);
     }
   }
 
-  console.log(`[${fmtTime()}] #554 ✅  Monitor stopped`);
+  console.log(`[${fmtTime()}] #558 ✅  Monitor stopped`);
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error(`[${fmtTime()}] #559 Fatal:`, err instanceof Error ? err.message : String(err));
+  console.error(`[${fmtTime()}] #563 Fatal:`, err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
