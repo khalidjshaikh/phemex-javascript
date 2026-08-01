@@ -74,11 +74,17 @@ export function watchMarkPrice(
 /*  One-shot REST fetch                                                */
 /* ------------------------------------------------------------------ */
 
+/** Mark and last prices from a single ticker response. */
+export interface TickerPrices {
+  markPrice: number;
+  lastPrice: number;
+}
+
 /**
- * Fetch the current mark price for a symbol via REST
- * (GET /md/v2/ticker/24hr). Returns the latest mark price as a number.
+ * Fetch the current mark and last prices for a symbol via REST
+ * (GET /md/v2/ticker/24hr). Returns the latest prices as numbers.
  */
-export async function fetchMarkPrice(symbol: string): Promise<number> {
+export async function fetchTickerPrices(symbol: string): Promise<TickerPrices> {
   const resp = (await publicGet(
     "/md/v2/ticker/24hr",
     `symbol=${symbol}`,
@@ -95,7 +101,21 @@ export async function fetchMarkPrice(symbol: string): Promise<number> {
   if (markPrice === null) {
     throw new Error(`No mark price returned for symbol "${symbol}"`);
   }
-  return markPrice;
+  const lastPrice = parseRp(resp.result?.closeRp);
+  if (lastPrice === null) {
+    throw new Error(`No last price returned for symbol "${symbol}"`);
+  }
+  return { markPrice, lastPrice };
+}
+
+/** Fetch the current mark price for a symbol via REST. */
+export async function fetchMarkPrice(symbol: string): Promise<number> {
+  return (await fetchTickerPrices(symbol)).markPrice;
+}
+
+/** Fetch the current last traded price for a symbol via REST. */
+export async function fetchLastPrice(symbol: string): Promise<number> {
+  return (await fetchTickerPrices(symbol)).lastPrice;
 }
 
 /* ------------------------------------------------------------------ */
