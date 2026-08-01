@@ -11,7 +11,7 @@
  * Usage:  ./src/ticker-app.ts   or  npm start
  */
 
-import { ReconnectingWs } from "../../src/ws-client.js";
+import { ReconnectingWs } from "../../../src/ws-client.js";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -132,4 +132,4 @@ const ws = new ReconnectingWs(WS_URL, {
 /*  Start                                                              */
 /* ------------------------------------------------------------------ */
 
-connect();
+ws.connect();
