@@ -64,6 +64,7 @@ const ENTRY_DELTA_MIN_LONG = 0.30;    // $ move from streak start required to op
 const ENTRY_DELTA_MIN_SHORT = 0.20;   // $ move from streak start required to open a Short
 const ALLOW_LONG_ENTRY = false;        // enable/disable the bot opening Long positions
 const ALLOW_SHORT_ENTRY = false;       // enable/disable the bot opening Short positions
+const ALLOW_FETCH_POSITION = false;
 const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
@@ -378,7 +379,7 @@ class TradeBatchProcessor {
       const symbol = SYMBOL;
 
       // ── Exit: direction flipped → the move is over, close the bot position ──
-      if (botPosition && this.directionChanged) {
+      if (botPosition && this.directionChanged && ALLOW_FETCH_POSITION) {
         // allPositions is refreshed every POLL_INTERVAL_MS; fall back to a fresh
         // fetch so a just-opened position is found even if the cache is stale.
         const pos = allPositions.find((p) => p.symbol === symbol)
@@ -544,14 +545,17 @@ async function main(): Promise<void> {
     if (!running) break;
 
     try {
-      const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
-      allPositions = positions;
-      const pos = positions.find((p) => p.symbol === SYMBOL);
+      if (ALLOW_FETCH_POSITION)
+      {
+        const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+        allPositions = positions;
+        const pos = positions.find((p) => p.symbol === SYMBOL);
 
-      if (!pos) {
-        // Position gone (closed by the flip exit, a stop, or manually) — reset tracking.
-        botPosition = null;
-        continue;
+        if (!pos) {
+          // Position gone (closed by the flip exit, a stop, or manually) — reset tracking.
+          botPosition = null;
+          continue;
+        }
       }
 
       const entry = parseFloat(pos.avgEntryPriceRp || "0");

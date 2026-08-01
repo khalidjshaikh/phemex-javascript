@@ -82,6 +82,10 @@ export async function getFlag(key, options = {}) {
       return getFlag(key, { ...options, autoCreate: false });
     }
     throw err;
+  } finally {
+    // Close the keep-alive agent when we created the client ourselves,
+    // so the process can exit promptly (avoids a ~5s hang on exit).
+    if (!options.client) client.destroy();
   }
 }
 
@@ -118,5 +122,9 @@ export async function setFlag(key, value, options = {}) {
       return setFlag(key, value, { ...options, autoCreate: false });
     }
     throw err;
+  } finally {
+    // Close the keep-alive agent when we created the client ourselves,
+    // so the process can exit promptly (avoids a ~5s hang on exit).
+    if (!options.client) client.destroy();
   }
 }
