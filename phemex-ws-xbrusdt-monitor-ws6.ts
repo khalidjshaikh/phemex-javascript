@@ -61,7 +61,7 @@ const AUTO_TRADE_QTY = 0.01;          // position size (also filters our own fil
 const ENTRY_STREAK_MIN = 1;           // consecutive ↓/↑ ticks confirming a move has started
 const ENTRY_DELTA_MIN = 0.25;         // shared threshold for the ≥ markers in the trade log
 const ENTRY_DELTA_MIN_LONG = 0.30;    // $ move from streak start required to open a Long
-const ENTRY_DELTA_MIN_SHORT = 0.10;   // $ move from streak start required to open a Short
+const ENTRY_DELTA_MIN_SHORT = 0.20;   // $ move from streak start required to open a Short
 const ALLOW_LONG_ENTRY = true;        // enable/disable the bot opening Long positions
 const ALLOW_SHORT_ENTRY = true;       // enable/disable the bot opening Short positions
 const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
@@ -554,7 +554,7 @@ async function main(): Promise<void> {
       console.log(
         `[${fmtTime()}] #554 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
         `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 2)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%)  ` +
+        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 2)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
         `margin: $${fmtNum(margin, 4)}`
       );
 
