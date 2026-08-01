@@ -76,7 +76,7 @@ const PRICE_FILE = `${(parseArg("symbol") ?? "xbrusdt").toLowerCase()}-last-pric
 /* ------------------------------------------------------------------ */
 
 function fmtTime(): string {
-  return new Date().toLocaleString();
+  return new Date().toLocaleString().padEnd(22);
 }
 
 function fmtNum(n: number, d: number = 2): string {
@@ -319,7 +319,7 @@ class TradeBatchProcessor {
     const bigMove = Math.abs(lastDelta) >= ENTRY_DELTA_MIN ? `≥${ENTRY_DELTA_MIN}` : "";
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     console.log(
-      `[${fmtTime()}] #321 ${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
+      `[${date.toLocaleString().padEnd(22)}] #321 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
     );
     this.prevPrice = p;
   }
@@ -525,9 +525,12 @@ async function main(): Promise<void> {
       const size = parseFloat(pos.size || "0");
       const margin = parseFloat(pos.posCostRv || "0");
 
+      const pnl = pos.side === "Buy" ? (mark - entry) * size : (entry - mark) * size; // PnL from the data structure
+      const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
       console.log(
-        `[${fmtTime()}] #528 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
+        `[${fmtTime()}] #530 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
         `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
+        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 2)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%)  ` +
         `margin: $${fmtNum(margin, 4)}`
       );
 
@@ -537,22 +540,22 @@ async function main(): Promise<void> {
       if (botPosition === null && !botEntryPending && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
         botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
         console.log(
-          `[${fmtTime()}] #539 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
+          `[${fmtTime()}] #542 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
           `(${fmtNum(size, 4)} @ $${fmtNum(entry)}) — flip-exit active`,
         );
       }
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[${fmtTime()}] #547  ✗  Position poll error: ${msg}`);
+      console.error(`[${fmtTime()}] #550  ✗  Position poll error: ${msg}`);
     }
   }
 
-  console.log(`[${fmtTime()}] #551 ✅  Monitor stopped`);
+  console.log(`[${fmtTime()}] #554 ✅  Monitor stopped`);
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error(`[${fmtTime()}] #556 Fatal:`, err instanceof Error ? err.message : String(err));
+  console.error(`[${fmtTime()}] #559 Fatal:`, err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
