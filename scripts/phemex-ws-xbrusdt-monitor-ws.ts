@@ -135,7 +135,7 @@ function printTrade(symbol: string, price: number): void {
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);

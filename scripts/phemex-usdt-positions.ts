@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
 
   /* -- Read credentials ------------------------------------------- */
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const CLOSE_ALL = process.argv.includes("--close-all");

@@ -29,7 +29,7 @@ function toHuman(val: unknown, scale: number): number {
 
 async function main() {
   // Read credentials
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const results: Array<{

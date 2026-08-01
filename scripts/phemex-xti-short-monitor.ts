@@ -126,7 +126,7 @@ Options:
     process.exit(0);
   }
 
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`[${fmtTime()}]  ⚡  Starting XTIUSDT short-position monitor`);
