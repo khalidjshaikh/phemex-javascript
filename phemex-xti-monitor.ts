@@ -16,7 +16,7 @@
 
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss, Position } from "./src/lib/positions.js";
+import { fetchPositions, calcPnlPct, closePosition, openLong, setStopLoss, Position } from "./src/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config (defaults, overridable via CLI flags)                       */

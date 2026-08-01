@@ -18,7 +18,7 @@
  *
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws3.ts
  */
-import "./src/lib/globals.js"
+import "./src/globals.js"
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
 import { findSymbolRow } from "./src/cli-utils.js";
@@ -35,7 +35,7 @@ import {
   calcPnlPct,
   closePosition,
   Position,
-} from "./src/lib/positions.js";
+} from "./src/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */

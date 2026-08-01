@@ -1,0 +1,35 @@
+{
+  "performance": {
+    "nodeTiming": {
+      "name": "node",
+      "entryType": "node",
+      "startTime": 0,
+      "duration": 67.723041,
+      "nodeStart": 2.3774579986929893,
+      "v8Start": 4.149415999650955,
+      "bootstrapComplete": 32.468791000545025,
+      "environment": 10.694707997143269,
+      "loopStart": -1,
+      "loopExit": -1,
+      "idleTime": 0
+    },
+    "timeOrigin": 1785425654636.787,
+    "eventLoopUtilization": {
+      "idle": 0,
+      "active": 0,
+      "utilization": 0
+    }
+  },
+  "crypto": {},
+  "navigator": {},
+  "sessionStorage": {},
+  "__filename": "[eval]",
+  "exports": {},
+  "__dirname": ".",
+  "import_globals": {},
+  "lastTickerPrice": 0,
+  "lastTradePrice": 87.2,
+  "streak": 1,
+  "streakStartPrice": 87.18,
+  "apiKey": "dcfad1ef-6836-41e1-b852-d8dd1cbb8a62"
+}

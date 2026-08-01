@@ -1,16 +1,26 @@
 {
   "type": "commonjs",
   "private": true,
+  "scripts": {
+    "gpu": "tsx app.js"
+  },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",
     "@aws-sdk/util-dynamodb": "^3.996.6",
+    "@webgpu/types": "^0.1.71",
     "dotenv": "^17.4.2",
-    "nodemailer": "^9.0.3"
+    "nodemailer": "^9.0.3",
+    "webgpu": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/nodemailer": "^8.0.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "webgpu@0.4.0": true,
+    "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true
   }
 }

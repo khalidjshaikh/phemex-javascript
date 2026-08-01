@@ -22,7 +22,7 @@ import {
   fetchPositions,
   calcPnlPct,
   Position,
-} from "./src/lib/positions.js";
+} from "./src/positions.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */

@@ -15,7 +15,7 @@
  */
 
 import "dotenv/config";
-import { Mailer } from "./src/lib/mailer.js";
+import { Mailer } from "./src/mailer.js";
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */

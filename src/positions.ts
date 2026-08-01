@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-import { base64UrlDecode, httpGet, request } from "../http-client.js";
-import { cancelOrders, placeMarketOrder, setLeverageUsdtM } from "../place-limit-order.js";
-import { uuid } from "../uuid.js";
+import { base64UrlDecode, httpGet, request } from "./http-client.js";
+import { cancelOrders, placeMarketOrder, setLeverageUsdtM } from "./place-limit-order.js";
+import { uuid } from "./uuid.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */

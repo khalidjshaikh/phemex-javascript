@@ -8,5 +8,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["*.ts", "src/**/*.ts", "src/lib/globals.js"]
+  "include": ["*.ts", "src/**/*.ts", "src/globals.js"]
 }

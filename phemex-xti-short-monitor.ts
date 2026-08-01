@@ -17,7 +17,7 @@
 
 import { base64UrlDecode } from "./src/http-client.js";
 import { loadCredentials } from "./src/credentials.js";
-import { fetchPositions, setStopLoss } from "./src/lib/positions.js";
+import { fetchPositions, setStopLoss } from "./src/positions.js";
 import { placeMarketOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
 
 /* ------------------------------------------------------------------ */
