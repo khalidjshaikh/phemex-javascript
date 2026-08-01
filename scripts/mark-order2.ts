@@ -38,7 +38,7 @@ async function place(side: "Buy" | "Sell", posSide: string): Promise<void> {
   console.log(`⟐  PLACING ${side === "Buy" ? "LONG" : "SHORT"} market order  qty ${QTY}  ${LEVERAGE}x`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, posSide, creds.PHEMEX_API_KEY, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side, price: 0, qty: QTY, posSide },
+    { account: "usdt-m", symbol: SYMBOL, side: side, qty: QTY, posSide },
     creds.PHEMEX_API_KEY,
     secretRaw,
   );
@@ -58,10 +58,10 @@ watchMarkPrice(
 
     if (flag === 0) {
       try {
-        if (delta > THRESHOLD) {
+        if (delta >= THRESHOLD) {
           flag = 1;
           await place("Buy", "Long");
-        } else if (delta < -THRESHOLD) {
+        } else if (delta <= -THRESHOLD) {
           flag = 1;
           await place("Sell", "Short");
         }
