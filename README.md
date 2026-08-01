@@ -32,10 +32,10 @@ This file is already listed in `.gitignore` — it will not be committed.
 ### 3. Make TypeScript scripts executable (optional)
 
 ```bash
-chmod +x phemex-*.ts
+chmod +x scripts/phemex-*.ts
 ```
 
-Then you can run them as `./phemex-*.ts` instead of `npx tsx phemex-*.ts`.
+Then you can run them as `./scripts/phemex-*.ts` instead of `npx tsx scripts/phemex-*.ts`.
 
 ---
 
@@ -46,7 +46,7 @@ Then you can run them as `./phemex-*.ts` instead of `npx tsx phemex-*.ts`.
 Fetches the Phemex server timestamp from the public API. No credentials needed.
 
 ```
-npx tsx phemex-public-time.ts
+npx tsx scripts/phemex-public-time.ts
 ```
 
 **Output:**
@@ -68,7 +68,7 @@ Retrieves balances across **all account types**:
 - Coin-M Perpetual (BTC, ETH, USD)
 
 ```
-node phemex-balances.js
+node scripts/phemex-balances.js
 ```
 
 **Output:**
@@ -98,20 +98,20 @@ Queries open (active) orders from Phemex. Supports querying a single symbol or s
 
 **By symbol:**
 ```
-npx tsx phemex-active-orders.ts --symbol BTCUSD
-npx tsx phemex-active-orders.ts --symbol BTCUSDT
+npx tsx scripts/phemex-active-orders.ts --symbol BTCUSD
+npx tsx scripts/phemex-active-orders.ts --symbol BTCUSDT
 ```
 
 **All accounts:**
 ```
-npx tsx phemex-active-orders.ts --all
+npx tsx scripts/phemex-active-orders.ts --all
 ```
 
 **Filter by account type:**
 ```
-npx tsx phemex-active-orders.ts --all --account Coin-M
-npx tsx phemex-active-orders.ts --all --account USDT-M
-npx tsx phemex-active-orders.ts --all --account Spot
+npx tsx scripts/phemex-active-orders.ts --all --account Coin-M
+npx tsx scripts/phemex-active-orders.ts --all --account USDT-M
+npx tsx scripts/phemex-active-orders.ts --all --account Spot
 ```
 
 **Output (table with symbol, side, size, price, value, P&L, leverage, status):**
@@ -129,18 +129,18 @@ ETHUSD      Short      50   3200.00         50.0000        -1.2000      Open
 Places a limit order on any account type. Automatically handles Phemex's value scaling (Ev).
 
 ```
-./phemex-create-limit-order.ts --account <type> --symbol <pair> --side <Buy|Sell> --price <num> --qty <num> [options]
+./scripts/phemex-create-limit-order.ts --account <type> --symbol <pair> --side <Buy|Sell> --price <num> --qty <num> [options]
 ```
 
 **Examples:**
 
 | Account | Description | Command |
 |---------|-------------|---------|
-| **Spot** | Buy at $60k | `./phemex-create-limit-order.ts --account spot --symbol BTCUSDT --side Buy --price 60000 --qty 1` |
-| **USDT-M** | Buy 100x Long | `./phemex-create-limit-order.ts --account usdt-m --symbol BTCUSDT --side Buy --price 60000 --qty 1 --leverage 100 --posSide Long` |
-| **USDT-M** | Sell 100x Short | `./phemex-create-limit-order.ts --account usdt-m --symbol BTCUSDT --side Sell --price 63000 --qty 1 --leverage 100 --posSide Short` |
-| **Coin-M** | Long 100x | `./phemex-create-limit-order.ts --account coin-m --symbol BTCUSD --side Long --price 6e4 --qty 1 --leverage 100` |
-| **Coin-M** | Short 100x | `./phemex-create-limit-order.ts --account coin-m --symbol BTCUSD --side Short --price 6.3e4 --qty 1 --leverage 100` |
+| **Spot** | Buy at $60k | `./scripts/phemex-create-limit-order.ts --account spot --symbol BTCUSDT --side Buy --price 60000 --qty 1` |
+| **USDT-M** | Buy 100x Long | `./scripts/phemex-create-limit-order.ts --account usdt-m --symbol BTCUSDT --side Buy --price 60000 --qty 1 --leverage 100 --posSide Long` |
+| **USDT-M** | Sell 100x Short | `./scripts/phemex-create-limit-order.ts --account usdt-m --symbol BTCUSDT --side Sell --price 63000 --qty 1 --leverage 100 --posSide Short` |
+| **Coin-M** | Long 100x | `./scripts/phemex-create-limit-order.ts --account coin-m --symbol BTCUSD --side Long --price 6e4 --qty 1 --leverage 100` |
+| **Coin-M** | Short 100x | `./scripts/phemex-create-limit-order.ts --account coin-m --symbol BTCUSD --side Short --price 6.3e4 --qty 1 --leverage 100` |
 
 **Optional flags:**
 
@@ -159,10 +159,10 @@ Places a limit order on any account type. Automatically handles Phemex's value s
 Cancels **every open order** across all account types (or filtered by type).
 
 ```
-npx tsx phemex-cancel-all-orders.ts
-npx tsx phemex-cancel-all-orders.ts --account Coin-M
-npx tsx phemex-cancel-all-orders.ts --account USDT-M
-npx tsx phemex-cancel-all-orders.ts --account Spot
+npx tsx scripts/phemex-cancel-all-orders.ts
+npx tsx scripts/phemex-cancel-all-orders.ts --account Coin-M
+npx tsx scripts/phemex-cancel-all-orders.ts --account USDT-M
+npx tsx scripts/phemex-cancel-all-orders.ts --account Spot
 ```
 
 The script:
@@ -179,7 +179,7 @@ A progress line is printed after each cancellation. An `--account` flag is **req
 Retrieves open **Coin-M (inverse perpetual)** positions for BTC, ETH, and USD settlement currencies.
 
 ```
-npx tsx phemex-coinm-positions.ts
+npx tsx scripts/phemex-coinm-positions.ts
 ```
 
 **Output:**
@@ -201,7 +201,7 @@ BTCUSD      Long      1   61000.00       1.000000       +0.050000       100.0   
 Real-time BTCUSD price ticker using the Phemex WebSocket API. Prints the last price to stdout whenever it changes, and prints a heart (`♥`) each time a heartbeat pong is received.
 
 ```
-./phemex-ws-price.ts
+./scripts/phemex-ws-price.ts
 ```
 
 **Features:**

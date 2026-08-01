@@ -23,7 +23,7 @@ cd "$(dirname "$0")"
 # ── Config ──────────────────────────────────────────────────────────
 DELAY="${1:-60}"                     # seconds between loop iterations
 PRICE_FILE="xtiusdt-last-price.txt"
-CONDITIONAL="./phemex-add-conditional-orders.ts"
+CONDITIONAL="./scripts/phemex-add-conditional-orders.ts"
 # ────────────────────────────────────────────────────────────────────
 
 log() { echo "[$(date '+%F %T')] $*"; }
@@ -53,7 +53,7 @@ while true; do
   log "XTIUSDT: price=$price → stop-loss=\$${sl_price}"
 
   # ── Cancel existing stop-loss orders ──────────────────────────
-  # ./phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long \
+  # ./scripts/phemex-cancel-orders-all.ts --symbol XTIUSDT --posSide Long \
   ./cancel-orders.rb   || log "⚠  Cancel orders failed"
 
   # ── Place stop-loss conditional order ──────────────────────────
