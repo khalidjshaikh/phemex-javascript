@@ -564,8 +564,8 @@ async function main(): Promise<void> {
       console.log(
         `[${fmtTime()}] #554 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
         `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 2)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
-        `margin: $${fmtNum(margin, 4)}`
+        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 8)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
+        `margin: $${fmtNum(margin, 8)}`
       );
 
       // Adopt a position this process didn't open (previous run / another
