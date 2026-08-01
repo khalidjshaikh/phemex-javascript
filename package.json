@@ -2,8 +2,9 @@
   "type": "commonjs",
   "private": true,
   "scripts": {
-    "gpu": "tsx gpu-app.ts",
-    "npu": "tsx npu-app.ts"
+    "gpu": "tsx scripts/gpu-app.ts",
+    "npu": "tsx scripts/npu-app.ts",
+    "creds": "tsx scripts/select-credentials.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",

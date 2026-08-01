@@ -20,14 +20,14 @@
  */
 
 import fs from "node:fs";
-import { fetchMarkPrice } from "./src/mark-price.ts";
+import { fetchMarkPrice } from "../src/mark-price.ts";
 import {
   getArgValue,
   resolveCredentials,
   parseSpread,
   buildSpreadPrices,
   placeSpreadLimitOrders,
-} from "./src/spread-limit-order.ts";
+} from "../src/spread-limit-order.ts";
 
 const NUMERIC_KEYS = [
   "qty",

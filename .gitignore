@@ -4,6 +4,7 @@ __pycache__
 .phemex-credentials-gmail.json
 .phemex-credentials-meta.json
 .phemex-credentials.json
+.credentials.json
 .phemex-order-history.json
 .phemex-ws-ema-position.json
 .phemex-ws-ema-prices.json
@@ -36,3 +37,4 @@ node_modules/
 package-lock.json
 src/lib/globals.json
 xtiusdt-last-price.txt
+model.onnx

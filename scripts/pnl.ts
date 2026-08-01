@@ -1,5 +1,5 @@
 #!/usr/bin/env npx tsx
-import { calculatePnL } from "./src/pnl-calculator.js";                                                                                              
+import { calculatePnL } from "../src/pnl-calculator.js";                                                                                              
 
 // $13 worth with 100x leverage
 calculatePnL({

@@ -10,12 +10,12 @@
  *   ./mark-limit.ts --symbol BTCUSDT --qty 0.05
  */
 
-import { watchMarkPrice } from "./src/mark-price.js";
+import { watchMarkPrice } from "../src/mark-price.js";
 import {
   getArgValue,
   resolveCredentials,
   placeSpreadLimitOrders,
-} from "./src/spread-limit-order.js";
+} from "../src/spread-limit-order.js";
 
 const SYMBOL = getArgValue("--symbol") ?? "XBRUSDT";
 const QTY = getArgValue("--qty") !== undefined ? parseFloat(getArgValue("--qty")!) : 0.01;

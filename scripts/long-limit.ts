@@ -19,8 +19,8 @@
  *   --help, -h        Show this help message
  */
 
-import { fetchMarkPrice } from "./src/mark-price.js";
-import { getArgValue, resolveCredentials, placeSpreadLimitOrders } from "./src/spread-limit-order.js";
+import { fetchMarkPrice } from "../src/mark-price.js";
+import { getArgValue, resolveCredentials, placeSpreadLimitOrders } from "../src/spread-limit-order.js";
 
 const SYMBOL = "XBRUSDT";
 const LEVERAGE = 100;

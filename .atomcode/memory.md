@@ -1,0 +1,1 @@
+- phemex-javascript: tsc --noEmit is red repo-wide (pre-existing TS1470 import.meta-in-CommonJS errors in src/credentials.ts and most scripts) — verify changes by running with tsx, not tsc.

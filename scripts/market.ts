@@ -15,10 +15,10 @@
  *   --help, -h        Show this help message
  */
 
-import { base64UrlDecode } from "./src/http-client.js";
-import { getArg, hasFlag } from "./src/cli-utils.js";
-import { loadCredentialsLocal } from "./src/credentials.js";
-import { placeMarketOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { base64UrlDecode } from "../src/http-client.js";
+import { getArg, hasFlag } from "../src/cli-utils.js";
+import { loadCredentialsLocal } from "../src/credentials.js";
+import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
 
 const DEFAULT_SYMBOL = "XBRUSDT";
 const DEFAULT_QTY = 0.01;
