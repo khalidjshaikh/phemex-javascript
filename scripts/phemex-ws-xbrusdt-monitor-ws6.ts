@@ -373,81 +373,86 @@ class TradeBatchProcessor {
     if (!AUTO_TRADE_ENABLED) return;
     if (this.prevPrice === null) return;               // nothing to evaluate on the very first trade
 
-    const price = Number(trade[2]);
-    const symbol = SYMBOL;
+    try {
+      const price = Number(trade[2]);
+      const symbol = SYMBOL;
 
-    // ── Exit: direction flipped → the move is over, close the bot position ──
-    if (botPosition && this.directionChanged) {
-      // allPositions is refreshed every POLL_INTERVAL_MS; fall back to a fresh
-      // fetch so a just-opened position is found even if the cache is stale.
-      const pos = allPositions.find((p) => p.symbol === symbol)
-        ?? (await fetchPositions(apiKey, secretRaw)).find((p) => p.symbol === symbol);
-      if (pos) {
-        console.log(
-          `[${fmtTime()}] #386 ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
-          `(entry $${botPosition.entryPrice} → $${price}) …`,
-        );
-        await closePosition(pos, apiKey, secretRaw);
+      // ── Exit: direction flipped → the move is over, close the bot position ──
+      if (botPosition && this.directionChanged) {
+        // allPositions is refreshed every POLL_INTERVAL_MS; fall back to a fresh
+        // fetch so a just-opened position is found even if the cache is stale.
+        const pos = allPositions.find((p) => p.symbol === symbol)
+          ?? (await fetchPositions(apiKey, secretRaw)).find((p) => p.symbol === symbol);
+        if (pos) {
+          console.log(
+            `[${fmtTime()}] #386 ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
+            `(entry $${botPosition.entryPrice} → $${price}) …`,
+          );
+          await closePosition(pos, apiKey, secretRaw);
+        }
+        botPosition = null;
+        this.lastLongPrice = null;
+        this.lastShortPrice = null;
       }
-      botPosition = null;
-      this.lastLongPrice = null;
-      this.lastShortPrice = null;
-    }
 
-    // One position at a time — the pending flag is claimed synchronously before
-    // any await, so concurrent trades can't open a second position.
-    if (botPosition || botEntryPending) return;
+      // One position at a time — the pending flag is claimed synchronously before
+      // any await, so concurrent trades can't open a second position.
+      if (botPosition || botEntryPending) return;
 
-    // Batch replays evaluate the exit only — historical streaks must not open
-    // new positions.  Own fills are also filtered here (they must not be read
-    // as signals), but only AFTER the exit above, so a flip trade that is also
-    // our own fill can still close the position.
-    if (exitOnly || isOwnFill(trade)) return;
+      // Batch replays evaluate the exit only — historical streaks must not open
+      // new positions.  Own fills are also filtered here (they must not be read
+      // as signals), but only AFTER the exit above, so a flip trade that is also
+      // our own fill can still close the position.
+      if (exitOnly || isOwnFill(trade)) return;
 
-    const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
+      const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
 
-    // ── Entry: beginning of a rise → Long ─────────────────────────────
-    if (ALLOW_LONG_ENTRY && this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN_LONG) {
-      // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
-      console.log(`[${fmtTime()}] #412 🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
-      botEntryPending = true; // claim the slot before any await — prevents a double open
-      pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
-      try {
-        await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
-        const result = await placeMarketOrder(
-          { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
-          apiKey,
-          secretRaw,
-        );
-        this.lastLongPrice = price;
-        botPosition = { side: "Long", entryPrice: price };
-        console.log(`[${fmtTime()}] #424 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
-      } finally {
-        botEntryPending = false; // release on success or failure
+      // ── Entry: beginning of a rise → Long ─────────────────────────────
+      if (ALLOW_LONG_ENTRY && this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN_LONG) {
+        // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
+        console.log(`[${fmtTime()}] #412 🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+        botEntryPending = true; // claim the slot before any await — prevents a double open
+        pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
+        try {
+          await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
+          const result = await placeMarketOrder(
+            { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
+            apiKey,
+            secretRaw,
+          );
+          this.lastLongPrice = price;
+          botPosition = { side: "Long", entryPrice: price };
+          console.log(`[${fmtTime()}] #424 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+        } finally {
+          botEntryPending = false; // release on success or failure
+        }
+        return;
       }
-      return;
-    }
 
-    // ── Entry: beginning of a drop → Short ────────────────────────────
-    if (ALLOW_SHORT_ENTRY && this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN_SHORT) {
-      // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
-      console.log(`[${fmtTime()}] #434 🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
-      botEntryPending = true; // claim the slot before any await — prevents a double open
-      pendingOwnFill = { side: "Sell", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
-      try {
-        await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
-        const result = await placeMarketOrder(
-          { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
-          apiKey,
-          secretRaw,
-        );
-        this.lastShortPrice = price;
-        botPosition = { side: "Short", entryPrice: price };
-        console.log(`[${fmtTime()}] #446 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
-      } finally {
-        botEntryPending = false; // release on success or failure
+      // ── Entry: beginning of a drop → Short ────────────────────────────
+      if (ALLOW_SHORT_ENTRY && this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN_SHORT) {
+        // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
+        console.log(`[${fmtTime()}] #434 🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+        botEntryPending = true; // claim the slot before any await — prevents a double open
+        pendingOwnFill = { side: "Sell", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
+        try {
+          await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
+          const result = await placeMarketOrder(
+            { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
+            apiKey,
+            secretRaw,
+          );
+          this.lastShortPrice = price;
+          botPosition = { side: "Short", entryPrice: price };
+          console.log(`[${fmtTime()}] #446 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+        } finally {
+          botEntryPending = false; // release on success or failure
+        }
+        return;
       }
-      return;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[${fmtTime()}] #452 ✗  auto_trade error: ${msg}`);
     }
   }
 }
@@ -471,42 +476,47 @@ async function main(): Promise<void> {
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
     },
     onMessage: async (msg) => {
-      const m = msg as Record<string, unknown>;
-      if(msg.trades_p && msg.trades_p.length == 1000){
-        TradeBatchProcessor.reset();
-        for (const trade of msg.trades_p.reverse()) {
-          TradeBatchProcessor.process_trade(trade);
-          // Exit-only pass: a flip inside the historical batch must still
-          // close the bot position, but batch streaks must not open one.
-          await TradeBatchProcessor.auto_trade(trade, true);
-        }
-        // lastTradePrice = TradeBatchProcessor.prevPrice
-      }
-      // 24h ticker (columnar USDT-M format)
-      if (
-        m.method === "perp_market24h_pack_p.update" &&
-        Array.isArray(m.fields) &&
-        Array.isArray(m.data)
-      ) {
-        const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
-        if (ticker) {
-          printTicker(SYMBOL, ticker);
-        }
-        return;
-      }
-
-      // Real-time trades
-      if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
-        // console.log("Received")
-        // console.log(m.trades_p.length)
-        const trades = m.trades_p as unknown[][];
-        if (trades.length > 0) {
-          for (const trade of trades) {
-            // console.log(trade)
+      try {
+        const m = msg as Record<string, unknown>;
+        if(msg.trades_p && msg.trades_p.length == 1000){
+          TradeBatchProcessor.reset();
+          for (const trade of msg.trades_p.reverse()) {
             TradeBatchProcessor.process_trade(trade);
-            await TradeBatchProcessor.auto_trade(trade);
+            // Exit-only pass: a flip inside the historical batch must still
+            // close the bot position, but batch streaks must not open one.
+            await TradeBatchProcessor.auto_trade(trade, true);
+          }
+          // lastTradePrice = TradeBatchProcessor.prevPrice
+        }
+        // 24h ticker (columnar USDT-M format)
+        if (
+          m.method === "perp_market24h_pack_p.update" &&
+          Array.isArray(m.fields) &&
+          Array.isArray(m.data)
+        ) {
+          const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
+          if (ticker) {
+            printTicker(SYMBOL, ticker);
+          }
+          return;
+        }
+
+        // Real-time trades
+        if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
+          // console.log("Received")
+          // console.log(m.trades_p.length)
+          const trades = m.trades_p as unknown[][];
+          if (trades.length > 0) {
+            for (const trade of trades) {
+              // console.log(trade)
+              TradeBatchProcessor.process_trade(trade);
+              await TradeBatchProcessor.auto_trade(trade);
+            }
           }
         }
+      } catch (err: unknown) {
+        const emsg = err instanceof Error ? err.message : String(err);
+        console.error(`[${fmtTime()}] #516 ✗  onMessage error: ${emsg}`);
       }
     },
     onReconnect: (delayMs) => {
