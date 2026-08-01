@@ -1,19 +1,19 @@
 /**
- * app.js
+ * npu-app.ts
  *
  * Calls a function that adds two numbers (2 and 3) on the Apple Neural
  * Engine (NPU) via the ONNX Runtime CoreML execution provider, using the
  * model.onnx graph C = A + B.
  */
-const fs = require('node:fs');
-const path = require('node:path');
-const ort = require('onnxruntime-node');
-const { onnx } = require('onnx-proto');
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as ort from 'onnxruntime-node';
+import { onnx } from 'onnx-proto';
 
 const MODEL_PATH = path.join(__dirname, 'model.onnx');
 
 /** Create an ONNX TypeProto for a float32 tensor of the given static dims. */
-function floatTensorType(dims) {
+function floatTensorType(dims: number[]): onnx.TypeProto {
   return onnx.TypeProto.create({
     tensorType: onnx.TypeProto.Tensor.create({
       elemType: onnx.TensorProto.DataType.FLOAT,
@@ -25,7 +25,7 @@ function floatTensorType(dims) {
 }
 
 /** Build and write model.onnx (graph: C = A + B) using onnx-proto. */
-function buildModel() {
+function buildModel(): void {
   const model = onnx.ModelProto.create({
     irVersion: 8,
     opsetImport: [onnx.OperatorSetIdProto.create({ domain: '', version: 13 })],
@@ -57,40 +57,39 @@ if (!fs.existsSync(MODEL_PATH)) {
 }
 
 // Cache the session so repeated calls reuse the NPU-compiled model.
-let sessionPromise = null;
+let sessionPromise: Promise<ort.InferenceSession> | null = null;
 
-function createSession() {
+function createSession(): Promise<ort.InferenceSession> {
   if (!sessionPromise) {
     // CoreML EP: ML Program format compiled for CPU + Apple Neural Engine
     // (NPU). No CPU fallback: if CoreML cannot claim the Add node, session
     // creation fails loudly.
+    const coremlEP = {
+      name: 'coreml',
+      ModelFormat: 'MLProgram',
+      MLComputeUnits: 'CPUAndNeuralEngine',
+      RequireStaticInputShapes: '1',
+    } as unknown as ort.InferenceSession.ExecutionProviderConfig;
     sessionPromise = ort.InferenceSession.create(MODEL_PATH, {
-      executionProviders: [
-        {
-          name: 'coreml',
-          ModelFormat: 'MLProgram',
-          MLComputeUnits: 'CPUAndNeuralEngine',
-          RequireStaticInputShapes: '1',
-        },
-      ],
+      executionProviders: [coremlEP],
     });
   }
   return sessionPromise;
 }
 
 /** Add two numbers on the NPU. Resolves with the sum. */
-async function add(a, b) {
+async function add(a: number, b: number): Promise<number> {
   const session = await createSession();
-  const feeds = {
+  const feeds: ort.InferenceSession.FeedsType = {
     A: new ort.Tensor('float32', new Float32Array([a]), [1]),
     B: new ort.Tensor('float32', new Float32Array([b]), [1]),
   };
   const results = await session.run(feeds);
-  const c = results.C;
-  return c.data[0];
+  const c = results.C as ort.Tensor;
+  return (c.data as Float32Array)[0];
 }
 
-async function main() {
+async function main(): Promise<void> {
   const sum = await add(2, 3);
   console.log(`2 + 3 = ${sum} (on NPU)`);
 }

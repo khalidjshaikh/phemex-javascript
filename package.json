@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "gpu": "tsx app.js",
-    "npu": "node npu-app.js"
+    "npu": "tsx npu-app.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",
@@ -24,6 +24,8 @@
   "allowScripts": {
     "webgpu@0.4.0": true,
     "esbuild@0.28.1": true,
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "onnxruntime-node@1.27.0": true,
+    "protobufjs@6.11.6": true
   }
 }

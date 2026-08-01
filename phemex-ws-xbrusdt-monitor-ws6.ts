@@ -13,7 +13,7 @@
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
 import { add } from './src/gpu.js';
-(async () => console.log(`#16 ${await add(2, 3)}`))();
+(async () => console.log(`[${fmtTime()}] #16 ${await add(2, 3)}`))();
 
 import "./src/globals.js"
 import fs from "node:fs";
@@ -164,14 +164,14 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const chgStr = `Chg: ${sign}${changePct.toFixed(2)}%`;
   const volStr = `Vol: ${volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-  const line = `${now}  ${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
+  const line = `${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
 
   // if (last !== lastTickerPrice) {
     updateDirection(last, lastTickerPrice);
     const delta = last - streakStartPrice;
     const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
     const streakStr = ` (${direction}×${streak}, ${deltaStr})`;
-    console.log("#174 " + line + streakStr);
+    console.log(`[${now}] #174 ` + line + streakStr);
     lastTickerPrice = last;
     // savePrice(last);
     // notifyLimitScripts();
@@ -306,10 +306,11 @@ class TradeBatchProcessor {
     const deltaStr = `${sign}${delta.toFixed(2)}`.padStart(5);
     const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
     const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
-    const bigMove = Math.abs(lastDelta) >= 0.15 ? '≥0.15' : '';
+    const bigMove = Math.abs(lastDelta) >= ENTRY_DELTA_MIN ? `≥${ENTRY_DELTA_MIN}` : "";
+    '';
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     console.log(
-      `#311 ${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
+      `[${fmtTime()}] #311 ${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
     );
     this.prevPrice = p;
   }
@@ -423,10 +424,10 @@ class TradeBatchProcessor {
 
 async function main(): Promise<void> {
 
-  console.log(`#426 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
-  console.log(`#427   Symbol:       ${SYMBOL}`);
-  console.log(`#428   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
-  console.log(`#429 ═════════════════════════════════════════════════════════════`);
+  console.log(`[${fmtTime()}] #426 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
+  console.log(`[${fmtTime()}] #427   Symbol:       ${SYMBOL}`);
+  console.log(`[${fmtTime()}] #428   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
+  console.log(`[${fmtTime()}] #429 ═════════════════════════════════════════════════════════════`);
 
   // ---------------------------------------------------------------
   // WebSocket — ticker + trade feed
@@ -543,6 +544,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("#546 Fatal:", err instanceof Error ? err.message : String(err));
+  console.error(`[${fmtTime()}] #546 Fatal:`, err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
