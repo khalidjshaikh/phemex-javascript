@@ -5,14 +5,14 @@
  *
  * Watches XBRUSDT and computes  Δ = mark − last.  A trade flag gates firing:
  *
- *   flag = 0  at the point of inflection (Δ crossing zero)
+ *   flag = 0  whenever the last price changes
  *   flag = 1  once a threshold has fired
  *
  * Triggers (only while flag == 0):
  *   Δ >  +$0.10  →  market BUY  (long)  qty 1, 100x leverage
  *   Δ <  −$0.10  →  market SELL (short) qty 1, 100x leverage
  *
- * The flag resets to 0 when Δ crosses zero, arming the next trigger.
+ * The flag resets to 0 whenever the last price changes, arming the next trigger.
  */
 
 import { watchMarkPrice } from "../src/mark-price.js";
@@ -21,15 +21,15 @@ import { loadCredentialsLocal } from "../src/credentials.js";
 import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
 
 const SYMBOL = "XBRUSDT";
-const QTY = 1;
+const QTY = 0.01;
 const LEVERAGE = 100;
 /** Trigger when |mark − last| exceeds this (quote currency units). */
 const THRESHOLD = 0.10;
 
-/** Trade flag — 0 at the point of inflection, 1 after a trigger fires. */
+/** Trade flag — 0 when the last price changes, 1 after a trigger fires. */
 let flag = 0;
-/** Delta sign from the previous update, used to detect the inflection. */
-let prevDelta = 0;
+/** Last price from the previous update, used to detect last-price changes. */
+let prevLast = 0;
 
 const creds = loadCredentialsLocal();
 const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -49,12 +49,12 @@ watchMarkPrice(
   SYMBOL,
   async ({ markPrice, lastPrice }) => {
     const delta = markPrice - lastPrice;
-    const sign = Math.sign(delta);
 
-    // Point of inflection: Δ crossed zero (or touched it) → re-arm the flag.
-    if (sign !== prevDelta) {
+    // Last price changed → re-arm the flag.
+    if (lastPrice !== prevLast) {
       flag = 0;
     }
+    prevLast = lastPrice;
 
     if (flag === 0) {
       try {
@@ -74,7 +74,6 @@ watchMarkPrice(
       `⟐  mark $${markPrice.toFixed(2)}  last $${lastPrice.toFixed(2)}` +
         `  Δ ${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)}¢  flag ${flag}`,
     );
-    prevDelta = sign;
   },
   { onStatus: (msg) => console.error(`⟐  ${msg}`) },
 );
