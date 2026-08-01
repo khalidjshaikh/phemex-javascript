@@ -2,7 +2,7 @@
   "type": "commonjs",
   "private": true,
   "scripts": {
-    "gpu": "tsx app.js",
+    "gpu": "tsx gpu-app.ts",
     "npu": "tsx npu-app.ts"
   },
   "dependencies": {

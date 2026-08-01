@@ -256,12 +256,10 @@ export async function placeLinear(
     "",
   )) as Record<string, unknown>;
 
-  try {
   if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
   const data = resp.data as PlaceOrderResult | undefined;
   if (!data) throw new Error("Empty response data");
   return data;
-  } catch {}
 }
 
 /**
@@ -455,12 +453,10 @@ export async function placeMarketLinear(
     "",
   )) as Record<string, unknown>;
 
-  try {
   if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
   const data = resp.data as PlaceOrderResult | undefined;
   if (!data) throw new Error("Empty response data");
   return data;
-  } catch {}
 }
 
 /**
