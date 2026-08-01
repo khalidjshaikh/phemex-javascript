@@ -13,9 +13,9 @@
  */
 
 import fs from "node:fs";
-import { base64UrlDecode } from "./src/http-client.js";
-import { loadCredentialsLocal } from "./src/credentials.js";
-import { placeMarketOrder, cancelOrder, setLeverageUsdtM } from "./src/place-limit-order.js";
+import { base64UrlDecode } from "../src/http-client.js";
+import { loadCredentialsLocal } from "../src/credentials.js";
+import { placeMarketOrder, cancelOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
 
 const SYMBOL = "XTIUSDT";
 const PRICE_FILE = "xtiusdt-last-price.txt";

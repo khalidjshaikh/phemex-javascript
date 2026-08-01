@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 /**
  * mark-app.ts — prints the live Phemex mark & last price for a perpetual symbol.
- * Uses the watchMarkPrice WebSocket library from ./src/mark-price.js.
+ * Uses the watchMarkPrice WebSocket library from ../src/mark-price.js.
  *
  * Usage:
  *   npx tsx mark-app.ts              # default XBRUSDT
  *   npx tsx mark-app.ts BTCUSDT      # custom symbol
  */
 
-import { watchMarkPrice } from "./src/mark-price.js";
+import { watchMarkPrice } from "../src/mark-price.js";
 
 const symbol = process.argv[2] ?? "XBRUSDT";
 

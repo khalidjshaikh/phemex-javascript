@@ -35,7 +35,7 @@ log "Fetching open orders for ${SYMBOL} …"
 # stdout mixes a log line + JSON; stderr has nothing useful,
 # so extract just the JSON object (first line starting with '{').
 ORDER_IDS="$(
-  ./scripts/phemex-cli get_open_orders --symbol "$SYMBOL" --json 2>/dev/null \
+  ./phemex-cli get_open_orders --symbol "$SYMBOL" --json 2>/dev/null \
     | python3 -c "
 import json, sys
 
@@ -75,7 +75,7 @@ FAILED=0
 while IFS= read -r OID; do
   [[ -z "$OID" ]] && continue
   log "Cancelling ${OID} …"
-  if OUTPUT="$(./scripts/phemex-cli cancel_order --symbol "$SYMBOL" --orderID "$OID" --posSide "$POS_SIDE" 2>&1)"; then
+  if OUTPUT="$(./phemex-cli cancel_order --symbol "$SYMBOL" --orderID "$OID" --posSide "$POS_SIDE" 2>&1)"; then
     echo "$OUTPUT"
     ((CANCELLED++))
   else

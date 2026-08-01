@@ -8,7 +8,7 @@
  */
 
 import "dotenv/config";
-import { Mailer } from "./src/mailer.js";
+import { Mailer } from "../src/mailer.js";
 
 async function main() {
   const mailer = Mailer.fromEnv();

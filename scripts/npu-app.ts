@@ -5,7 +5,7 @@
  * Engine (NPU) via the ONNX Runtime CoreML execution provider, using the
  * model.onnx graph C = A + B.
  */
-import { add } from './src/npu.js';
+import { add } from '../src/npu.js';
 
 async function main(): Promise<void> {
   const sum = await add(2, 3);
