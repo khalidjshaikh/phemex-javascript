@@ -13,7 +13,17 @@
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
 import { add } from './src/gpu.js';
-(async () => console.log(`[${fmtTime()}] #16 ${await add(2, 3)}`))();
+ (async () => console.log(await add(2, 3)))();
+
+import { add } from './src/npu.js';
+ (async () => console.log(await add(2, 3)))();
+
+
+// async function main(): Promise<void> {
+//   const sum = await add(2, 3);
+//   console.log(`2 + 3 = ${sum} (on NPU)`);
+// }
+// main()
 
 import "./src/globals.js"
 import fs from "node:fs";
@@ -307,7 +317,6 @@ class TradeBatchProcessor {
     const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
     const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
     const bigMove = Math.abs(lastDelta) >= ENTRY_DELTA_MIN ? `≥${ENTRY_DELTA_MIN}` : "";
-    '';
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     console.log(
       `[${fmtTime()}] #311 ${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
