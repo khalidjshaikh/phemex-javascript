@@ -556,33 +556,32 @@ async function main(): Promise<void> {
           botPosition = null;
           continue;
         }
-      }
 
-      const entry = parseFloat(pos.avgEntryPriceRp || "0");
-      const mark = parseFloat(pos.markPriceRp || "0");
-      const size = parseFloat(pos.size || "0");
-      const margin = parseFloat(pos.posCostRv || "0");
+        const entry = parseFloat(pos.avgEntryPriceRp || "0");
+        const mark = parseFloat(pos.markPriceRp || "0");
+        const size = parseFloat(pos.size || "0");
+        const margin = parseFloat(pos.posCostRv || "0");
 
-      const pnl = pos.side === "Buy" ? (mark - entry) * size : (entry - mark) * size; // PnL from the data structure
-      const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
-      console.log(
-        `[${fmtTime()}] #554 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
-        `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-        `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 8)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
-        `margin: $${fmtNum(margin, 8)}`
-      );
-
-      // Adopt a position this process didn't open (previous run / another
-      // script) so the flip-exit can still manage it.  Only bot-sized
-      // positions are adopted, so manual positions are left alone.
-      if (botPosition === null && !botEntryPending && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
-        botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
+        const pnl = pos.side === "Buy" ? (mark - entry) * size : (entry - mark) * size; // PnL from the data structure
+        const pnlPct = margin > 0 ? (pnl / margin) * 100 : 0;
         console.log(
-          `[${fmtTime()}] #566 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
-          `(${fmtNum(size, 4)} @ $${fmtNum(entry)}) — flip-exit active`,
+          `[${fmtTime()}] #554 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
+          `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
+          `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 8)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
+          `margin: $${fmtNum(margin, 8)}`
         );
-      }
 
+        // Adopt a position this process didn't open (previous run / another
+        // script) so the flip-exit can still manage it.  Only bot-sized
+        // positions are adopted, so manual positions are left alone.
+        if (botPosition === null && !botEntryPending && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
+          botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
+          console.log(
+            `[${fmtTime()}] #566 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
+            `(${fmtNum(size, 4)} @ $${fmtNum(entry)}) — flip-exit active`,
+          );
+        }
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${fmtTime()}] #574  ✗  Position poll error: ${msg}`);
