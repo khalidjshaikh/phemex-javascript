@@ -50,6 +50,7 @@ const ENTRY_STREAK_MIN = 2;           // consecutive ↓/↑ ticks confirming a 
 const ENTRY_DELTA_MIN = 0.15;         // $ move from streak start marking a "long" drop/rise
 const TRAILING_PNL_PCT = 5;          // close bot position if PnL% gives back this many points from peak
 const HARD_STOP_PNL_PCT = -10;        // close bot position if PnL% (margin-based) falls below this
+const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
 function parseArg(name: string): string | undefined {
@@ -82,6 +83,8 @@ let direction: "↑" | "↓" = "↑";
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
 let botPosition: { side: "Long" | "Short"; entryPrice: number } | null = null;
+/** Fill expected from the order the bot just placed (side+qty), so its own fills aren't misread as signals */
+let pendingOwnFill: { side: "Buy" | "Sell"; qty: number; expiresAt: number } | null = null;
 /** Peak PnL% reached by the current bot position (anchor for the PnL-decline stop) */
 let botMaxPnlPct: number | null = null;
 /** Peak PnL% seen since monitor start (anchor for the generic trailing stop) */
@@ -118,6 +121,24 @@ function notifyLimitScripts(): void {
       // Ignore if the target process is not running or the PID file is absent.
     }
   }
+}
+
+/**
+ * True when `trade` looks like the fill of an order this bot just placed:
+ * side and qty match the last order and it arrived within OWN_FILL_WINDOW_MS.
+ * The expectation is consumed on the first match.
+ */
+function isOwnFill(trade: unknown[]): boolean {
+  if (!pendingOwnFill) return false;
+  if (Date.now() > pendingOwnFill.expiresAt) {
+    pendingOwnFill = null; // window elapsed — not our fill
+    return false;
+  }
+  const side = String(trade[1]);
+  const qty = Number(trade[3]);
+  if (side !== pendingOwnFill.side || Math.abs(qty - pendingOwnFill.qty) > 1e-9) return false;
+  pendingOwnFill = null; // consumed — our fill
+  return true;
 }
 
 function savePrice(price: number): void {
@@ -315,7 +336,7 @@ class TradeBatchProcessor {
   static async auto_trade(trade: unknown[]): Promise<void> {
     if (!AUTO_TRADE_ENABLED) return;
     if (this.prevPrice === null) return;               // nothing to evaluate on the very first trade
-    //if (Number(trade[3]) === AUTO_TRADE_QTY) return;   // ignore our own 0.01 fills
+    if (isOwnFill(trade)) return;                      // ignore fills from orders this bot just placed
 
     const price = Number(trade[2]);
     const symbol = SYMBOL;
@@ -331,6 +352,11 @@ class TradeBatchProcessor {
           `[${fmtTime()}]  ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
           `(entry $${botPosition.entryPrice} → $${price}) …`,
         );
+        pendingOwnFill = {
+          side: pos.side === "Buy" ? "Sell" : "Buy",
+          qty: parseFloat(pos.size || "0"),
+          expiresAt: Date.now() + OWN_FILL_WINDOW_MS,
+        };
         await closePosition(pos, apiKey, secretRaw);
       }
       botPosition = null;
@@ -350,6 +376,7 @@ class TradeBatchProcessor {
     if (this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
       console.log(`[${fmtTime()}]  🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+      pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
       await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
       const result = await placeMarketOrder(
         { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
@@ -365,22 +392,22 @@ class TradeBatchProcessor {
     }
 
     // ── Entry: beginning of a drop → Short ────────────────────────────
-    if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
-      // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
-      console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
-      await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
-      const result = await placeMarketOrder(
-        { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
-        apiKey,
-        secretRaw,
-      );
-      this.lastShortPrice = price;
-      botPosition = { side: "Short", entryPrice: price };
-      botMaxPnlPct = null;
-      maxPnlPct = null;
-      console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
-      return;
-    }
+    // if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
+    //   // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
+    //   console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+    //   await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
+    //   const result = await placeMarketOrder(
+    //     { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
+    //     apiKey,
+    //     secretRaw,
+    //   );
+    //   this.lastShortPrice = price;
+    //   botPosition = { side: "Short", entryPrice: price };
+    //   botMaxPnlPct = null;
+    //   maxPnlPct = null;
+    //   console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+    //   return;
+    // }
   }
 }
 
@@ -513,6 +540,11 @@ async function main(): Promise<void> {
             `[${fmtTime()}]  🛑  BOT PnL DECLINED — PnL ${fmtNum(pnlPct, 2)}% < floor ` +
             `${fmtNum(floor, 2)}% (peak ${fmtNum(botMaxPnlPct, 2)}%). Closing ${botPosition.side} …`
           );
+          pendingOwnFill = {
+            side: pos.side === "Buy" ? "Sell" : "Buy",
+            qty: parseFloat(pos.size || "0"),
+            expiresAt: Date.now() + OWN_FILL_WINDOW_MS,
+          };
           await closePosition(pos, apiKey, secretRaw);
           botPosition = null;
           botMaxPnlPct = null;
@@ -529,6 +561,11 @@ async function main(): Promise<void> {
           `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < ` +
           `(floor, peak ${fmtNum(maxPnlPct, 2)}%). Closing position …`
         );
+        pendingOwnFill = {
+          side: pos.side === "Buy" ? "Sell" : "Buy",
+          qty: parseFloat(pos.size || "0"),
+          expiresAt: Date.now() + OWN_FILL_WINDOW_MS,
+        };
         await closePosition(pos, apiKey, secretRaw);
         maxPnlPct = null;
       }

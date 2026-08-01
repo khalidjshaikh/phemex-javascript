@@ -1,16 +1,22 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * phemex-ws-xbrusdt-monitor-ws.ts — XBRUSDT WebSocket monitor: live ticker +
- *                                     trade feed + read-only position display.
+ * phemex-ws-xbrusdt-monitor-ws3.ts — XBRUSDT WebSocket monitor: live ticker +
+ *                                     trade feed + delta-rule auto-trader.
  *
  * Data sources:
  *   1. WebSocket 24h ticker (perp_market24h_pack_p) — prints ticker line ~1s
  *   2. WebSocket trade feed (trade_p)                — prints trade arrows on each fill
  *   3. REST position polling (fetchPositions)         — displays open position, PnL %, margin
- *                                                      (read-only — no auto-trading)
  *
- * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
+ * Auto-trader (delta rule):
+ *   Δ = price − last-pivot price (the pivot is the price where direction last
+ *   flipped). Buy Long when a new up-leg starts (direction flips to ↑ with
+ *   Δ ≥ ENTRY_DELTA_MIN); hold while Δ stays positive; sell when Δ turns
+ *   negative (direction flips to ↓). Rides a sustained rally (e.g. $88 → $90)
+ *   and exits when the price breaks back below the pivot.
+ *
+ * Usage:  ./phemex-ws-xbrusdt-monitor-ws3.ts
  */
 import "./src/lib/globals.js"
 import fs from "node:fs";
@@ -46,9 +52,8 @@ const POLL_INTERVAL_MS = 2_000;
 const AUTO_TRADE_ENABLED = true;      // master switch for placing real orders
 const AUTO_TRADE_LEVERAGE = 100;      // leverage used for bot positions
 const AUTO_TRADE_QTY = 0.01;          // position size (also filters our own fills)
-const ENTRY_STREAK_MIN = 2;           // consecutive ↓/↑ ticks confirming a move has started
-const ENTRY_DELTA_MIN = 0.15;         // $ move from streak start marking a "long" drop/rise
-const TRAILING_PNL_PCT = 5;          // close bot position if PnL% gives back this many points from peak
+const ENTRY_DELTA_MIN = 0.10;         // buy when the up-leg is ≥ this far ($) above its pivot; 0 = strict "Δ > 0" rule
+const TRAILING_PNL_PCT = 5;          // safety: close bot position if PnL% gives back this many points from peak
 const HARD_STOP_PNL_PCT = -10;        // close bot position if PnL% (margin-based) falls below this
 
 /* Parse CLI flags like --symbol XTIUSDT */
@@ -295,40 +300,46 @@ class TradeBatchProcessor {
   }
 
   /**
-   * Auto-trade: enter/exit bot positions based on the current streak/direction
-   * state (set by the most recent process_trade call).
+   * Auto-trade: pure delta rule — buy when Δ turns positive, sell when Δ
+   * turns negative (state set by the most recent process_trade call).
    *
-   * Entry — the BEGINNING of a move:
-   * - Long  when a rise is starting: ≥ ENTRY_STREAK_MIN consecutive ↑ ticks
-   *   with a cumulative Δ ≥ ENTRY_DELTA_MIN from the streak start.
-   * - Short when a drop is starting: ≥ ENTRY_STREAK_MIN consecutive ↓ ticks
-   *   with a cumulative Δ ≤ -ENTRY_DELTA_MIN from the streak start.
+   * Δ (the cumulative delta printed in the trade log) = price − the price at
+   * the last direction flip (the "pivot"):
+   *   Δ > 0  ⇔  price is above the pivot — a new up-leg is in progress
+   *   Δ < 0  ⇔  price broke below the pivot — the up-leg is over
    *
-   * Exit — the END of the move:
-   * - When the direction flips (the graph starts going the other way) the bot
-   *   position is closed with a market order.
-   * - The polling loop in main() additionally closes the position when the
-   *   PnL declines (trailing stop from the PnL peak / hard stop).
+   * Entry — a new up-leg starts:
+   * - Buy Long the moment the direction flips to ↑ with Δ ≥ ENTRY_DELTA_MIN.
+   *   (ENTRY_DELTA_MIN = 0 is the strict "buy when Δ is positive" rule; a
+   *   small value skips sub-cent noise so we don't trade every wiggle.)
+   *
+   * Exit — the up-leg ends:
+   * - Sell when the direction flips to ↓ — that is exactly the first tick on
+   *   which Δ turns negative (price falls back below the pivot).
+   * - The polling loop in main() is a safety net only (hard stop / trailing
+   *   PnL decline); the delta flip is the primary exit.
    *
    * Must be called AFTER process_trade() with the same trade tuple.
    */
   static async auto_trade(trade: unknown[]): Promise<void> {
     if (!AUTO_TRADE_ENABLED) return;
     if (this.prevPrice === null) return;               // nothing to evaluate on the very first trade
-    //if (Number(trade[3]) === AUTO_TRADE_QTY) return;   // ignore our own 0.01 fills
+    if (Number(trade[3]) === AUTO_TRADE_QTY) return;   // ignore our own 0.01 fills
 
     const price = Number(trade[2]);
     const symbol = SYMBOL;
+    const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
 
-    // ── Exit: direction flipped → the move is over, close the bot position ──
-    if (botPosition && this.directionChanged) {
+    // ── Exit: Δ turned negative → the up-leg is over, close the bot position ──
+    // A flip to ↓ is the first tick on which Δ < 0 (price broke below the pivot).
+    if (botPosition && this.directionChanged && this.prevDirection === "↓") {
       // allPositions is refreshed every POLL_INTERVAL_MS; fall back to a fresh
       // fetch so a just-opened position is found even if the cache is stale.
       const pos = allPositions.find((p) => p.symbol === symbol)
         ?? (await fetchPositions(apiKey, secretRaw)).find((p) => p.symbol === symbol);
       if (pos) {
         console.log(
-          `[${fmtTime()}]  ⟐  ${botPosition.side} flip → closing bot ${symbol} ` +
+          `[${fmtTime()}]  ⟐  ${botPosition.side} Δ<0 → closing bot ${symbol} ` +
           `(entry $${botPosition.entryPrice} → $${price}) …`,
         );
         await closePosition(pos, apiKey, secretRaw);
@@ -344,12 +355,13 @@ class TradeBatchProcessor {
     // One position at a time
     if (botPosition) return;
 
-    const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
-
-    // ── Entry: beginning of a rise → Long ─────────────────────────────
-    if (this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN) {
+    // ── Entry: Δ just turned positive → ride the new up-leg ─────────────
+    // A flip to ↑ starts a fresh up-leg (streakStartPrice = the pivot where
+    // the previous leg ended), so Δ = price − pivot > 0. Buy, then HOLD while
+    // the leg keeps making progress — the exit is the next flip to ↓ (Δ < 0).
+    if (this.directionChanged && this.prevDirection === "↑" && delta >= ENTRY_DELTA_MIN) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
-      console.log(`[${fmtTime()}]  🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+      console.log(`[${fmtTime()}]  🟢  Rise detected (Δ+$${delta.toFixed(2)} from pivot $${this.streakStartPrice?.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
       await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
       const result = await placeMarketOrder(
         { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
@@ -365,22 +377,22 @@ class TradeBatchProcessor {
     }
 
     // ── Entry: beginning of a drop → Short ────────────────────────────
-    if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
-      // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
-      console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
-      await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
-      const result = await placeMarketOrder(
-        { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
-        apiKey,
-        secretRaw,
-      );
-      this.lastShortPrice = price;
-      botPosition = { side: "Short", entryPrice: price };
-      botMaxPnlPct = null;
-      maxPnlPct = null;
-      console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
-      return;
-    }
+    // if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
+    //   // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
+    //   console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+    //   await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
+    //   const result = await placeMarketOrder(
+    //     { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
+    //     apiKey,
+    //     secretRaw,
+    //   );
+    //   this.lastShortPrice = price;
+    //   botPosition = { side: "Short", entryPrice: price };
+    //   botMaxPnlPct = null;
+    //   maxPnlPct = null;
+    //   console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+    //   return;
+    // }
   }
 }
 
@@ -505,9 +517,10 @@ async function main(): Promise<void> {
       // PnL% is margin-based, so at 100x leverage a -10% PnL is only a
       // -0.1% adverse price move.  Close if the PnL% gives back more than
       // TRAILING_PNL_PCT points from its peak, or falls below the hard stop.
-      const floor = Math.max(botMaxPnlPct - TRAILING_PNL_PCT, HARD_STOP_PNL_PCT);
+      // The primary exit is the Δ<0 flip in auto_trade(); this is a backstop.
       if (botPosition) {
         if (botMaxPnlPct === null || pnlPct > botMaxPnlPct) botMaxPnlPct = pnlPct;
+        const floor = Math.max(botMaxPnlPct - TRAILING_PNL_PCT, HARD_STOP_PNL_PCT);
         if (pnlPct < floor) {
           console.log(
             `[${fmtTime()}]  🛑  BOT PnL DECLINED — PnL ${fmtNum(pnlPct, 2)}% < floor ` +
@@ -523,6 +536,7 @@ async function main(): Promise<void> {
 
       // ── Generic trailing stop for manually-held positions ───────────
       if (maxPnlPct === null || pnlPct > maxPnlPct) maxPnlPct = pnlPct;
+      const floor = Math.max(maxPnlPct - TRAILING_PNL_PCT, HARD_STOP_PNL_PCT);
       // if (pnlPct < maxPnlPct - TRAILING_PNL_PCT) {
       if (pnlPct < floor) {
         console.log(

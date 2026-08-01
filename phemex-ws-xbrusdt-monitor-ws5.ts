@@ -365,22 +365,22 @@ class TradeBatchProcessor {
     }
 
     // ── Entry: beginning of a drop → Short ────────────────────────────
-    if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
-      // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
-      console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
-      await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
-      const result = await placeMarketOrder(
-        { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
-        apiKey,
-        secretRaw,
-      );
-      this.lastShortPrice = price;
-      botPosition = { side: "Short", entryPrice: price };
-      botMaxPnlPct = null;
-      maxPnlPct = null;
-      console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
-      return;
-    }
+    // if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
+    //   // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
+    //   console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+    //   await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
+    //   const result = await placeMarketOrder(
+    //     { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
+    //     apiKey,
+    //     secretRaw,
+    //   );
+    //   this.lastShortPrice = price;
+    //   botPosition = { side: "Short", entryPrice: price };
+    //   botMaxPnlPct = null;
+    //   maxPnlPct = null;
+    //   console.log(`[${fmtTime()}]  ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+    //   return;
+    // }
   }
 }
 

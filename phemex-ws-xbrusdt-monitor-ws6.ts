@@ -46,10 +46,11 @@ const POLL_INTERVAL_MS = 2_000;
 const AUTO_TRADE_ENABLED = true;      // master switch for placing real orders
 const AUTO_TRADE_LEVERAGE = 100;      // leverage used for bot positions
 const AUTO_TRADE_QTY = 0.01;          // position size (also filters our own fills)
-const ENTRY_STREAK_MIN = 2;           // consecutive ↓/↑ ticks confirming a move has started
+const ENTRY_STREAK_MIN = 1;           // consecutive ↓/↑ ticks confirming a move has started
 const ENTRY_DELTA_MIN = 0.15;         // $ move from streak start marking a "long" drop/rise
-const TRAILING_PNL_PCT = 5;          // close bot position if PnL% gives back this many points from peak
-const HARD_STOP_PNL_PCT = -10;        // close bot position if PnL% (margin-based) falls below this
+// const TRAILING_PNL_PCT = 5;          // close bot position if PnL% gives back this many points from peak
+// const HARD_STOP_PNL_PCT = -10;        // close bot position if PnL% (margin-based) falls below this
+const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
 function parseArg(name: string): string | undefined {
@@ -82,6 +83,8 @@ let direction: "↑" | "↓" = "↑";
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
 let botPosition: { side: "Long" | "Short"; entryPrice: number } | null = null;
+/** Fill expected from the order the bot just placed (side+qty), so its own fills aren't misread as signals */
+let pendingOwnFill: { side: "Buy" | "Sell"; qty: number; expiresAt: number } | null = null;
 /** Peak PnL% reached by the current bot position (anchor for the PnL-decline stop) */
 let botMaxPnlPct: number | null = null;
 /** Peak PnL% seen since monitor start (anchor for the generic trailing stop) */
@@ -118,6 +121,24 @@ function notifyLimitScripts(): void {
       // Ignore if the target process is not running or the PID file is absent.
     }
   }
+}
+
+/**
+ * True when `trade` looks like the fill of an order this bot just placed:
+ * side and qty match the last order and it arrived within OWN_FILL_WINDOW_MS.
+ * The expectation is consumed on the first match.
+ */
+function isOwnFill(trade: unknown[]): boolean {
+  if (!pendingOwnFill) return false;
+  if (Date.now() > pendingOwnFill.expiresAt) {
+    pendingOwnFill = null; // window elapsed — not our fill
+    return false;
+  }
+  const side = String(trade[1]);
+  const qty = Number(trade[3]);
+  if (side !== pendingOwnFill.side || Math.abs(qty - pendingOwnFill.qty) > 1e-9) return false;
+  pendingOwnFill = null; // consumed — our fill
+  return true;
 }
 
 function savePrice(price: number): void {
@@ -311,11 +332,13 @@ class TradeBatchProcessor {
    *   PnL declines (trailing stop from the PnL peak / hard stop).
    *
    * Must be called AFTER process_trade() with the same trade tuple.
+   *
+   * @param exitOnly when true (1000-trade batch replays), only the flip-exit
+   *                 is evaluated — historical streaks must not open positions.
    */
-  static async auto_trade(trade: unknown[]): Promise<void> {
+  static async auto_trade(trade: unknown[], exitOnly = false): Promise<void> {
     if (!AUTO_TRADE_ENABLED) return;
     if (this.prevPrice === null) return;               // nothing to evaluate on the very first trade
-    //if (Number(trade[3]) === AUTO_TRADE_QTY) return;   // ignore our own 0.01 fills
 
     const price = Number(trade[2]);
     const symbol = SYMBOL;
@@ -338,11 +361,16 @@ class TradeBatchProcessor {
       maxPnlPct = null;
       this.lastLongPrice = null;
       this.lastShortPrice = null;
-      return;
     }
 
     // One position at a time
     if (botPosition) return;
+
+    // Batch replays evaluate the exit only — historical streaks must not open
+    // new positions.  Own fills are also filtered here (they must not be read
+    // as signals), but only AFTER the exit above, so a flip trade that is also
+    // our own fill can still close the position.
+    if (exitOnly || isOwnFill(trade)) return;
 
     const delta = this.streakStartPrice !== null ? price - this.streakStartPrice : 0;
 
@@ -350,6 +378,7 @@ class TradeBatchProcessor {
     if (this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
       console.log(`[${fmtTime()}]  🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+      pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
       await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
       const result = await placeMarketOrder(
         { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
@@ -368,6 +397,7 @@ class TradeBatchProcessor {
     if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
       // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
       console.log(`[${fmtTime()}]  🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+      pendingOwnFill = { side: "Sell", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
       await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
       const result = await placeMarketOrder(
         { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
@@ -421,6 +451,9 @@ async function main(): Promise<void> {
         TradeBatchProcessor.reset();
         for (const trade of msg.trades_p.reverse()) {
           TradeBatchProcessor.process_trade(trade);
+          // Exit-only pass: a flip inside the historical batch must still
+          // close the bot position, but batch streaks must not open one.
+          await TradeBatchProcessor.auto_trade(trade, true);
         }
         // lastTradePrice = TradeBatchProcessor.prevPrice
       }
@@ -501,37 +534,48 @@ async function main(): Promise<void> {
         `margin: $${fmtNum(margin, 4)}`
       );
 
+      // Adopt a position this process didn't open (previous run / another
+      // script) so the flip-exit can still manage it.  Only bot-sized
+      // positions are adopted, so manual positions are left alone.
+      if (botPosition === null && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
+        botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
+        console.log(
+          `[${fmtTime()}]  ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
+          `(${fmtNum(size, 4)} @ $${fmtNum(entry)}) — flip-exit active`,
+        );
+      }
+
       // ── Auto-trader position: close when the PnL declines ───────────
       // PnL% is margin-based, so at 100x leverage a -10% PnL is only a
       // -0.1% adverse price move.  Close if the PnL% gives back more than
       // TRAILING_PNL_PCT points from its peak, or falls below the hard stop.
-      const floor = Math.max(botMaxPnlPct - TRAILING_PNL_PCT, HARD_STOP_PNL_PCT);
-      if (botPosition) {
-        if (botMaxPnlPct === null || pnlPct > botMaxPnlPct) botMaxPnlPct = pnlPct;
-        if (pnlPct < floor) {
-          console.log(
-            `[${fmtTime()}]  🛑  BOT PnL DECLINED — PnL ${fmtNum(pnlPct, 2)}% < floor ` +
-            `${fmtNum(floor, 2)}% (peak ${fmtNum(botMaxPnlPct, 2)}%). Closing ${botPosition.side} …`
-          );
-          await closePosition(pos, apiKey, secretRaw);
-          botPosition = null;
-          botMaxPnlPct = null;
-          maxPnlPct = null;
-        }
-        continue;
-      }
+      // const floor = Math.max(botMaxPnlPct - TRAILING_PNL_PCT, HARD_STOP_PNL_PCT);
+      // if (botPosition) {
+      //   if (botMaxPnlPct === null || pnlPct > botMaxPnlPct) botMaxPnlPct = pnlPct;
+      //   if (pnlPct < floor) {
+      //     console.log(
+      //       `[${fmtTime()}]  🛑  BOT PnL DECLINED — PnL ${fmtNum(pnlPct, 2)}% < floor ` +
+      //       `${fmtNum(floor, 2)}% (peak ${fmtNum(botMaxPnlPct, 2)}%). Closing ${botPosition.side} …`
+      //     );
+      //     await closePosition(pos, apiKey, secretRaw);
+      //     botPosition = null;
+      //     botMaxPnlPct = null;
+      //     maxPnlPct = null;
+      //   }
+      //   continue;
+      // }
 
       // ── Generic trailing stop for manually-held positions ───────────
-      if (maxPnlPct === null || pnlPct > maxPnlPct) maxPnlPct = pnlPct;
-      // if (pnlPct < maxPnlPct - TRAILING_PNL_PCT) {
-      if (pnlPct < floor) {
-        console.log(
-          `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < ` +
-          `(floor, peak ${fmtNum(maxPnlPct, 2)}%). Closing position …`
-        );
-        await closePosition(pos, apiKey, secretRaw);
-        maxPnlPct = null;
-      }
+      // if (maxPnlPct === null || pnlPct > maxPnlPct) maxPnlPct = pnlPct;
+      // // if (pnlPct < maxPnlPct - TRAILING_PNL_PCT) {
+      // if (pnlPct < floor) {
+      //   console.log(
+      //     `[${fmtTime()}]  🛑  STOP-LOSS TRIGGERED — PnL ${fmtNum(pnlPct, 2)}% < ` +
+      //     `(floor, peak ${fmtNum(maxPnlPct, 2)}%). Closing position …`
+      //   );
+      //   await closePosition(pos, apiKey, secretRaw);
+      //   maxPnlPct = null;
+      // }
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
