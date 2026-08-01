@@ -12,6 +12,9 @@
  *
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
+import { add } from './src/gpu.js';
+(async () => console.log(await add(2, 3)))();
+
 import "./src/globals.js"
 import fs from "node:fs";
 import { ReconnectingWs } from "./src/ws-client.js";
@@ -83,6 +86,9 @@ let direction: "↑" | "↓" = "↑";
 let allPositions: Position[] = [];
 /** Tracks a position opened by the auto-trader so we know when to close it */
 let botPosition: { side: "Long" | "Short"; entryPrice: number } | null = null;
+/** Set synchronously before the entry order's awaits so a second qualifying trade
+ *  can't pass the guard while the first market order is still in flight. */
+let botEntryPending = false;
 /** Fill expected from the order the bot just placed (side+qty), so its own fills aren't misread as signals */
 let pendingOwnFill: { side: "Buy" | "Sell"; qty: number; expiresAt: number } | null = null;
 /** Peak PnL% reached by the current bot position (anchor for the PnL-decline stop) */
@@ -363,8 +369,9 @@ class TradeBatchProcessor {
       this.lastShortPrice = null;
     }
 
-    // One position at a time
-    if (botPosition) return;
+    // One position at a time — the pending flag is claimed synchronously before
+    // any await, so concurrent trades can't open a second position.
+    if (botPosition || botEntryPending) return;
 
     // Batch replays evaluate the exit only — historical streaks must not open
     // new positions.  Own fills are also filtered here (they must not be read
@@ -378,18 +385,23 @@ class TradeBatchProcessor {
     if (this.prevDirection === "↑" && this.streak >= ENTRY_STREAK_MIN && delta >= ENTRY_DELTA_MIN) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
       console.log(`[${fmtTime()}] #380 🟢  Rise detected (↑${this.streak}, Δ+$${delta.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
+      botEntryPending = true; // claim the slot before any await — prevents a double open
       pendingOwnFill = { side: "Buy", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
-      await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
-      const result = await placeMarketOrder(
-        { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
-        apiKey,
-        secretRaw,
-      );
-      this.lastLongPrice = price;
-      botPosition = { side: "Long", entryPrice: price };
-      botMaxPnlPct = null;
-      maxPnlPct = null;
-      console.log(`[${fmtTime()}] #392 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+      try {
+        await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
+        const result = await placeMarketOrder(
+          { account: "usdt-m", symbol, posSide: "Long", price, qty: AUTO_TRADE_QTY, side: "Buy" },
+          apiKey,
+          secretRaw,
+        );
+        this.lastLongPrice = price;
+        botPosition = { side: "Long", entryPrice: price };
+        botMaxPnlPct = null;
+        maxPnlPct = null;
+        console.log(`[${fmtTime()}] #392 ✓  Long ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+      } finally {
+        botEntryPending = false; // release on success or failure
+      }
       return;
     }
 
@@ -397,18 +409,23 @@ class TradeBatchProcessor {
     if (this.prevDirection === "↓" && this.streak >= ENTRY_STREAK_MIN && delta <= -ENTRY_DELTA_MIN) {
       // if (this.lastShortPrice && price > this.lastShortPrice) return; // don't chase a higher price
       console.log(`[${fmtTime()}] #399 🔴  Drop detected (↓${this.streak}, Δ-$${Math.abs(delta).toFixed(2)}) — opening Short ${symbol} @ $${price} …`);
+      botEntryPending = true; // claim the slot before any await — prevents a double open
       pendingOwnFill = { side: "Sell", qty: AUTO_TRADE_QTY, expiresAt: Date.now() + OWN_FILL_WINDOW_MS };
-      await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
-      const result = await placeMarketOrder(
-        { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
-        apiKey,
-        secretRaw,
-      );
-      this.lastShortPrice = price;
-      botPosition = { side: "Short", entryPrice: price };
-      botMaxPnlPct = null;
-      maxPnlPct = null;
-      console.log(`[${fmtTime()}] #411 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+      try {
+        await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Short", apiKey, secretRaw);
+        const result = await placeMarketOrder(
+          { account: "usdt-m", symbol, posSide: "Short", price, qty: AUTO_TRADE_QTY, side: "Sell" },
+          apiKey,
+          secretRaw,
+        );
+        this.lastShortPrice = price;
+        botPosition = { side: "Short", entryPrice: price };
+        botMaxPnlPct = null;
+        maxPnlPct = null;
+        console.log(`[${fmtTime()}] #411 ✓  Short ${symbol} opened @ $${price}  code: ${(result as Record<string, unknown>).code}`);
+      } finally {
+        botEntryPending = false; // release on success or failure
+      }
       return;
     }
   }
@@ -537,7 +554,7 @@ async function main(): Promise<void> {
       // Adopt a position this process didn't open (previous run / another
       // script) so the flip-exit can still manage it.  Only bot-sized
       // positions are adopted, so manual positions are left alone.
-      if (botPosition === null && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
+      if (botPosition === null && !botEntryPending && Math.abs(size - AUTO_TRADE_QTY) < 1e-9) {
         botPosition = { side: pos.side === "Buy" ? "Long" : "Short", entryPrice: entry };
         console.log(
           `[${fmtTime()}] #542 ⟐  Adopted existing ${SYMBOL} ${pos.side} ` +
