@@ -1,14 +1,15 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * long-limit.ts  —  Place a Long (Buy) limit order on XBRUSDT at the current
+ * long-limit.ts  —  Place a Long (Buy) limit order on XTIUSDT at the current
  * mark price with stop-loss.  Fetches the live mark price from Phemex.
  *
  * Thin CLI wrapper around the shared spread-limit-order library.
  *
- * Usage:  ./long-limit.ts [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel]
+ * Usage:  ./long-limit.ts [--symbol <symbol>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel]
  *
  * Options:
+ *   --symbol <symbol>    Contract symbol (default: XTIUSDT)
  *   --price <mark|last>  Price source: mark price or last traded price (default: mark)
  *   --qty <quantity>  Contract quantity (default: 0.01)
  *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
@@ -23,18 +24,19 @@
 import { fetchMarkPrice, fetchLastPrice } from "../src/mark-price.js";
 import { getArgValue, resolveCredentials, placeSpreadLimitOrders } from "../src/spread-limit-order.js";
 
-const SYMBOL = "XBRUSDT";
+const SYMBOL = "XTIUSDT";
 const LEVERAGE = 100;
 const PID_FILE = ".long-limit.pid";
 
 function usage(): never {
   console.log(`
-Usage: ./long-limit.ts [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>]
+Usage: ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>]
 
 Place a Long (Buy) limit order on ${SYMBOL} at the current mark or last price with stop-loss.
 Fetches the live price from Phemex.
 
 Options:
+  --symbol <symbol>    Contract symbol (default: ${SYMBOL})
   --price <mark|last>  Price source: mark price or last traded price (default: mark)
   --qty <quantity>      Contract quantity (default: 0.01)
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
@@ -47,6 +49,7 @@ Options:
 
 Examples:
   ./long-limit.ts
+  ./long-limit.ts --symbol BTCUSDT
   ./long-limit.ts --price last
   ./long-limit.ts --qty 0.05
   ./long-limit.ts --spread +5
@@ -78,11 +81,18 @@ async function main(): Promise<void> {
   }
   const priceSource = priceRaw ?? "mark";
 
+  const symbolRaw = getArgValue("--symbol");
+  if (symbolRaw !== undefined && !/^[A-Z0-9]{2,}$/.test(symbolRaw)) {
+    console.error(`✗ Invalid --symbol "${symbolRaw}" (expected an uppercase symbol like ${SYMBOL})`);
+    usage();
+  }
+  const symbol = symbolRaw ?? SYMBOL;
+
   const { apiKey, secretRaw } = resolveCredentials();
   const referencePrice =
-    priceSource === "last" ? await fetchLastPrice(SYMBOL) : await fetchMarkPrice(SYMBOL);
+    priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
   const result = await placeSpreadLimitOrders({
-    symbol: SYMBOL,
+    symbol,
     side: "Buy",
     posSide: "Long",
     qty: qty !== undefined ? parseFloat(qty) : 0.01,
