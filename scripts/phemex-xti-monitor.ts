@@ -57,7 +57,7 @@ function fmtNum(n: number, d: number = 2): string {
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`[${fmtTime()}]  ⚡  Starting position monitor`);

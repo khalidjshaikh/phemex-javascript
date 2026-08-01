@@ -108,7 +108,7 @@ let prevDirection: "↑" | "↓" = "↑";
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
 
-const creds = loadCredentials(import.meta.dirname);
+const creds = loadCredentials();
 apiKey = creds.PHEMEX_API_KEY;
 secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 

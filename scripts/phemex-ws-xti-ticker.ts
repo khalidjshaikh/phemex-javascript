@@ -36,7 +36,7 @@ const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XTIUSDT";
 const ORDER_HISTORY_FILE = path.resolve(process.cwd(), ".phemex-order-history.json");
 
-const creds = loadCredentials(import.meta.dirname);
+const creds = loadCredentials();
 const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
 interface PlaceOrderResult {

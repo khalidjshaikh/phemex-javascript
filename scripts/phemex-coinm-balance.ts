@@ -64,7 +64,7 @@ function parseBalance(account: Record<string, unknown>, currency: string): CoinM
 
 async function main(): Promise<void> {
   /* -- Read credentials ------------------------------------------- */
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   /* -- Query Coin-M balances for settlement currencies ------------ */

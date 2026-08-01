@@ -248,7 +248,7 @@ async function main(): Promise<void> {
   console.error("⟐  Loading credentials …");
   let creds: { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string };
   try {
-    creds = loadCredentials(import.meta.dirname);
+    creds = loadCredentials();
   } catch (e) {
     console.error("✗  Failed to load credentials:", (e as Error).message);
     process.exit(1);

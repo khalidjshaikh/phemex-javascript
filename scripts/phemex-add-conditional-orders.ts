@@ -145,7 +145,7 @@ async function main(): Promise<void> {
   }
 
   /* -- Read credentials -------------------------------------------- */
-  const creds = loadCredentials(import.meta.dirname);
+  const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   /* -- Resolve position size from API if not specified on CLI ------ */
