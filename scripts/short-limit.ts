@@ -106,6 +106,7 @@ async function main(): Promise<void> {
     pidFile: PID_FILE,
     cancel: CANCEL_FLAG,
     sleepSeconds: sleepRaw !== undefined ? parseFloat(sleepRaw) : 0,
+    ignoreFlagErrors: true,
     apiKey,
     secretRaw,
   });
