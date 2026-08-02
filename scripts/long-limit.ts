@@ -60,6 +60,7 @@ Examples:
   ./long-limit.ts --spread 3 --dispersion 2
   ./long-limit.ts --gap 0.0 --spread 2
   ./long-limit.ts --gap -5 --spread 2
+  ./long-limit.ts --symbol XBRUSDT --spread -16 --dispersion 1 --qty 0.01 --gap -0.0 --cancel --sleep 30
 `);
   process.exit(0);
 }
