@@ -1,47 +1,32 @@
 #!/usr/bin/env npx tsx
 /**
- * Quick test: send an email / SMS using the Mailer library.
+ * Quick test: send an SMS to the phone configured in .env.
+ *
+ * Uses the notifyPhone() helper from src/notify.ts (email-to-SMS gateway).
  *
  * Usage:
- *   npx tsx test-email.ts                  # full send (reads creds from .env)
- *   DRY_RUN=1 npx tsx test-email.ts       # validate config only, no send
+ *   npx tsx test-email.ts                       # message from BODY env (or default)
+ *   npx tsx test-email.ts "Your message here"
+ *   DRY_RUN=1 npx tsx test-email.ts             # validate config only, no send
  */
 
-import "dotenv/config";
-import { Mailer } from "../src/mailer.js";
+import { notifyPhone } from "../src/notify.js";
 
 async function main() {
-  const mailer = Mailer.fromEnv();
-  const toAddr = process.env.TO_ADDR ?? "";
+  const message = process.argv[2] ?? process.env.BODY ?? "Hello from phemex-javascript!";
   const subject = process.env.SUBJECT ?? "Test from phemex-javascript";
-  const body = process.env.BODY ?? "Hello from phemex-javascript!\n\nThis is a test message.";
-  const dryRun = process.env.DRY_RUN === "1";
 
-  if (!toAddr) {
-    console.error("❌ TO_ADDR is not set in .env");
-    process.exit(1);
+  console.log(`📧  Sending SMS: ${message}`);
+
+  const result = await notifyPhone(message, subject);
+  if (result) {
+    console.log("✅ Message sent!");
+    console.log(`   Message ID: ${result.messageId}`);
+    console.log(`   Response:   ${result.response}`);
   }
-
-  console.log(`📧  To:      ${toAddr}`);
-  console.log(`📧  Subject: ${subject}`);
-  console.log(`📧  Body:    ${body}`);
-  console.log(`📧  Dry-run: ${dryRun}`);
-  console.log();
-
-  if (dryRun) {
-    console.log("✅ Config looks good (dry-run, no send).");
-    return;
-  }
-
-  const result = await mailer.send({ to: toAddr, subject, text: body });
-  console.log("✅ Message sent!");
-  console.log(`   Message ID: ${result.messageId}`);
-  console.log(`   Response:   ${result.response}`);
-
-  await mailer.close();
 }
 
 main().catch((err) => {
-  console.error("❌ Failed:", err);
+  console.error("❌ Failed:", err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
