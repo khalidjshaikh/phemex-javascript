@@ -22,6 +22,7 @@
  *   --help, -h        Show this help message
  */
 
+import { readFileSync } from "node:fs";
 import { fetchMarkPrice, fetchLastPrice } from "../src/mark-price.js";
 import { getArgValue, resolveCredentials, placeSpreadLimitOrders, resolveTakeProfit } from "../src/spread-limit-order.js";
 
@@ -67,6 +68,25 @@ Examples:
   process.exit(0);
 }
 
+/** Wait for the given number of milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Re-read markLast.txt; if positive, sleep 250ms and check again — only
+ *  return once the stored value is < 0 (missing/unreadable file keeps waiting). */
+async function waitForNegativeMarkLast(): Promise<void> {
+  let stored = NaN;
+  while (!(stored < 0)) {
+    try {
+      stored = parseFloat(readFileSync("markLast.txt", "utf8"));
+    } catch {
+      stored = NaN; // file missing or unreadable — keep polling
+    }
+    if (!(stored < 0)) await sleep(500);
+  }
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
 
@@ -104,6 +124,8 @@ async function main(): Promise<void> {
   }
 
   do {
+    await waitForNegativeMarkLast();
+
     const referencePrice =
       priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 

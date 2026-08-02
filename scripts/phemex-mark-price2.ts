@@ -15,6 +15,7 @@
  *   ./phemex-mark-price.ts --help                   # Show help
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
 import { publicGet } from "../src/http-client.js";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
@@ -62,7 +63,7 @@ Examples:
 }
 
 /** Format a ticker result row and print to stdout as one horizontal line. */
-function printTicker(symbol: string, ticker: Record<string, unknown>): void {
+async function printTicker(symbol: string, ticker: Record<string, unknown>): Promise<void> {
   const mark    = parseFloat(String(ticker.markPriceRp ?? 0));
   const index   = parseFloat(String(ticker.indexPriceRp ?? 0));
   const last    = parseFloat(String(ticker.closeRp ?? 0));
@@ -81,6 +82,8 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const mlSign = markLast >= 0 ? "+" : "";
   const fundPct = (funding * 100).toFixed(4);
   const fundSign = funding >= 0 ? "+" : "";
+
+  writeFileSync("markLast.txt", `${markLast.toFixed(2)}\n`);
 
   console.log(
     `${now}  ${symbol}  ` +
@@ -120,7 +123,7 @@ async function restMode(symbol: string): Promise<void> {
     process.exit(1);
   }
 
-  printTicker(symbol, data);
+  await printTicker(symbol, data);
 }
 
 /* ------------------------------------------------------------------ */
@@ -142,7 +145,7 @@ function wsMode(symbol: string): void {
       if (m.method === "perp_market24h_pack_p.update" && Array.isArray(m.fields) && Array.isArray(m.data)) {
         const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], symbol);
         if (ticker) {
-          printTicker(symbol, ticker);
+          void printTicker(symbol, ticker);
         }
         return;
       }
@@ -151,7 +154,7 @@ function wsMode(symbol: string): void {
       if (m.market24h_p) {
         const ticker = m.market24h_p as Record<string, unknown>;
         if (String(ticker.symbol) === symbol) {
-          printTicker(symbol, ticker);
+          void printTicker(symbol, ticker);
         }
         return;
       }

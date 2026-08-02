@@ -6,7 +6,7 @@
  *
  * Thin CLI wrapper around the shared spread-limit-order library.
  *
- * Usage:  ./long-limit.ts [--symbol <symbol>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--loop]
+ * Usage:  ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|last±offset>] [--cancel] [--sleep <seconds>] [--loop]
  *
  * Options:
  *   --symbol <symbol>    Contract symbol (default: XTIUSDT)
@@ -22,6 +22,7 @@
  *   --help, -h        Show this help message
  */
 
+import { readFileSync } from "node:fs";
 import { fetchMarkPrice, fetchLastPrice } from "../src/mark-price.js";
 import { getArgValue, resolveCredentials, placeSpreadLimitOrders, resolveTakeProfit } from "../src/spread-limit-order.js";
 
@@ -31,7 +32,7 @@ const PID_FILE = ".long-limit.pid";
 
 function usage(): never {
   console.log(`
-Usage: ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>] [--loop]
+Usage: ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|last±offset>] [--cancel] [--sleep <seconds>] [--loop]
 
 Place a Long (Buy) limit order on ${SYMBOL} at the current mark or last price with stop-loss.
 Fetches the live price from Phemex.
@@ -66,6 +67,25 @@ Examples:
   ./long-limit.ts --symbol XBRUSDT --spread -16 --dispersion 1 --qty 0.01 --gap -0.0 --cancel --sleep 5 --takeProfit last --loop
 `);
   process.exit(0);
+}
+
+/** Wait for the given number of milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Re-read markLast.txt; if negative, sleep 250ms and check again — only
+ *  return once the stored value is > 0 (missing/unreadable file keeps waiting). */
+async function waitForPositiveMarkLast(): Promise<void> {
+  let stored = NaN;
+  while (!(stored > 0)) {
+  try {
+      stored = parseFloat(readFileSync("markLast.txt", "utf8"));
+    } catch {
+      stored = NaN; // file missing or unreadable — keep polling
+    }
+    if (!(stored > 0)) await sleep(500);
+  }
 }
 
 async function main(): Promise<void> {
@@ -105,6 +125,8 @@ async function main(): Promise<void> {
   }
 
   do {
+    await waitForPositiveMarkLast()
+
     const referencePrice =
       priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 
