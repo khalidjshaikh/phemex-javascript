@@ -15,14 +15,14 @@
  *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
  *   --dispersion <value>  Tick spacing multiplier (default: 1.0)
  *   --gap <number>    Add this value to the entry price before applying spread and dispersion
- *   --takeProfit <price|last>  Take-profit trigger price, or 'last' to use the current last traded price
+ *   --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
  *   --cancel          Cancel the order immediately after placing (test flow)
  *   --sleep <seconds> Seconds to wait between placing and cancelling (requires --cancel)
  *   --help, -h        Show this help message
  */
 
 import { fetchMarkPrice, fetchLastPrice } from "../src/mark-price.js";
-import { getArgValue, resolveCredentials, placeSpreadLimitOrders } from "../src/spread-limit-order.js";
+import { getArgValue, resolveCredentials, placeSpreadLimitOrders, resolveTakeProfit } from "../src/spread-limit-order.js";
 
 const SYMBOL = "XTIUSDT";
 const LEVERAGE = 100;
@@ -42,7 +42,7 @@ Options:
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
   --gap <number>        Add this value to the entry price before applying spread and dispersion
-  --takeProfit <price|last>  Take-profit trigger price, or 'last' to use the current last traded price
+  --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
   --help, -h            Show this help message
@@ -93,18 +93,10 @@ async function main(): Promise<void> {
   const referencePrice =
     priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 
-  // --takeProfit last resolves to the current last traded price.
-  let takeProfit: number | undefined;
-  if (takeProfitRaw !== undefined) {
-    takeProfit =
-      takeProfitRaw.toLowerCase() === "last"
-        ? priceSource === "last"
-          ? referencePrice
-          : await fetchLastPrice(symbol)
-        : parseFloat(takeProfitRaw);
-    if (takeProfitRaw.toLowerCase() === "last") {
-      console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
-    }
+  // --takeProfit last / last±offset resolves to the current last traded price.
+  const takeProfit = await resolveTakeProfit(takeProfitRaw, priceSource, symbol, referencePrice);
+  if (takeProfitRaw !== undefined && takeProfitRaw.toLowerCase().startsWith("last")) {
+    console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
   }
 
   const result = await placeSpreadLimitOrders({

@@ -18,6 +18,7 @@ import { base64UrlDecode } from "./http-client.js";
 import { loadCredentialsLocal } from "./credentials.js";
 import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./place-limit-order.js";
 import { getFlag } from "./dynamodb-flag.js";
+import { fetchLastPrice } from "./mark-price.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -86,6 +87,36 @@ export function getArgValue(argName: string): string | undefined {
   }
   const assignment = process.argv.find((value) => value.startsWith(`${argName}=`));
   return assignment ? assignment.slice(argName.length + 1) : undefined;
+}
+
+/**
+ * Resolve a --takeProfit value into an absolute trigger price.
+ * Accepts:
+ *   "123.45"     — a fixed price
+ *   "last"       — the current last traded price
+ *   "last+0.10"  — last traded price plus an offset
+ *   "last-0.10"  — last traded price minus an offset
+ * Returns undefined when no take-profit was requested.
+ */
+export async function resolveTakeProfit(
+  raw: string | undefined,
+  priceSource: "mark" | "last",
+  symbol: string,
+  referencePrice: number,
+): Promise<number | undefined> {
+  if (raw === undefined) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower === "last") {
+    return priceSource === "last" ? referencePrice : await fetchLastPrice(symbol);
+  }
+  const offsetMatch = /^last([+-])([\d.]+)$/.exec(lower);
+  if (offsetMatch) {
+    const base = priceSource === "last" ? referencePrice : await fetchLastPrice(symbol);
+    const offset = parseFloat(offsetMatch[2]);
+    const price = offsetMatch[1] === "+" ? base + offset : base - offset;
+    return +price.toFixed(2);
+  }
+  return parseFloat(raw);
 }
 
 /* ------------------------------------------------------------------ */
