@@ -18,7 +18,7 @@ import { base64UrlDecode } from "./http-client.js";
 import { loadCredentialsLocal } from "./credentials.js";
 import { placeLimitOrder, cancelOrder, setLeverageUsdtM } from "./place-limit-order.js";
 import { getFlag } from "./dynamodb-flag.js";
-import { fetchLastPrice } from "./mark-price.js";
+import { fetchMarkPrice, fetchLastPrice } from "./mark-price.js";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -109,11 +109,21 @@ export async function resolveTakeProfit(
   if (lower === "last") {
     return priceSource === "last" ? referencePrice : await fetchLastPrice(symbol);
   }
-  const offsetMatch = /^last([+-])([\d.]+)$/.exec(lower);
+  if (lower === "mark") {
+    return priceSource === "mark" ? referencePrice : await fetchMarkPrice(symbol);
+  }
+  const offsetMatch = /^(last|mark)([+-])([\d.]+)$/.exec(lower);
   if (offsetMatch) {
-    const base = priceSource === "last" ? referencePrice : await fetchLastPrice(symbol);
-    const offset = parseFloat(offsetMatch[2]);
-    const price = offsetMatch[1] === "+" ? base + offset : base - offset;
+    const base =
+      offsetMatch[1] === "last"
+        ? priceSource === "last"
+          ? referencePrice
+          : await fetchLastPrice(symbol)
+        : priceSource === "mark"
+          ? referencePrice
+          : await fetchMarkPrice(symbol);
+    const offset = parseFloat(offsetMatch[3]);
+    const price = offsetMatch[2] === "+" ? base + offset : base - offset;
     return +price.toFixed(2);
   }
   return parseFloat(raw);

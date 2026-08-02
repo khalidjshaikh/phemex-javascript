@@ -6,7 +6,7 @@
  *
  * Thin CLI wrapper around the shared spread-limit-order library.
  *
- * Usage:  ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|last±offset>] [--cancel] [--sleep <seconds>] [--loop]
+ * Usage:  ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|mark|last±offset|mark±offset>] [--cancel] [--sleep <seconds>] [--loop]
  *
  * Options:
  *   --symbol <symbol>    Contract symbol (default: XTIUSDT)
@@ -15,7 +15,7 @@
  *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
  *   --dispersion <value>  Tick spacing multiplier (default: 1.0)
  *   --gap <number>    Add this value to the entry price before applying spread and dispersion
- *   --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
+ *   --takeProfit <price|last|mark|last±offset|mark±offset>  Take-profit trigger price: a literal price, 'last'/'mark' for the current last/mark price, or 'last+0.10' / 'mark+0.10' for that price plus an offset
  *   --cancel          Cancel the order immediately after placing (test flow)
  *   --sleep <seconds> Seconds to wait between placing and cancelling (requires --cancel)
  *   --loop            Repeat the place → sleep → cancel cycle indefinitely (Ctrl+C to stop)
@@ -32,7 +32,7 @@ const PID_FILE = ".long-limit.pid";
 
 function usage(): never {
   console.log(`
-Usage: ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|last±offset>] [--cancel] [--sleep <seconds>] [--loop]
+Usage: ./long-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--takeProfit <price|last|mark|last±offset|mark±offset>] [--cancel] [--sleep <seconds>] [--loop]
 
 Place a Long (Buy) limit order on ${SYMBOL} at the current mark or last price with stop-loss.
 Fetches the live price from Phemex.
@@ -44,7 +44,7 @@ Options:
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
   --gap <number>        Add this value to the entry price before applying spread and dispersion
-  --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
+  --takeProfit <price|last|mark|last±offset|mark±offset>  Take-profit trigger price: a literal price, 'last'/'mark' for the current last/mark price, or 'last+0.10' / 'mark+0.10' for that price plus an offset
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
   --loop                Repeat the place → sleep → cancel cycle indefinitely (Ctrl+C to stop)
@@ -74,12 +74,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Re-read markLast.txt; if negative, sleep 250ms and check again — only
- *  return once the stored value is > 0 (missing/unreadable file keeps waiting). */
-async function waitForPositiveMarkLast(): Promise<void> {
+/** Re-read markLast.txt; if negative, sleep 500ms and check again — only
+ *  return once the stored value is > 0 (missing/unreadable file keeps waiting).
+ *  If `shouldStop` turns true (e.g. Ctrl+C during --loop), abandon the wait so
+ *  the process can exit promptly. */
+async function waitForPositiveMarkLast(shouldStop?: () => boolean): Promise<void> {
   let stored = NaN;
   while (!(stored > 0)) {
-  try {
+    if (shouldStop?.()) return;
+    try {
       stored = parseFloat(readFileSync("markLast.txt", "utf8"));
     } catch {
       stored = NaN; // file missing or unreadable — keep polling
@@ -125,15 +128,19 @@ async function main(): Promise<void> {
   }
 
   do {
-    await waitForPositiveMarkLast()
+    await waitForPositiveMarkLast(() => stopRequested);
+    if (stopRequested) break;
 
     const referencePrice =
       priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 
     // --takeProfit last / last±offset resolves to the current last traded price.
     const takeProfit = await resolveTakeProfit(takeProfitRaw, priceSource, symbol, referencePrice);
-    if (takeProfitRaw !== undefined && takeProfitRaw.toLowerCase().startsWith("last")) {
+    const tpLower = takeProfitRaw?.toLowerCase();
+    if (tpLower?.startsWith("last")) {
       console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
+    } else if (tpLower?.startsWith("mark")) {
+      console.log(`   ⚡  Take-profit set to mark price: ${takeProfit}`);
     }
 
     if (stopRequested) break;
