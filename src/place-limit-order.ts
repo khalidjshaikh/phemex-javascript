@@ -543,7 +543,7 @@ export async function placeLimitOrder(
   const orderId = result.orderID ?? result.clOrdID;
   if (orderId) {
     const cancelDelay = 60_000;
-    setTimeout(() => {
+    const autoCancelTimer = setTimeout(() => {
       // console.log(`[${(new Date()).toLocaleString()}] cancelOrder ${params.symbol} ${orderId} ${params.posSide}`)
       cancelOrder(
         { symbol: params.symbol, orderId, posSide: params.posSide },
@@ -554,6 +554,8 @@ export async function placeLimitOrder(
         // Silently ignore — order may have already filled or been cancelled.
       });
     }, cancelDelay);
+    // Don't keep the process alive just to run the background auto-cancel.
+    autoCancelTimer.unref();
   }
 
   return result;
