@@ -83,6 +83,7 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
   const ilSign = indexLast >= 0 ? "+" : "";
 
   writeFileSync("markLast.txt", `${markLast.toFixed(2)}\n`);
+  writeFileSync("indexLast.txt", `${indexLast.toFixed(2)}\n`);
 
   console.log(
     `${now}  ${symbol}  ` +
