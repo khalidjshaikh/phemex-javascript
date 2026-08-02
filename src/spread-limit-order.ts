@@ -304,7 +304,7 @@ export async function placeSpreadLimitOrders(
 
   const adjustedReferencePrice = lastPrice + gap;
   const orderPrices = buildSpreadPrices(adjustedReferencePrice, spreadValue, spreadExplicitSign, dispersion);
-  console.log(`⟐  Limit ${posSide} ${symbol}  qty: ${qty}  spread: ${spreadRaw}  dispersion: ${dispersion}  gap: ${gap}  Leverage: ${leverage}x`);
+  console.log(`⟐  Limit ${posSide} ${symbol}  side: ${side}  account: usdt-m  qty: ${qty}  spread: ${spreadRaw}  dispersion: ${dispersion}  gap: ${gap}  leverage: ${leverage}x  takeProfit: ${takeProfit ?? "—"}`);
 
   await setLeverageUsdtM(symbol, leverage, posSide, apiKey, secretRaw);
 
@@ -336,7 +336,7 @@ export async function placeSpreadLimitOrders(
       );
 
       const orderId = result.orderID ?? undefined;
-      console.log(`   ✓  Order placed — price: ${orderPrice} — stopLoss: ${stopLoss ?? "—"} — takeProfit: ${takeProfit ?? "—"} — ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
+      console.log(`   ✓  placeLimitOrder({ account: "usdt-m", symbol: ${symbol}, side: ${side}, price: ${orderPrice}, qty: ${qty}, posSide: ${posSide}, stopLoss: ${stopLoss ?? "—"}, takeProfit: ${takeProfit ?? "—"} })  →  ID: ${orderId ?? result.clOrdID ?? "—"}  Status: ${result.ordStatus ?? "—"}`);
       return { orderPrice, orderId, error: undefined as Error | undefined };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

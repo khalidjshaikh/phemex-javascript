@@ -14,6 +14,9 @@
  * keeps exactly one mark-based child per side alive (respawns if it exits), and
  * awaits the one-shot last-based placement. On a sign flip the old child is
  * SIGINTed (it finishes its current cycle) before the new side starts.
+ * The awaited one-shot has a watchdog: if it does not exit within CMD2_TIMEOUT_MS
+ * it is SIGINTed and the cycle moves on (guards against the child blocking
+ * forever in its markLast gate or on a stalled price fetch).
  * indexLast.txt is read alongside markLast.txt and logged for context.
  * The --gap of the last-based one-shot is computed each cycle as
  * min(max(|indexLast|, |markLast|), 10) / 100, signed - for long, + for short.
@@ -45,7 +48,6 @@ const LONG_CMD1 = [
   "--cancel",
   "--sleep", "5",
   "--takeProfit", "mark+.1",
-  "--loop",
   "--price", "mark",
 ];
 
@@ -88,6 +90,14 @@ const SIDES: Record<Side, { script: string; cmd1: string[]; cmd2: string[] }> = 
 
 /** Pause between cycles (also the retry interval when no action applies). */
 const POLL_MS = 1000;
+
+/**
+ * Watchdog for the awaited last-based one-shot: if the child has not exited
+ * within this window it is SIGINTed and the cycle continues. Guards against
+ * the child blocking forever in its markLast gate or on a stalled fetch.
+ * A normal cycle (fetch + place + 5s sleep + cancel) finishes well under this.
+ */
+const CMD2_TIMEOUT_MS = 20_000;
 
 let child1: ChildProcess | null = null; // mark-based child (not awaited)
 let currentSide: Side | null = null;
@@ -142,12 +152,20 @@ function runCmd2(script: string, args: string[]): Promise<number> {
   return new Promise((resolve) => {
     const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
     awaitingCmd2 = { proc };
+    const watchdog = setTimeout(() => {
+      console.error(`   ⏱  ${basename(script)} did not exit within ${CMD2_TIMEOUT_MS / 1000}s — SIGINTing it and moving on`);
+      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      proc.kill("SIGINT");
+      resolve(124);
+    }, CMD2_TIMEOUT_MS);
     proc.on("error", (err) => {
+      clearTimeout(watchdog);
       console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
       if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
       resolve(1);
     });
     proc.on("exit", (code, signal) => {
+      clearTimeout(watchdog);
       if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
       resolve(code ?? (signal ? 1 : 0));
     });
@@ -220,8 +238,8 @@ async function main(): Promise<void> {
       await sleep(POLL_MS);
       continue;
     }
-    const maxAbs = maxAbsLastValue(markLast, indexLast);
-    const gapMag = 0.05 - (Math.min(maxAbs, 0.14)) /2; //* 0.05 / 0.10;
+    const maxAbs = Math.abs(markLast); //maxAbsLastValue(markLast, indexLast);
+    const gapMag = 0.05 - (Math.min(maxAbs, 0.4)) /2; //* 0.05 / 0.10;
     const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
