@@ -6,7 +6,7 @@
  *
  * Thin CLI wrapper around the shared spread-limit-order library.
  *
- * Usage:  ./short-limit.ts [--symbol <symbol>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel]
+ * Usage:  ./short-limit.ts [--symbol <symbol>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--loop]
  *
  * Options:
  *   --symbol <symbol>    Contract symbol (default: XTIUSDT)
@@ -18,6 +18,7 @@
  *   --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
  *   --cancel          Cancel the order immediately after placing (test flow)
  *   --sleep <seconds> Seconds to wait between placing and cancelling (requires --cancel)
+ *   --loop            Repeat the place → sleep → cancel cycle indefinitely (Ctrl+C to stop)
  *   --help, -h        Show this help message
  */
 
@@ -30,7 +31,7 @@ const PID_FILE = ".short-limit.pid";
 
 function usage(): never {
   console.log(`
-Usage: ./short-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>]
+Usage: ./short-limit.ts [--symbol <symbol>] [--price <mark|last>] [--qty <quantity>] [--spread <value>] [--dispersion <value>] [--gap <number>] [--cancel] [--sleep <seconds>] [--loop]
 
 Place a Short (Sell) limit order on ${SYMBOL} at the current mark or last price with stop-loss.
 Fetches the live price from Phemex.
@@ -45,6 +46,7 @@ Options:
   --takeProfit <price|last|last±offset>  Take-profit trigger price, 'last' for last traded price, or 'last+0.10' for last price plus an offset
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
+  --loop                Repeat the place → sleep → cancel cycle indefinitely (Ctrl+C to stop)
   --help, -h            Show this help message
 
 Examples:
@@ -60,6 +62,7 @@ Examples:
   ./short-limit.ts --spread 3 --dispersion 2
   ./short-limit.ts --gap 0.0 --spread 2
   ./short-limit.ts --gap -5 --spread 2
+  ./short-limit.ts --symbol XBRUSDT --spread -16 --dispersion 1 --qty 0.01 --gap -0.0 --cancel --sleep 5 --takeProfit last --loop
 `);
   process.exit(0);
 }
@@ -69,6 +72,7 @@ async function main(): Promise<void> {
 
   const qty = getArgValue("--qty");
   const CANCEL_FLAG = process.argv.includes("--cancel");
+  const LOOP_FLAG = process.argv.includes("--loop");
   const sleepRaw = getArgValue("--sleep");
   const spreadRaw = getArgValue("--spread") ?? "0";
   const dispersionRaw = getArgValue("--dispersion");
@@ -89,38 +93,52 @@ async function main(): Promise<void> {
   const symbol = symbolRaw ?? SYMBOL;
 
   const { apiKey, secretRaw } = resolveCredentials();
-  const referencePrice =
-    priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 
-  // --takeProfit last / last±offset resolves to the current last traded price.
-  const takeProfit = await resolveTakeProfit(takeProfitRaw, priceSource, symbol, referencePrice);
-  if (takeProfitRaw !== undefined && takeProfitRaw.toLowerCase().startsWith("last")) {
-    console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
+  // --loop: repeat the place → sleep → cancel cycle indefinitely (Ctrl+C to stop).
+  let stopRequested = false;
+  if (LOOP_FLAG) {
+    process.on("SIGINT", () => {
+      stopRequested = true;
+      console.log("   ⏹  Stop requested — finishing current cycle …");
+    });
   }
 
-  const result = await placeSpreadLimitOrders({
-    symbol,
-    side: "Sell",
-    posSide: "Short",
-    qty: qty !== undefined ? parseFloat(qty) : 0.01,
-    spread: spreadRaw,
-    dispersion: dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0,
-    gap: gapRaw !== undefined ? parseFloat(gapRaw) : 0.0,
-    takeProfit,
-    stopLossOffset: 0.01,
-    leverage: LEVERAGE,
-    referencePrice,
-    pidFile: PID_FILE,
-    cancel: CANCEL_FLAG,
-    sleepSeconds: sleepRaw !== undefined ? parseFloat(sleepRaw) : 0,
-    ignoreFlagErrors: true,
-    apiKey,
-    secretRaw,
-  });
+  do {
+    const referencePrice =
+      priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
 
-  if (result.hasFailures || result.cancelFailed) {
-    process.exitCode = 1;
-  }
+    // --takeProfit last / last±offset resolves to the current last traded price.
+    const takeProfit = await resolveTakeProfit(takeProfitRaw, priceSource, symbol, referencePrice);
+    if (takeProfitRaw !== undefined && takeProfitRaw.toLowerCase().startsWith("last")) {
+      console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
+    }
+
+    if (stopRequested) break;
+
+    const result = await placeSpreadLimitOrders({
+      symbol,
+      side: "Sell",
+      posSide: "Short",
+      qty: qty !== undefined ? parseFloat(qty) : 0.01,
+      spread: spreadRaw,
+      dispersion: dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0,
+      gap: gapRaw !== undefined ? parseFloat(gapRaw) : 0.0,
+      takeProfit,
+      stopLossOffset: 0.01,
+      leverage: LEVERAGE,
+      referencePrice,
+      pidFile: PID_FILE,
+      cancel: CANCEL_FLAG,
+      sleepSeconds: sleepRaw !== undefined ? parseFloat(sleepRaw) : 0,
+      ignoreFlagErrors: true,
+      apiKey,
+      secretRaw,
+    });
+
+    if (result.hasFailures || result.cancelFailed) {
+      process.exitCode = 1;
+    }
+  } while (LOOP_FLAG && !stopRequested);
 }
 
 main().catch((err) => {
