@@ -19,6 +19,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { publicGet } from "../src/http-client.js";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
+import { notifyPhone } from "../src/notify.js";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -26,6 +27,13 @@ import { getArg, hasFlag } from "../src/cli-utils.js";
 
 const DEFAULT_SYMBOL = "XBRUSDT";
 const WS_URL = "wss://ws.phemex.com";
+
+/** Alert when |mark−last| or |index−last| exceeds this (in USDT). */
+const ALERT_DEVIATION = 0.1;
+/** Minimum gap between SMS alerts (avoids spam on live WS updates). */
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
+
+let lastAlertAt = 0;
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -78,12 +86,26 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
 
   console.log(
     `${now}  ${symbol}  ` +
-    `Mark: $${mark.toFixed(2)}  ` +
     `Index: $${index.toFixed(2)}  ` +
+    `Mark: $${mark.toFixed(2)}  ` +
     `Last: $${last.toFixed(2)}  ` +
-    `Mark−Last: ${mlSign}$${markLast.toFixed(2)}  ` +
-    `Index−Last: ${ilSign}$${indexLast.toFixed(2)}`,
+    `Index−Last: ${ilSign}$${indexLast.toFixed(2)}  ` +
+    `Mark−Last: ${mlSign}$${markLast.toFixed(2)}`,
   );
+
+  // SMS alert when mark/index deviate from last by more than 10 cents.
+  const deviation = Math.max(Math.abs(markLast), Math.abs(indexLast));
+  if (deviation > ALERT_DEVIATION && Date.now() - lastAlertAt >= ALERT_COOLDOWN_MS) {
+    lastAlertAt = Date.now();
+    const alertText =
+      `${symbol}  ` +
+      `Mark: $${mark.toFixed(2)}  Last: $${last.toFixed(2)}  ` +
+      `Mark−Last: ${mlSign}$${markLast.toFixed(2)}  ` +
+      `Index−Last: ${ilSign}$${indexLast.toFixed(2)}`;
+    void notifyPhone(alertText, `${symbol} price alert`).catch((err) => {
+      console.error(`✗ SMS alert failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */

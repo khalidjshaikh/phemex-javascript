@@ -56,6 +56,18 @@ const CARRIER_GATEWAYS: Record<string, string> = {
   "virgin-mobile": "vmobl.com",
 };
 
+/** Carrier key accepted by {@link Mailer.sendSMS}. */
+export type CarrierKey = keyof typeof CARRIER_GATEWAYS;
+
+/** Resolve a carrier key from an email-to-SMS gateway domain (e.g. "tmomail.net" → "tmobile"). */
+export function carrierForGateway(domain: string): CarrierKey | undefined {
+  const d = domain.trim().toLowerCase();
+  for (const [key, gateway] of Object.entries(CARRIER_GATEWAYS)) {
+    if (gateway === d) return key as CarrierKey;
+  }
+  return undefined;
+}
+
 // ── Mailer ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -200,7 +212,7 @@ export class Mailer {
    */
   async sendSMS(
     phoneNumber: string,
-    carrier: keyof typeof CARRIER_GATEWAYS,
+    carrier: CarrierKey,
     message: string,
     subject?: string,
   ): Promise<SendResult> {
