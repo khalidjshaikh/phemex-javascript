@@ -15,6 +15,9 @@
  * awaits the one-shot last-based placement. On a sign flip the old child is
  * SIGINTed (it finishes its current cycle) before the new side starts.
  * indexLast.txt is read alongside markLast.txt and logged for context.
+ * The --gap of the last-based one-shot is computed each cycle as
+ * min(max(|indexLast|, |markLast|), 10) / 100, signed - for long, + for short.
+ * Its --qty is 0.1 when max(|indexLast|, |markLast|) > 10, else 0.01.
  *
  * Usage: ./limit-launcher.ts   (Ctrl+C stops children and exits)
  */
@@ -49,9 +52,7 @@ const LONG_CMD1 = [
 const LONG_CMD2 = [
   "--symbol", "XBRUSDT",
   "--spread", "-16",
-  "--gap", "-0.05",
   "--dispersion", "1",
-  "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
   "--takeProfit", "last+.1",
@@ -73,9 +74,7 @@ const SHORT_CMD1 = [
 const SHORT_CMD2 = [
   "--symbol", "XBRUSDT",
   "--spread", "+16",
-  "--gap", "+0.05",
   "--dispersion", "1",
-  "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
   "--takeProfit", "last-.1",
@@ -105,6 +104,14 @@ function readLastValue(file: string): number {
   } catch {
     return NaN;
   }
+}
+
+/**
+ * Max of |indexLast| and |markLast|. Drives the last-based --gap
+ * (min(maxAbs, 10) / 100) and its --qty switch (> 10 → "0.1", else "0.01").
+ */
+function maxAbsLastValue(markLast: number, indexLast: number): number {
+  return Math.max(Math.abs(indexLast), Math.abs(markLast));
 }
 
 /** Spawn the mark-based child; do NOT await it. Respawns once it exits. */
@@ -153,12 +160,15 @@ Usage: ./limit-launcher.ts
 
 Runs two order scripts per side, chosen by the sign of markLast.txt:
   markLast > 0  → long-limit.ts   ${LONG_CMD1.join(" ")}   (spawned, not awaited)
-                 long-limit.ts   ${LONG_CMD2.join(" ")}   (awaited — waits for exit)
+                 long-limit.ts   ${LONG_CMD2.join(" ")} --gap -<gap> --qty <qty>   (awaited — waits for exit)
   markLast < 0  → short-limit.ts  ${SHORT_CMD1.join(" ")}   (spawned, not awaited)
-                 short-limit.ts  ${SHORT_CMD2.join(" ")}   (awaited — waits for exit)
+                 short-limit.ts  ${SHORT_CMD2.join(" ")} --gap +<gap> --qty <qty>   (awaited — waits for exit)
 The mark-based child is spawned without waiting; the last-based one-shot is
-awaited to completion each cycle. On a sign flip the old child is stopped
-with SIGINT (it finishes its current cycle) and the new side starts.
+awaited to completion each cycle. The --gap of the last-based one-shot is
+computed each cycle as min(max(|indexLast|, |markLast|), 10) / 100 with the
+sign shown (- for long, + for short); its --qty is 0.1 when
+max(|indexLast|, |markLast|) > 10, else 0.01. On a sign flip the old child is
+stopped with SIGINT (it finishes its current cycle) and the new side starts.
 markLast.txt and indexLast.txt are read from the project root.
 Ctrl+C stops the children and exits.
 `);
@@ -205,8 +215,18 @@ async function main(): Promise<void> {
       console.log(`[${cycle}] mark-based ${desired} child already running, keeping it`);
     }
 
-    console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2.join(" ")}  (awaiting) …`);
-    const code = await runCmd2(script, cmd2);
+    if (Number.isNaN(indexLast)) {
+      console.log(`[${cycle}] indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
+      await sleep(POLL_MS);
+      continue;
+    }
+    const maxAbs = maxAbsLastValue(markLast, indexLast);
+    const gapMag = 0.05 - (Math.min(maxAbs, 0.14)) /2; //* 0.05 / 0.10;
+    const qty = maxAbs > 0.1 ? "0.1" : "0.01";
+    const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
+
+    console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
+    const code = await runCmd2(script, cmd2Args);
     console.log(`[${cycle}] ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
     await sleep(POLL_MS);
