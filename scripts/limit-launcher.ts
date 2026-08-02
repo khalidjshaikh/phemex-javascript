@@ -1,20 +1,25 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * limit-launcher.ts — Infinite launcher that runs long-limit.ts or
- * short-limit.ts based on the sign of the value in markLast.txt.
+ * limit-launcher.ts — Runs two orders per side based on the sign of markLast.txt:
  *
- * Each cycle:
- *   markLast > 0  → run  scripts/long-limit.ts   with LONG_ARGS
- *   markLast < 0  → run  scripts/short-limit.ts  with SHORT_ARGS
- *   markLast == 0 or unreadable → wait POLL_MS and re-check
- * The launcher waits for the spawned script to finish before looping again.
+ *   markLast > 0:
+ *     1) long-limit.ts  (mark-based)           → spawned, NOT awaited
+ *     2) long-limit.ts  (last-based, one-shot) → spawned and AWAITED (waits for exit)
+ *   markLast < 0:
+ *     1) short-limit.ts (mark-based)           → spawned, NOT awaited
+ *     2) short-limit.ts (last-based, one-shot) → spawned and AWAITED (waits for exit)
+ *
+ * The launcher loops forever; each cycle it re-reads markLast.txt/indexLast.txt,
+ * keeps exactly one mark-based child per side alive (respawns if it exits), and
+ * awaits the one-shot last-based placement. On a sign flip the old child is
+ * SIGINTed (it finishes its current cycle) before the new side starts.
  * indexLast.txt is read alongside markLast.txt and logged for context.
  *
- * Usage: ./limit-launcher.ts   (Ctrl+C stops after the current run)
+ * Usage: ./limit-launcher.ts   (Ctrl+C stops children and exits)
  */
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
@@ -25,8 +30,23 @@ const INDEX_FILE = resolve(ROOT, "indexLast.txt");
 const LONG_SCRIPT = resolve(__dirname, "long-limit.ts");
 const SHORT_SCRIPT = resolve(__dirname, "short-limit.ts");
 
-/** Default arguments for each side. */
-const LONG_ARGS = [
+type Side = "long" | "short";
+
+/** Per-side commands: cmd1 is spawned without awaiting, cmd2 is awaited. */
+const LONG_CMD1 = [
+  "--symbol", "XBRUSDT",
+  "--spread", "-0",
+  "--gap", "-0.01",
+  "--dispersion", "1",
+  "--qty", "0.01",
+  "--cancel",
+  "--sleep", "5",
+  "--takeProfit", "mark+.1",
+  "--loop",
+  "--price", "mark",
+];
+
+const LONG_CMD2 = [
   "--symbol", "XBRUSDT",
   "--spread", "-16",
   "--gap", "-0.05",
@@ -38,7 +58,19 @@ const LONG_ARGS = [
   "--price", "last",
 ];
 
-const SHORT_ARGS = [
+const SHORT_CMD1 = [
+  "--symbol", "XBRUSDT",
+  "--spread", "+0",
+  "--gap", "+0.01",
+  "--dispersion", "1",
+  "--qty", "0.01",
+  "--cancel",
+  "--sleep", "5",
+  "--takeProfit", "mark-.1",
+  "--price", "mark",
+];
+
+const SHORT_CMD2 = [
   "--symbol", "XBRUSDT",
   "--spread", "+16",
   "--gap", "+0.05",
@@ -50,8 +82,17 @@ const SHORT_ARGS = [
   "--price", "last",
 ];
 
+const SIDES: Record<Side, { script: string; cmd1: string[]; cmd2: string[] }> = {
+  long: { script: LONG_SCRIPT, cmd1: LONG_CMD1, cmd2: LONG_CMD2 },
+  short: { script: SHORT_SCRIPT, cmd1: SHORT_CMD1, cmd2: SHORT_CMD2 },
+};
+
 /** Pause between cycles (also the retry interval when no action applies). */
 const POLL_MS = 1000;
+
+let child1: ChildProcess | null = null; // mark-based child (not awaited)
+let currentSide: Side | null = null;
+let awaitingCmd2: { proc: ChildProcess } | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,12 +107,43 @@ function readLastValue(file: string): number {
   }
 }
 
-/** Spawn a script with `inherit` stdio and resolve with its exit code. */
-function runScript(script: string, args: string[]): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
-    child.on("error", reject);
-    child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+/** Spawn the mark-based child; do NOT await it. Respawns once it exits. */
+function spawnCmd1(script: string, args: string[]): void {
+  console.log(`   ▶  starting ${basename(script)} ${args.join(" ")}  (not awaited)`);
+  const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
+  proc.on("error", (err) => {
+    console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
+    if (child1 === proc) child1 = null;
+  });
+  proc.on("exit", (code, signal) => {
+    console.log(`   ⏹  ${basename(script)} exited (code=${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
+    if (child1 === proc) child1 = null;
+  });
+  child1 = proc;
+}
+
+/** SIGINT the mark-based child (it finishes its current cycle) and forget it. */
+function stopCmd1(): void {
+  if (!child1) return;
+  console.log("   ⏹  stopping mark-based child (SIGINT — finishes current cycle) …");
+  child1.kill("SIGINT");
+  child1 = null;
+}
+
+/** Spawn the one-shot last-based child and wait for it to finish. */
+function runCmd2(script: string, args: string[]): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
+    awaitingCmd2 = { proc };
+    proc.on("error", (err) => {
+      console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
+      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      resolve(1);
+    });
+    proc.on("exit", (code, signal) => {
+      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      resolve(code ?? (signal ? 1 : 0));
+    });
   });
 }
 
@@ -79,12 +151,16 @@ function usage(): never {
   console.log(`
 Usage: ./limit-launcher.ts
 
-Runs scripts/long-limit.ts or scripts/short-limit.ts in an infinite loop,
-choosing the side from the sign of markLast.txt:
-  markLast > 0  → long-limit.ts   ${LONG_ARGS.join(" ")}
-  markLast < 0  → short-limit.ts  ${SHORT_ARGS.join(" ")}
+Runs two order scripts per side, chosen by the sign of markLast.txt:
+  markLast > 0  → long-limit.ts   ${LONG_CMD1.join(" ")}   (spawned, not awaited)
+                 long-limit.ts   ${LONG_CMD2.join(" ")}   (awaited — waits for exit)
+  markLast < 0  → short-limit.ts  ${SHORT_CMD1.join(" ")}   (spawned, not awaited)
+                 short-limit.ts  ${SHORT_CMD2.join(" ")}   (awaited — waits for exit)
+The mark-based child is spawned without waiting; the last-based one-shot is
+awaited to completion each cycle. On a sign flip the old child is stopped
+with SIGINT (it finishes its current cycle) and the new side starts.
 markLast.txt and indexLast.txt are read from the project root.
-Ctrl+C stops after the current run finishes.
+Ctrl+C stops the children and exits.
 `);
   process.exit(0);
 }
@@ -95,7 +171,12 @@ async function main(): Promise<void> {
   let stopRequested = false;
   process.on("SIGINT", () => {
     stopRequested = true;
-    console.log("   ⏹  Stop requested — finishing current run …");
+    console.log("   ⏹  Stop requested — stopping children …");
+    stopCmd1();
+    if (awaitingCmd2) {
+      awaitingCmd2.proc.kill("SIGINT");
+      awaitingCmd2 = null;
+    }
   });
 
   const fmt = (v: number) => (Number.isNaN(v) ? "n/a" : String(v));
@@ -103,27 +184,35 @@ async function main(): Promise<void> {
   for (let cycle = 1; !stopRequested; cycle++) {
     const markLast = readLastValue(MARK_FILE);
     const indexLast = readLastValue(INDEX_FILE);
+    const desired: Side | null = markLast > 0 ? "long" : markLast < 0 ? "short" : null;
 
-    const script = markLast > 0 ? LONG_SCRIPT : markLast < 0 ? SHORT_SCRIPT : null;
-    if (script === null) {
-      console.log(
-        `[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → no action (markLast must be non-zero), retrying in ${POLL_MS / 1000}s …`
-      );
+    if (desired !== currentSide) {
+      stopCmd1();
+      currentSide = desired;
+    }
+
+    if (desired === null) {
+      console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → no action (markLast must be non-zero), retrying in ${POLL_MS / 1000}s …`);
       await sleep(POLL_MS);
       continue;
     }
 
-    const args = script === LONG_SCRIPT ? LONG_ARGS : SHORT_ARGS;
-    console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)}`);
-    try {
-      const code = await runScript(script, args);
-      console.log(`[${cycle}] ${basename(script)} finished with exit code ${code}`);
-    } catch (err) {
-      console.error(`[${cycle}] ✗ failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
+    const { script, cmd1, cmd2 } = SIDES[desired];
+
+    if (!child1) {
+      spawnCmd1(script, cmd1);
+    } else {
+      console.log(`[${cycle}] mark-based ${desired} child already running, keeping it`);
     }
+
+    console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2.join(" ")}  (awaiting) …`);
+    const code = await runCmd2(script, cmd2);
+    console.log(`[${cycle}] ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
     await sleep(POLL_MS);
   }
+
+  stopCmd1();
   console.log("Launcher stopped.");
 }
 
