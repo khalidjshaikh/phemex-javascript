@@ -67,21 +67,12 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
   const mark    = parseFloat(String(ticker.markPriceRp ?? 0));
   const index   = parseFloat(String(ticker.indexPriceRp ?? 0));
   const last    = parseFloat(String(ticker.closeRp ?? 0));
-  const open    = parseFloat(String(ticker.openRp ?? 0));
-  const high    = parseFloat(String(ticker.highRp ?? 0));
-  const low     = parseFloat(String(ticker.lowRp ?? 0));
-  const volume  = parseFloat(String(ticker.volumeRq ?? 0));
-  const funding = parseFloat(String(ticker.fundingRateRr ?? 0));
-  const oi      = parseFloat(String(ticker.openInterestRv ?? 0));
-  const turnover = parseFloat(String(ticker.turnoverRv ?? 0));
 
   const now = new Date().toLocaleString();
-  const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
-  const sign = changePct >= 0 ? "+" : "";
   const markLast = mark - last;
   const mlSign = markLast >= 0 ? "+" : "";
-  const fundPct = (funding * 100).toFixed(4);
-  const fundSign = funding >= 0 ? "+" : "";
+  const indexLast = index - last;
+  const ilSign = indexLast >= 0 ? "+" : "";
 
   writeFileSync("markLast.txt", `${markLast.toFixed(2)}\n`);
 
@@ -91,11 +82,7 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
     `Index: $${index.toFixed(2)}  ` +
     `Last: $${last.toFixed(2)}  ` +
     `Mark−Last: ${mlSign}$${markLast.toFixed(2)}  ` +
-    `H: $${high.toFixed(2)}  L: $${low.toFixed(2)}  Chg: ${sign}${changePct.toFixed(2)}%  ` +
-    `Vol: ${volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}  ` +
-    `Funding: ${fundSign}${fundPct}%  ` +
-    `OI: ${oi.toLocaleString(undefined, { maximumFractionDigits: 2 })}  ` +
-    `Turnover: $${turnover.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+    `Index−Last: ${ilSign}$${indexLast.toFixed(2)}`,
   );
 }
 
