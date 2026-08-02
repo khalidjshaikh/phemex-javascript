@@ -15,7 +15,7 @@
  *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
  *   --dispersion <value>  Tick spacing multiplier (default: 1.0)
  *   --gap <number>    Add this value to the entry price before applying spread and dispersion
- *   --takeProfit <price>  Optional take-profit trigger price for the order
+ *   --takeProfit <price|last>  Take-profit trigger price, or 'last' to use the current last traded price
  *   --cancel          Cancel the order immediately after placing (test flow)
  *   --sleep <seconds> Seconds to wait between placing and cancelling (requires --cancel)
  *   --help, -h        Show this help message
@@ -42,7 +42,7 @@ Options:
   --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
   --gap <number>        Add this value to the entry price before applying spread and dispersion
-  --takeProfit <price>  Optional take-profit trigger price for the order
+  --takeProfit <price|last>  Take-profit trigger price, or 'last' to use the current last traded price
   --cancel              Cancel the order immediately after placing (test flow)
   --sleep <seconds>     Seconds to wait between placing and cancelling (requires --cancel)
   --help, -h            Show this help message
@@ -92,6 +92,21 @@ async function main(): Promise<void> {
   const { apiKey, secretRaw } = resolveCredentials();
   const referencePrice =
     priceSource === "last" ? await fetchLastPrice(symbol) : await fetchMarkPrice(symbol);
+
+  // --takeProfit last resolves to the current last traded price.
+  let takeProfit: number | undefined;
+  if (takeProfitRaw !== undefined) {
+    takeProfit =
+      takeProfitRaw.toLowerCase() === "last"
+        ? priceSource === "last"
+          ? referencePrice
+          : await fetchLastPrice(symbol)
+        : parseFloat(takeProfitRaw);
+    if (takeProfitRaw.toLowerCase() === "last") {
+      console.log(`   ⚡  Take-profit set to last price: ${takeProfit}`);
+    }
+  }
+
   const result = await placeSpreadLimitOrders({
     symbol,
     side: "Buy",
@@ -100,7 +115,7 @@ async function main(): Promise<void> {
     spread: spreadRaw,
     dispersion: dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0,
     gap: gapRaw !== undefined ? parseFloat(gapRaw) : 0.0,
-    takeProfit: takeProfitRaw !== undefined ? parseFloat(takeProfitRaw) : undefined,
+    takeProfit,
     stopLossOffset: 0.01,
     leverage: LEVERAGE,
     referencePrice,
