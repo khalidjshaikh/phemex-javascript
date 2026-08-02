@@ -268,17 +268,17 @@ export async function placeSpreadLimitOrders(
   await setLeverageUsdtM(symbol, leverage, posSide, apiKey, secretRaw);
 
   // Purchase gate: default to enabled, but honor a false flag from DynamoDB.
-  let purchaseEnabled: boolean | null = true;
-  try {
-    purchaseEnabled = await getFlag("purchase");
-  } catch (flagErr) {
-    if (ignoreFlagErrors) {
-      console.warn(`   ⚠  Could not check purchase flag (DynamoDB unavailable) — proceeding with order`);
-    } else {
-      throw flagErr;
-    }
-  }
-  if (!purchaseEnabled) throw new Error("purchase flag is false");
+  // let purchaseEnabled: boolean | null = true;
+  // try {
+  //   purchaseEnabled = await getFlag("purchase");
+  // } catch (flagErr) {
+  //   if (ignoreFlagErrors) {
+  //     console.warn(`   ⚠  Could not check purchase flag (DynamoDB unavailable) — proceeding with order`);
+  //   } else {
+  //     throw flagErr;
+  //   }
+  // }
+  // if (!purchaseEnabled) throw new Error("purchase flag is false");
 
   // Stop-loss sits below the entry for Buys and above it for Sells.
   const stopLossSign = side === "Buy" ? -1 : 1;
@@ -335,17 +335,32 @@ export async function placeSpreadLimitOrders(
     process.on("SIGINT", onSigint);
     process.on("SIGUSR1", onExternalNotify);
 
+    // In-place countdown on a single line while waiting to cancel.
+    let countdownTimer: NodeJS.Timeout | undefined;
+    let sleepCancelled = false;
     if (sleepSeconds > 0) {
-      console.log(`   Sleeping ${sleepSeconds}s before cancelling …`);
+      const endTime = Date.now() + sleepSeconds * 1000;
+      const writeCountdown = () => {
+        const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+        process.stdout.write(`\r\x1b[2K   Sleeping ${remaining}s before cancelling …`);
+      };
+      writeCountdown();
+      countdownTimer = setInterval(writeCountdown, 200);
     }
     try {
       await sleep.promise;
     } catch (err) {
       if (!(err instanceof Error && err.message === "Sleep cancelled")) {
+        if (countdownTimer) clearInterval(countdownTimer);
         process.removeListener("SIGINT", onSigint);
         process.removeListener("SIGUSR1", onExternalNotify);
         throw err;
       }
+      sleepCancelled = true;
+    }
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      if (!sleepCancelled) process.stdout.write("\n");
     }
 
     phase = "cancel";
