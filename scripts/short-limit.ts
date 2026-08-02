@@ -79,6 +79,7 @@ function sleep(ms: number): Promise<void> {
  *  the process can exit promptly. */
 async function waitForNegativeMarkLast(shouldStop?: () => boolean): Promise<void> {
   let stored = NaN;
+  let lastLogged = "";
   while (!(stored < 0)) {
     if (shouldStop?.()) return;
     try {
@@ -86,7 +87,14 @@ async function waitForNegativeMarkLast(shouldStop?: () => boolean): Promise<void
     } catch {
       stored = NaN; // file missing or unreadable — keep polling
     }
-    if (!(stored < 0)) await sleep(500);
+    if (!(stored < 0)) {
+      const cur = Number.isNaN(stored) ? "n/a" : String(stored);
+      if (cur !== lastLogged) {
+        console.log(`   ⏳  waiting for markLast < 0 (currently ${cur}) …`);
+        lastLogged = cur;
+      }
+      await sleep(500);
+    }
   }
 }
 
