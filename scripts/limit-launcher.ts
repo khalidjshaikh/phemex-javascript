@@ -240,6 +240,7 @@ async function main(): Promise<void> {
     }
     const maxAbs = Math.abs(markLast); //maxAbsLastValue(markLast, indexLast);
     const gapMag = 0.05 - (Math.min(maxAbs, 0.4)) /2; //* 0.05 / 0.10;
+    // const gapMag = 0.05 - maxAbs/2; //* 0.05 / 0.10;
     const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
