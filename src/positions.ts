@@ -177,7 +177,7 @@ export async function setStopLoss(
     `orderQtyRq=${qty}`,
     `reduceOnly=true`,
     `closeOnTrigger=true`,
-    `triggerType=ByMarkPrice`,
+    `triggerType=ByLastPrice`,
     `timeInForce=ImmediateOrCancel`,
   ];
   const query = paramsList.join("&");
