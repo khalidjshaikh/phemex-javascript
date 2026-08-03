@@ -21,7 +21,7 @@ const SHORT_PID_FILE = ".short-limit.pid";
  * Prices are in real-value (Rp) format — no EP scaling needed.
  *
  * Output format:
- *   [time]  XTIUSDT  $XX.XX  H: $XX.XX  L: $XX.XX  Chg: ±X.XX%  Vol: XXXX
+ *   [time]  XTIUSDT  $XX.XX
  *
  * Auto-reconnects on disconnect with exponential backoff (1s → 30s max).
  * Sends a heartbeat (server.ping) every 20s.
@@ -51,6 +51,14 @@ let streakStartTime = Date.now();
 
 
 function updateDirection(last: number, prev: number): void {
+  // First tick after startup — seed the streak baseline from the first real
+  // price instead of measuring the delta from the 0 sentinel.
+  if (prev === 0) {
+    streakStartPrice = last;
+    streakStartTime = Date.now();
+    streak = 1;
+    return;
+  }
   if (last > prev) {
     if (direction === '↑') streak++;
     else { direction = '↑'; streak = 1; streakStartPrice = prev; streakStartTime = Date.now(); }
@@ -75,22 +83,12 @@ function notifyLimitScripts(): void {
 }
 
 function printTicker(symbol: string, ticker: Record<string, unknown>): void {
-  const open = Number(ticker.openRp ?? 0);
-  const high = Number(ticker.highRp ?? 0);
-  const low = Number(ticker.lowRp ?? 0);
   const last = Number(ticker.lastRp ?? 0);
-  const volume = Number(ticker.volumeRq ?? 0);
-  const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
 
   const now = new Date().toLocaleString();
-  const sign = changePct >= 0 ? "+" : "";
   const priceStr = `$${last.toFixed(2)}`;
-  const highStr = `H: $${high.toFixed(2)}`;
-  const lowStr = `L: $${low.toFixed(2)}`;
-  const chgStr = `Chg: ${sign}${changePct.toFixed(2)}%`;
-  const volStr = `Vol: ${volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-  const line = `${now}  ${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
+  const line = `${now}  ${symbol}  ${priceStr}`;
 
   if (last !== lastPrice) {
     updateDirection(last, lastPrice);
