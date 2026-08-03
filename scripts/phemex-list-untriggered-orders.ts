@@ -4,20 +4,23 @@
  * phemex-list-untriggered-orders.ts  —  List untriggered trigger orders
  * for a given symbol via the Phemex API.
  *
- * Endpoint:  GET /orders/activeList?ordStatus=Untriggered&symbol=<symbol>
+ * The API call lives in src/untriggered-orders.ts
+ * (fetchUntriggeredOrders → GET /orders/activeList?ordStatus=Untriggered&symbol=<symbol>).
  *
  * Usage:
  *   npx tsx phemex-list-untriggered-orders.ts --symbol BTCUSD
  *   npx tsx phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
  */
 
-import { request, base64UrlDecode } from "../src/http-client.js";
+import { base64UrlDecode } from "../src/http-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
+import {
+  fetchUntriggeredOrders,
+  untriggeredEndpoint,
+  untriggeredQuery,
+  ApiError,
+} from "../src/untriggered-orders.js";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -55,50 +58,40 @@ async function main(): Promise<void> {
 
   // Both USDT-M and Coin-M use "Untriggered" as the ordStatus string value
   const isUsdtM = symbol.toUpperCase().endsWith("USDT");
-  const ordStatusVal = "Untriggered";
-  const query = `ordStatus=${ordStatusVal}&symbol=${symbol}`;
+  const query = untriggeredQuery(symbol);
 
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);
-    console.log(`  GET /orders/activeList?${query}`);
+    console.log(`  GET ${untriggeredEndpoint(symbol)}?${query}`);
     console.log();
     process.exit(0);
   }
-
-  // Determine the correct endpoint based on symbol suffix:
-  //   *USDT  → USDT-M perpetual  → /g-orders/activeList
-  //   *USD   → Coin-M perpetual   → /orders/activeList
-  const endpoint = isUsdtM ? "/g-orders/activeList" : "/orders/activeList";
 
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`⟐  Fetching untriggered orders for ${symbol} (${isUsdtM ? "USDT-M" : "Coin-M"}) …`);
 
-  const resp = await request("GET", endpoint, query, creds.PHEMEX_API_KEY, secretRaw, "");
-
-  // code 10002 / "OM_ORDER_NOT_FOUND" means no orders — not an error
-  if (resp.code === 0 || resp.code === 10002) {
-    const data = resp.data as Record<string, unknown> | undefined;
-    const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
-
-    if (rows.length === 0) {
-      console.log("  ℹ  No untriggered orders found.");
+  let rows;
+  try {
+    rows = await fetchUntriggeredOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
+  } catch (err: unknown) {
+    // code 10002 / "OM_ORDER_NOT_FOUND" is handled inside the library as an empty result
+    if (err instanceof ApiError) {
+      console.error(`  ✗  API error: ${err.message}`);
     } else {
-      console.log(`  ✓  Found ${rows.length} untriggered order(s):\n`);
-      for (const o of rows) {
-        const orderID = String(o.orderID ?? "?");
-        const side = String(o.side ?? "?");
-        // USDT-M uses orderQtyRq/priceRp, Coin-M uses orderQty/price
-        const qty = String(o.orderQtyRq ?? o.orderQty ?? "?");
-        const stopPx = String(o.stopPxRp ?? o.stopPx ?? "?");
-        const price = String(o.priceRp ?? o.price ?? "?");
-        console.log(`${orderID} ${side} qty ${qty} limit @ ${price}`);
-      }
+      console.error(`  ✗  Request failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  } else {
-    console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
     process.exit(1);
+  }
+
+  if (rows.length === 0) {
+    console.log("  ℹ  No untriggered orders found.");
+  } else {
+    console.log(`  ✓  Found ${rows.length} untriggered order(s):\n`);
+    for (const o of rows) {
+      console.log(`${o.orderID || "?"} ${o.side || "?"} qty ${o.qty || "?"} limit @ ${o.price || "?"}`);
+    }
   }
 }
 
