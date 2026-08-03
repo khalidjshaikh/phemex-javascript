@@ -99,6 +99,15 @@ const POLL_MS = 1000;
  */
 const CMD2_TIMEOUT_MS = 20_000;
 
+/** Kill-switches per side: when true, neither the mark-based spawn (cmd1)
+ *  nor the last-based one-shot (cmd2) is run for that side. */
+const DISABLE_LONG = false;
+const DISABLE_SHORT = true;
+
+function isSideDisabled(side: Side): boolean {
+  return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
+}
+
 let child1: ChildProcess | null = null; // mark-based child (not awaited)
 let currentSide: Side | null = null;
 let awaitingCmd2: { proc: ChildProcess } | null = null;
@@ -227,7 +236,9 @@ async function main(): Promise<void> {
 
     const { script, cmd1, cmd2 } = SIDES[desired];
 
-    if (!child1) {
+    if (isSideDisabled(desired)) {
+      console.log(`[${cycle}] ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping mark-based spawn`);
+    } else if (!child1) {
       spawnCmd1(script, cmd1);
     } else {
       console.log(`[${cycle}] mark-based ${desired} child already running, keeping it`);
@@ -245,6 +256,11 @@ async function main(): Promise<void> {
     const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
     console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
+    if (isSideDisabled(desired)) {
+      console.log(`[${cycle}] ${desired} side disabled — skipping last-based one-shot`);
+      await sleep(POLL_MS);
+      continue;
+    }
     const code = await runCmd2(script, cmd2Args);
     console.log(`[${cycle}] ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
