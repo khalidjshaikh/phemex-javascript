@@ -78,6 +78,7 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
   const markLast = mark - last;
   const indexLast = index - last;
 
+  writeFileSync("last.txt", `${last.toFixed(2)}\n`);
   writeFileSync("markLast.txt", `${markLast.toFixed(2)}\n`);
   writeFileSync("indexLast.txt", `${indexLast.toFixed(2)}\n`);
 
