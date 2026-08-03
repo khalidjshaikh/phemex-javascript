@@ -49,7 +49,7 @@ const LONG_CMD1 = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
-  // "--takeProfit", "mark+.1",
+  "--takeProfit", "mark+.1",
   "--price", "mark",
 ];
 
@@ -59,7 +59,7 @@ const LONG_CMD2 = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
-  // "--takeProfit", "last+.1",
+  "--takeProfit", "last+.1",
   "--price", "last",
 ];
 
@@ -238,6 +238,7 @@ async function main(): Promise<void> {
   const fmt = (v: number) => (Number.isNaN(v) ? "n/a" : String(v));
 
   for (let cycle = 1; !stopRequested; cycle++) {
+    // console.log(`${cycleTag(cycle)} reading ${MARK_FILE} and ${INDEX_FILE} …`);
     const markLast = readLastValue(MARK_FILE);
     const indexLast = readLastValue(INDEX_FILE);
     const desired: Side | null = markLast > 0 ? "long" : markLast < 0 ? "short" : null;
@@ -254,14 +255,18 @@ async function main(): Promise<void> {
     }
 
     const { script, cmd1, cmd2 } = SIDES[desired];
-
+    // console.log(desired)
+    // console.log(SIDES[desired])
+    // console.log(isSideDisabled(desired))
     if (isSideDisabled(desired)) {
       console.log(`${cycleTag(cycle)} ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
       await sleep(DISABLED_POLL_MS);
       continue;
     }
 
+    // console.log(child1)
     if (!child1) {
+      // console.log("spawn")
       spawnCmd1(script, cmd1);
     } else {
       console.log(`${cycleTag(cycle)} mark-based ${desired} child already running, keeping it`);
@@ -278,9 +283,9 @@ async function main(): Promise<void> {
     const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
-    console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
-    const code = await runCmd2(script, cmd2Args);
-    console.log(`${cycleTag(cycle)} ${basename(script)} (last-based) finished with exit code ${code}`);
+    // console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
+    // const code = await runCmd2(script, cmd2Args);
+    // console.log(`${cycleTag(cycle)} ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
     await sleep(POLL_MS);
   }
