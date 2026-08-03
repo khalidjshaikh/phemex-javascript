@@ -333,18 +333,19 @@ class TradeBatchProcessor {
     //   `[${date.toLocaleString().padEnd(22)}] #325 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${(Math.abs(delta) >= ENTRY_DELTA_MIN ? "≥" + ENTRY_DELTA_MIN : "").padEnd(5)} ${bigMove.padEnd(3)}`
     // );
     console.log(
-      `[${date.toLocaleString().padEnd(22)}] #334 ` +
-        `${side.padEnd(4)} ` +
-        `${Number(quantity).toFixed(2).padStart(5)} ` +
-        `${('$' + Number(price).toFixed(2)).padStart(6)} ` +
-        `Δ${deltaStr.padEnd(5)} ` +
-        `${lastDeltaStr.padStart(5)} ` +
-        `${arrow} ` +
-        `${streakDeltaMinShort.padEnd(6)} ` +
-        `${lastDeltaMinShort.padEnd(6)} ` +
-        `${streakDeltaMinLong.padEnd(6)} ` +
-        `${lastDeltaMinLong.padEnd(6)} ` +
-        ``
+      (
+        `[${date.toLocaleString().padEnd(22)}] #334 ` +
+          `${side.padEnd(4)} ` +
+          `${Number(quantity).toFixed(2).padStart(5)} ` +
+          `${('$' + Number(price).toFixed(2)).padStart(6)} ` +
+          `Δ${deltaStr.padEnd(5)} ` +
+          `${lastDeltaStr.padStart(5)} ` +
+          `${arrow} ` +
+          `${streakDeltaMinShort.padEnd(6)} ` +
+          `${lastDeltaMinShort.padEnd(6)} ` +
+          `${streakDeltaMinLong.padEnd(6)} ` +
+          `${lastDeltaMinLong.padEnd(6)}`
+      ).trimEnd()
     );
     this.prevPrice = p;
   }
