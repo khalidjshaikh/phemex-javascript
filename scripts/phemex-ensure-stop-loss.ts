@@ -9,7 +9,7 @@
  * contains the latest trade price (e.g. "75.52"), so the stop is placed
  * at that price minus 0.01.
  *
- * Runs forever, checking every 60 seconds, until Ctrl+C.
+ * Runs forever, checking every 30 seconds, until Ctrl+C.
  *
  * Usage:
  *   ./phemex-ensure-stop-loss.ts
@@ -31,7 +31,7 @@ const CREDS_FILE = ".phemex-credentials-gmail.json";
 const LAST_FILE = resolve(import.meta.dirname, "..", "last.txt");
 
 const CENT = 0.01;
-const POLL_MS = 60_000;   // check every 60 seconds
+const POLL_MS = 30_000;   // check every 30 seconds
 
 function usage(): never {
   console.log(`
