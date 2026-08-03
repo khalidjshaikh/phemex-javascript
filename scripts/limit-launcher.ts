@@ -111,7 +111,7 @@ const CMD2_TIMEOUT_MS = 20_000;
 /** Kill-switches per side: when true, neither the mark-based spawn (cmd1)
  *  nor the last-based one-shot (cmd2) is run for that side. */
 const DISABLE_LONG = false;
-const DISABLE_SHORT = true;
+const DISABLE_SHORT = false;
 
 function isSideDisabled(side: Side): boolean {
   return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
