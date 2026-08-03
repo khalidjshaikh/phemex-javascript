@@ -92,6 +92,7 @@ async function waitForPositiveMarkLast(shouldStop?: () => boolean): Promise<void
       const cur = Number.isNaN(stored) ? "n/a" : String(stored);
       if (cur !== lastLogged) {
         console.log(`   ⏳  waiting for markLast > 0 (currently ${cur}) …`);
+        process.exit(1)
         lastLogged = cur;
       }
       await sleep(500);

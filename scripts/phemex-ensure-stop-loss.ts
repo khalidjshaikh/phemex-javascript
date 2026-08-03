@@ -12,19 +12,22 @@
  * shown in the log for reference only; the stop is anchored to the entry
  * price, so a missing/stale last.txt never affects stop placement.
  *
- * Runs forever, checking every 30 seconds, until Ctrl+C.
+ * Runs forever, checking every --poll seconds (default 30), until Ctrl+C.
  *
  * Usage:
  *   ./phemex-ensure-stop-loss.ts
  *   ./phemex-ensure-stop-loss.ts --dry-run
+ *   ./phemex-ensure-stop-loss.ts --poll 10
  *
  * Options:
  *   --dry-run           Log what would be placed without sending orders
+ *   --poll <seconds>    Seconds between checks (default: 30)
  *   --help, -h          Show this help message
  */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getArg, hasFlag } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
 import { calcPnlPct, fetchPositions, setStopLoss } from "../src/positions.js";
@@ -34,7 +37,7 @@ const CREDS_FILE = ".phemex-credentials.json";
 const LAST_FILE = resolve(import.meta.dirname, "..", "last.txt");
 
 const CENT = 0.01;
-const POLL_MS = 30_000;   // check every 30 seconds
+const DEFAULT_POLL_MS = 30_000;   // check every 30 seconds (override with --poll)
 
 function usage(): never {
   console.log(`
@@ -44,10 +47,11 @@ Fetch all open USDT-M positions. For each position that has no stop-loss
 (no untriggered Stop order), place a stop-market order ${CENT} away from the
 position's entry price (long → Sell stop ${CENT} below entry, short → Buy
 stop ${CENT} above entry).
-Checks every ${POLL_MS / 1000} seconds; runs until Ctrl+C.
+Checks every --poll seconds (default ${DEFAULT_POLL_MS / 1000}); runs until Ctrl+C.
 
 Options:
   --dry-run           Log what would be placed without sending orders
+  --poll <seconds>    Seconds between checks (default: ${DEFAULT_POLL_MS / 1000})
   --help, -h          Show this help message
 
 Examples:
@@ -87,7 +91,7 @@ async function hasStopLoss(
 ): Promise<boolean> {
   try {
     const orders = await fetchUntriggeredOrders(symbol, apiKey, secretRaw);
-    return orders.some((o) => String(o.raw.ordType) === "Stop");
+    return orders.some((o) => o.ordType === "Stop");
   } catch (err: unknown) {
     console.error(
       `[${fmtTime()}]   ✗  Could not check untriggered orders for ${symbol}: ${err instanceof Error ? err.message : String(err)}`,
@@ -97,8 +101,19 @@ async function hasStopLoss(
 }
 
 async function main(): Promise<void> {
-  if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
-  const dryRun = process.argv.includes("--dry-run");
+  if (hasFlag("--help") || hasFlag("-h")) usage();
+  const dryRun = hasFlag("--dry-run");
+
+  let pollMs = DEFAULT_POLL_MS;
+  const pollArg = getArg("--poll");
+  if (pollArg !== undefined) {
+    const pollSecs = Number(pollArg);
+    if (!Number.isFinite(pollSecs) || pollSecs < 1) {
+      console.error(`✗  --poll must be a number of seconds ≥ 1, got "${pollArg}"`);
+      process.exit(1);
+    }
+    pollMs = Math.round(pollSecs * 1000);
+  }
 
   const creds = loadCredentialsPath(CREDS_FILE);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -109,7 +124,7 @@ async function main(): Promise<void> {
   });
 
   console.log(`[${fmtTime()}] ═ Stop-Loss Ensurer ════════════════════════════════`);
-  console.log(`[${fmtTime()}]   mode: ${dryRun ? "DRY-RUN" : "LIVE"}   poll: every ${POLL_MS / 1000}s`);
+  console.log(`[${fmtTime()}]   mode: ${dryRun ? "DRY-RUN" : "LIVE"}   poll: every ${pollMs / 1000}s`);
   console.log(`[${fmtTime()}] ═════════════════════════════════════════════════════`);
 
   while (true) {
@@ -167,7 +182,7 @@ async function main(): Promise<void> {
       console.error(`[${fmtTime()}] ✗  Check failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    await sleep(POLL_MS);
+    await sleep(pollMs);
   }
 }
 
