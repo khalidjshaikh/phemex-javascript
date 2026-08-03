@@ -1,9 +1,10 @@
 #!/usr/bin/env npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * phemex-limit-ladder.ts — Place a ladder of resting Long limit orders on
- * XBRUSDT (USDT-M): one Buy order per rung from $70 up to $83 (inclusive),
- * qty 0.01 each, at 100x leverage.
+ * phemex-limit-ladder.ts — Place a ladder of resting limit orders on XBRUSDT
+ * (USDT-M): one order per rung from $70 up to $83 (inclusive), qty 0.01 each,
+ * at 100x leverage. Defaults to a Long (Buy) ladder; pass --side short for a
+ * Short (Sell) ladder.
  *
  * Uses placeLinear directly instead of placeLimitOrder because the shared
  * wrapper auto-cancels every limit order after 60s — a resting ladder must
@@ -21,6 +22,7 @@
  *   --step <price>      Price step between rungs (default: 1)
  *   --qty <quantity>    Quantity per order (default: 0.01)
  *   --leverage <n>      Leverage (default: 100)
+ *   --side <long|short> Order side (default: long)
  *   --dry-run           Print the ladder without placing any orders
  *   --help, -h          Show this help message
  */
@@ -44,8 +46,8 @@ function usage(): never {
   console.log(`
 Usage: ./phemex-limit-ladder.ts [options]
 
-Place a ladder of resting Long limit orders on ${SYMBOL} (USDT-M),
-one Buy order per rung from \$${FROM} to \$${TO} (inclusive), qty ${QTY} each,
+Place a ladder of resting limit orders on ${SYMBOL} (USDT-M),
+one order per rung from \$${FROM} to \$${TO} (inclusive), qty ${QTY} each,
 at ${LEVERAGE}x leverage.
 
 Options:
@@ -55,12 +57,14 @@ Options:
   --step <price>      Price step between rungs (default: ${STEP})
   --qty <quantity>    Quantity per order (default: ${QTY})
   --leverage <n>      Leverage (default: ${LEVERAGE})
+  --side <long|short> Order side (default: long)
   --dry-run           Print the ladder without placing any orders
   --help, -h          Show this help message
 
 Examples:
   ./phemex-limit-ladder.ts
   ./phemex-limit-ladder.ts --from 70 --to 83 --step 1 --dry-run
+  ./phemex-limit-ladder.ts --side short --qty 0.05
   ./phemex-limit-ladder.ts --symbol XBRUSDT --qty 0.05
 `);
   process.exit(0);
@@ -88,6 +92,9 @@ function numArg(name: string, fallback: number): number {
 
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
+  // No options at all → show usage instead of silently placing the default
+  // long ladder from $70 → $83.
+  if (process.argv.length <= 2) usage();
   const dryRun = process.argv.includes("--dry-run");
 
   const symbol = getArgValue("--symbol") ?? SYMBOL;
@@ -96,6 +103,14 @@ async function main(): Promise<void> {
   const step = numArg("--step", STEP);
   const qty = numArg("--qty", QTY);
   const leverage = numArg("--leverage", LEVERAGE);
+
+  const sideArg = (getArgValue("--side") ?? "long").toLowerCase();
+  if (sideArg !== "long" && sideArg !== "short") {
+    console.error(`✗  Invalid --side "${sideArg}" — expected "long" or "short"`);
+    process.exit(1);
+  }
+  const side: "Buy" | "Sell" = sideArg === "long" ? "Buy" : "Sell";
+  const posSide: "Long" | "Short" = sideArg === "long" ? "Long" : "Short";
 
   if (to < from) {
     console.error(`✗  --to (${to}) must be >= --from (${from})`);
@@ -116,16 +131,16 @@ async function main(): Promise<void> {
     prices.push(Math.round(p * 10_000) / 10_000);
   }
 
-  console.log(`[${fmtTime()}] ═ ${symbol} Long Limit Ladder ════════════════════════`);
+  console.log(`[${fmtTime()}] ═ ${symbol} ${posSide} Limit Ladder ═══════════════════════`);
   console.log(`[${fmtTime()}]   Range:     $${from} → $${to} (inclusive)`);
   console.log(`[${fmtTime()}]   Step:      $${step}   orders: ${prices.length}`);
-  console.log(`[${fmtTime()}]   Qty/order: ${qty}   leverage: ${leverage}x   side: Buy / Long`);
+  console.log(`[${fmtTime()}]   Qty/order: ${qty}   leverage: ${leverage}x   side: ${side} / ${posSide}`);
   console.log(`[${fmtTime()}]   Mode:      ${dryRun ? "DRY-RUN — no orders will be placed" : "LIVE — placing orders"}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════`);
 
   if (dryRun) {
     for (const price of prices) {
-      console.log(`  ·  Buy ${qty} ${symbol} @ $${price.toFixed(4)}  (dry-run)`);
+      console.log(`  ·  ${side} ${qty} ${symbol} @ $${price.toFixed(4)}  (dry-run)`);
     }
     console.log(`[${fmtTime()}] ✔  ${prices.length} rung(s) would be placed — nothing sent to the exchange.`);
     return;
@@ -134,25 +149,25 @@ async function main(): Promise<void> {
   const creds = loadCredentialsPath(CREDS_FILE);
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  await setLeverageUsdtM(symbol, leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
-  console.log(`[${fmtTime()}]   ✓  Leverage set to ${leverage}x on ${symbol} (Long)`);
+  await setLeverageUsdtM(symbol, leverage, posSide, creds.PHEMEX_API_KEY, secretRaw);
+  console.log(`[${fmtTime()}]   ✓  Leverage set to ${leverage}x on ${symbol} (${posSide})`);
 
   let placed = 0;
   let failed = 0;
   for (const price of prices) {
     try {
       const result = await placeLinear(
-        { account: "usdt-m", symbol, side: "Buy", price, qty, posSide: "Long" },
+        { account: "usdt-m", symbol, side, price, qty, posSide },
         creds.PHEMEX_API_KEY,
         secretRaw,
       );
       console.log(
-        `[${fmtTime()}]   ✓  Buy ${qty} ${symbol} @ $${price.toFixed(4)} — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`,
+        `[${fmtTime()}]   ✓  ${side} ${qty} ${symbol} @ $${price.toFixed(4)} — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`,
       );
       placed++;
     } catch (err: unknown) {
       console.error(
-        `[${fmtTime()}]   ✗  Buy ${qty} ${symbol} @ $${price.toFixed(4)} — ${err instanceof Error ? err.message : String(err)}`,
+        `[${fmtTime()}]   ✗  ${side} ${qty} ${symbol} @ $${price.toFixed(4)} — ${err instanceof Error ? err.message : String(err)}`,
       );
       failed++;
     }
