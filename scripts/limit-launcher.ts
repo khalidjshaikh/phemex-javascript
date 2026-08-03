@@ -49,7 +49,7 @@ const LONG_CMD1 = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "mark+.1",
+  // "--takeProfit", "mark+.1",
   "--price", "mark",
 ];
 
@@ -59,7 +59,7 @@ const LONG_CMD2 = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "last+.1",
+  // "--takeProfit", "last+.1",
   "--price", "last",
 ];
 
@@ -71,7 +71,7 @@ const SHORT_CMD1 = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "mark-.1",
+  // "--takeProfit", "mark-.1",
   "--price", "mark",
 ];
 
@@ -81,7 +81,7 @@ const SHORT_CMD2 = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "last-.1",
+  // "--takeProfit", "last-.1",
   "--price", "last",
 ];
 
