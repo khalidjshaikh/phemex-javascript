@@ -13,6 +13,10 @@
  *
  * Both use 100x leverage on symbol XBRUSDT, qty 0.01.
  *
+ * At startup the script checks for an already-open XBRUSDT position and
+ * adopts it instead of placing a new order, so repeated runs don't stack
+ * quantity on top of a leftover position.
+ *
  * Usage:
  *   ./phemex-dime-roller.ts --max
  *   ./phemex-dime-roller.ts --min
@@ -26,7 +30,7 @@
  */
 
 import { base64UrlDecode } from "../src/http-client.js";
-import { loadCredentials } from "../src/credentials.js";
+import { loadCredentialsPath } from "../src/credentials.js";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { findSymbolRow } from "../src/cli-utils.js";
 import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
@@ -94,7 +98,7 @@ async function main(): Promise<void> {
   const openPosSide = isMax ? "Short" : "Long";
   const expectedPosSide = isMax ? "Sell" : "Buy"; // position side reported by the API
 
-  const creds = loadCredentials();
+  const creds = loadCredentialsPath(".phemex-credentials-gmail.json");
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   console.log(`[${fmtTime()}] ═ ${SYMBOL} Dime Roller (${direction}) ═══════════════════════`);
@@ -123,7 +127,24 @@ async function main(): Promise<void> {
     }
   }
 
-  async function openPosition(): Promise<void> {
+  /**
+   * Open a fresh position unless one is already open for the symbol.
+   *
+   * The initial open checks positions first so a leftover position from a
+   * previous run is adopted instead of stacking a new order on top of it.
+   * `force` bypasses the check — used when rolling, since the position was
+   * just closed and the API may still report it.
+   */
+  async function openPosition(force = false): Promise<void> {
+    if (!force) {
+      const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+      const existing = positions.find((p) => p.symbol === SYMBOL);
+      if (existing) {
+        const side = existing.side === "Buy" ? "Long" : "Short";
+        console.log(`[${fmtTime()}]   –  ${side} position already open (size ${existing.size}) — adopting it, no new order placed`);
+        return;
+      }
+    }
     const result = await placeMarketOrder(
       { account: "usdt-m", symbol: SYMBOL, side: openSide, price: 0, qty: QTY, posSide: openPosSide },
       creds.PHEMEX_API_KEY,
@@ -147,7 +168,7 @@ async function main(): Promise<void> {
       } else {
         console.log(`[${fmtTime()}]   –  No open position to close; skipping close`);
       }
-      await openPosition();
+      await openPosition(true);
       rolled++;
       await readEntryRef();
     } catch (err: unknown) {
@@ -157,7 +178,7 @@ async function main(): Promise<void> {
     }
   }
 
-  /** Evaluate the dime trigger against the latest price. */
+  /** Evaluate the dime trigger against the latest pri`c`e. */
   function checkTrigger(): void {
     if (busy || lastPrice <= 0 || entryRef <= 0) return;
     const hit = isMax
@@ -170,8 +191,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // Open the initial position.
-  await openPosition();
   await readEntryRef();
   console.log(`[${fmtTime()}] ⏳  Watching ${SYMBOL} — rolling on ${isMax ? "price +$" + DIME.toFixed(2) : "price -$" + DIME.toFixed(2)} …`);
 

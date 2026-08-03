@@ -40,6 +40,15 @@ export function loadCredentials(credsDir?: string): Credentials {
   return JSON.parse(fs.readFileSync(credsPath, "utf8"));
 }
 
+export function loadCredentialsPath(credsPath: string): Credentials {
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+}
+
+
 /**
  * Convenience: load credentials from the calling script's directory.
  * Equivalent to `loadCredentials(import.meta.dirname)`.
