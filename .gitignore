@@ -38,3 +38,4 @@ package-lock.json
 src/lib/globals.json
 xtiusdt-last-price.txt
 model.onnx
+.aider*

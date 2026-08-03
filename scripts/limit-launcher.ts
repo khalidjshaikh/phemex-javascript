@@ -18,6 +18,8 @@
  * it is SIGINTed and the cycle moves on (guards against the child blocking
  * forever in its markLast gate or on a stalled price fetch).
  * indexLast.txt is read alongside markLast.txt and logged for context.
+ * When the desired side is disabled (DISABLE_LONG/DISABLE_SHORT) no orders
+ * run; the cycle logs once and sleeps DISABLED_POLL_MS (7s) before re-reading.
  * The --gap of the last-based one-shot is computed each cycle as
  * min(max(|indexLast|, |markLast|), 10) / 100, signed - for long, + for short.
  * Its --qty is 0.1 when max(|indexLast|, |markLast|) > 10, else 0.01.
@@ -47,7 +49,7 @@ const LONG_CMD1 = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "mark+.1",
+  // "--takeProfit", "mark+.1",
   "--price", "mark",
 ];
 
@@ -57,7 +59,7 @@ const LONG_CMD2 = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
-  "--takeProfit", "last+.1",
+  // "--takeProfit", "last+.1",
   "--price", "last",
 ];
 
@@ -90,6 +92,13 @@ const SIDES: Record<Side, { script: string; cmd1: string[]; cmd2: string[] }> = 
 
 /** Pause between cycles (also the retry interval when no action applies). */
 const POLL_MS = 1000;
+
+/**
+ * Pause between cycles while the desired side is disabled (DISABLE_LONG /
+ * DISABLE_SHORT). Longer than POLL_MS: a disabled side does no work, so this
+ * poll only needs to catch a sign flip back to an enabled side.
+ */
+const DISABLED_POLL_MS = 7_000;
 
 /**
  * Watchdog for the awaited last-based one-shot: if the child has not exited
@@ -131,6 +140,16 @@ function readLastValue(file: string): number {
  */
 function maxAbsLastValue(markLast: number, indexLast: number): number {
   return Math.max(Math.abs(indexLast), Math.abs(markLast));
+}
+
+/** Cycle log tag: `[<cycle> <local YYYY-MM-DD HH:mm:ss>]`. */
+function cycleTag(cycle: number): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `[${cycle} ${stamp}]`;
 }
 
 /** Spawn the mark-based child; do NOT await it. Respawns once it exits. */
@@ -229,7 +248,7 @@ async function main(): Promise<void> {
     }
 
     if (desired === null) {
-      console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → no action (markLast must be non-zero), retrying in ${POLL_MS / 1000}s …`);
+      console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → no action (markLast must be non-zero), retrying in ${POLL_MS / 1000}s …`);
       await sleep(POLL_MS);
       continue;
     }
@@ -237,15 +256,19 @@ async function main(): Promise<void> {
     const { script, cmd1, cmd2 } = SIDES[desired];
 
     if (isSideDisabled(desired)) {
-      console.log(`[${cycle}] ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping mark-based spawn`);
-    } else if (!child1) {
+      console.log(`${cycleTag(cycle)} ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
+      await sleep(DISABLED_POLL_MS);
+      continue;
+    }
+
+    if (!child1) {
       spawnCmd1(script, cmd1);
     } else {
-      console.log(`[${cycle}] mark-based ${desired} child already running, keeping it`);
+      console.log(`${cycleTag(cycle)} mark-based ${desired} child already running, keeping it`);
     }
 
     if (Number.isNaN(indexLast)) {
-      console.log(`[${cycle}] indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
+      console.log(`${cycleTag(cycle)} indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
       await sleep(POLL_MS);
       continue;
     }
@@ -255,14 +278,9 @@ async function main(): Promise<void> {
     const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
-    console.log(`[${cycle}] markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
-    if (isSideDisabled(desired)) {
-      console.log(`[${cycle}] ${desired} side disabled — skipping last-based one-shot`);
-      await sleep(POLL_MS);
-      continue;
-    }
+    console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
     const code = await runCmd2(script, cmd2Args);
-    console.log(`[${cycle}] ${basename(script)} (last-based) finished with exit code ${code}`);
+    console.log(`${cycleTag(cycle)} ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
     await sleep(POLL_MS);
   }
