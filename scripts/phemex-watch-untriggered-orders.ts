@@ -25,7 +25,7 @@
  *
  * Options:
  *   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSD, XTIUSDT)
- *   --interval <sec>    Poll interval in seconds (default: 5)
+ *   --interval <sec>    Poll interval in seconds (default: 60)
  *   --age <sec>         Cancel orders open longer than this, in seconds
  *                       (default: 30)
  *   --dry-run           Log what would be cancelled without cancelling
@@ -47,7 +47,7 @@ import {
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
 
-const DEFAULT_INTERVAL_MS = 5_000;  // poll every 5s
+const DEFAULT_INTERVAL_MS = 60_000; // poll every 60s
 const DEFAULT_AGE_MS = 30_000;      // cancel orders open > 30s
 
 function usage(): never {
@@ -59,7 +59,7 @@ stay open longer than --age seconds. Runs until interrupted (Ctrl-C).
 
 Options:
   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSD, XTIUSDT)
-  --interval <sec>    Poll interval in seconds (default: 5)
+  --interval <sec>    Poll interval in seconds (default: 60)
   --age <sec>         Cancel orders open longer than this, in seconds (default: 30)
   --dry-run           Log what would be cancelled without cancelling
   --once              Run a single poll cycle, then exit (for testing)
