@@ -27,7 +27,7 @@ import { loadCredentialsPath } from "../src/credentials.js";
 import { fetchPositions, setStopLoss } from "../src/positions.js";
 import { fetchUntriggeredOrders } from "../src/untriggered-orders.js";
 
-const CREDS_FILE = ".phemex-credentials-gmail.json";
+const CREDS_FILE = ".phemex-credentials.json";
 const LAST_FILE = resolve(import.meta.dirname, "..", "last.txt");
 
 const CENT = 0.01;
