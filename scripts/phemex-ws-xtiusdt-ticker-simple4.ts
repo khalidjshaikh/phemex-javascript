@@ -26,11 +26,19 @@ const SHORT_PID_FILE = ".short-limit.pid";
  * Auto-reconnects on disconnect with exponential backoff (1s → 30s max).
  * Sends a heartbeat (server.ping) every 20s.
  *
- * Usage:  ./phemex-ws-xti-ticker.ts
+ * Usage:  ./phemex-ws-xti-ticker.ts [--symbol <SYMBOL>]
+ *   --symbol <SYMBOL>   Contract symbol to track (default: XTIUSDT)
  */
 
 const WS_URL = "wss://ws.phemex.com";
-const SYMBOL = "XTIUSDT";
+
+/* Parse CLI flags like --symbol XTIUSDT */
+function parseArg(name: string): string | undefined {
+  const idx = process.argv.indexOf(`--${name}`);
+  return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
+}
+
+const SYMBOL = parseArg("symbol") ?? "XTIUSDT";
 
 // Cache the last known ticker values so we can do incremental updates
 let lastPrice = 0;
