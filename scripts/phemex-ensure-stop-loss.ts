@@ -3,11 +3,14 @@
 /**
  * phemex-ensure-stop-loss.ts — Fetch all open USDT-M positions; for every
  * position that has no stop-loss set (no untriggered `Stop` order), place a
- * stop-market order 1 cent below the last trade price stored in last.txt.
+ * stop-market order 1 cent away from the last trade price stored in last.txt:
+ * long → Sell stop 1 cent below, short → Buy stop 1 cent above (a Buy stop
+ * must trigger above the market price, or the API rejects it with
+ * TE_RISING_TRIGGER_DIRECTLY).
  *
  * last.txt is written by phemex-mark-price2.ts at the project root and
  * contains the latest trade price (e.g. "75.52"), so the stop is placed
- * at that price minus 0.01.
+ * at that price minus 0.01 for longs, or plus 0.01 for shorts.
  *
  * Runs forever, checking every 30 seconds, until Ctrl+C.
  *
@@ -24,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
-import { fetchPositions, setStopLoss } from "../src/positions.js";
+import { calcPnlPct, fetchPositions, setStopLoss } from "../src/positions.js";
 import { fetchUntriggeredOrders } from "../src/untriggered-orders.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
@@ -38,8 +41,9 @@ function usage(): never {
 Usage: ./phemex-ensure-stop-loss.ts [options]
 
 Fetch all open USDT-M positions. For each position that has no stop-loss
-(no untriggered Stop order), place a stop-market order ${CENT} below the last
-price stored in last.txt (long → Sell stop, short → Buy stop).
+(no untriggered Stop order), place a stop-market order ${CENT} away from the
+last price stored in last.txt (long → Sell stop ${CENT} below, short → Buy
+stop ${CENT} above).
 Checks every ${POLL_MS / 1000} seconds; runs until Ctrl+C.
 
 Options:
@@ -55,6 +59,10 @@ Examples:
 
 function fmtTime(): string {
   return new Date().toLocaleString();
+}
+
+function fmtNum(n: number, d: number = 2): string {
+  return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -111,18 +119,34 @@ async function main(): Promise<void> {
   while (true) {
     try {
       const lastPrice = readLastPrice();
-      const stopPrice = Math.round((lastPrice - CENT) * 100) / 100;
-      console.log(`[${fmtTime()}]   last price: ${lastPrice.toFixed(2)}   stop at: ${stopPrice.toFixed(2)}`);
+      console.log(`[${fmtTime()}]   last price: ${lastPrice.toFixed(2)}`);
 
       const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
       if (positions.length === 0) {
         console.log(`[${fmtTime()}]   –  No open positions`);
+      } else {
+        // List every open position with entry price, size, and PnL.
+        for (const pos of positions) {
+          const size = parseFloat(pos.size || "0");
+          const entry = parseFloat(pos.avgEntryPriceRp || "0");
+          const mark = parseFloat(pos.markPriceRp || "0");
+          const margin = parseFloat(pos.posCostRv || "0");
+          const pnlPct = calcPnlPct(pos);
+          const posSide = pos.side === "Buy" ? "Long" : "Short";
+          console.log(
+            `[${fmtTime()}]   ${pos.symbol}  ${posSide}  ` +
+            `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
+            `PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  margin: $${fmtNum(margin, 4)}`,
+          );
+        }
       }
 
       for (const pos of positions) {
         const qty = parseFloat(pos.size || "0");
         const posSide = pos.side === "Buy" ? "Long" : "Short";
         const side = pos.side === "Buy" ? "Sell" : "Buy";
+        // Buy stops must trigger above the market; Sell stops below.
+        const stopPrice = Math.round((lastPrice + (side === "Buy" ? CENT : -CENT)) * 100) / 100;
 
         if (await hasStopLoss(pos.symbol, creds.PHEMEX_API_KEY, secretRaw)) {
           console.log(`[${fmtTime()}]   –  ${pos.symbol} ${posSide} — stop-loss already set, skipping`);
