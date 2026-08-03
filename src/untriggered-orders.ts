@@ -41,8 +41,30 @@ export interface UntriggeredOrder {
   stopPx: string;
   /** Limit price (priceRp for USDT-M, price for Coin-M) */
   price: string;
+  /** Order type name ("Stop", "Limit", …); normalized from the API's numeric
+   *  ordType code (USDT-M) or string (Coin-M) */
+  ordType: string;
   /** The raw API row, in case callers need additional fields */
   raw: Record<string, unknown>;
+}
+
+/** Map USDT-M numeric ordType codes to the string names (same codes as
+ *  /exchange/order/v2/orderList). String values pass through unchanged. */
+const ORD_TYPE_NAMES: Record<number, string> = {
+  1: "Market",
+  2: "Limit",
+  3: "Stop",
+  4: "StopLimit",
+  5: "MarketIfTouched",
+  6: "LimitIfTouched",
+};
+
+/** Normalize an ordType value (numeric code or string) to its name. */
+export function normalizeOrdType(value: unknown): string {
+  if (typeof value === "number") return ORD_TYPE_NAMES[value] ?? String(value);
+  if (typeof value === "string" && value !== "" && !/^\d+$/.test(value)) return value;
+  const n = typeof value === "string" ? Number(value) : NaN;
+  return Number.isInteger(n) && n in ORD_TYPE_NAMES ? ORD_TYPE_NAMES[n] : String(value ?? "");
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +124,9 @@ export async function fetchUntriggeredOrders(
     qty: String(o.orderQtyRq ?? o.orderQty ?? ""),
     stopPx: String(o.stopPxRp ?? o.stopPx ?? ""),
     price: String(o.priceRp ?? o.price ?? ""),
+    // USDT-M activeList rows carry the type as the string `orderType`
+    // (e.g. "Stop"); Coin-M carries the numeric code `ordType`.
+    ordType: normalizeOrdType(o.ordType ?? o.orderType),
     raw: o,
   }));
 }
