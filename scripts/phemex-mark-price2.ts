@@ -63,7 +63,7 @@ Examples:
 }
 
 /** Fixed width for a quoted price value, so the decimal points line up across rows. */
-const PRICE_WIDTH = 10;
+const PRICE_WIDTH = 6;
 
 /** Format a price right-aligned to a fixed width: "    $83.80", " $60000.00". */
 function fmtPrice(value: number): string {
