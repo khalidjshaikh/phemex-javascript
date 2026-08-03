@@ -62,6 +62,12 @@ Examples:
   process.exit(0);
 }
 
+/** Format a signed price diff with the sign before the unit: "+$0.02", "-$0.02", "$0.00". */
+function fmtSigned(value: number): string {
+  if (Math.abs(value) < 0.005) return "$0.00";
+  return `${value < 0 ? "-" : "+"}$${Math.abs(value).toFixed(2)}`;
+}
+
 /** Format a ticker result row and print to stdout as one horizontal line. */
 async function printTicker(symbol: string, ticker: Record<string, unknown>): Promise<void> {
   const mark    = parseFloat(String(ticker.markPriceRp ?? 0));
@@ -70,9 +76,7 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
 
   const now = new Date().toLocaleString();
   const markLast = mark - last;
-  const mlSign = markLast >= 0 ? "+" : "";
   const indexLast = index - last;
-  const ilSign = indexLast >= 0 ? "+" : "";
 
   writeFileSync("markLast.txt", `${markLast.toFixed(2)}\n`);
   writeFileSync("indexLast.txt", `${indexLast.toFixed(2)}\n`);
@@ -82,8 +86,8 @@ async function printTicker(symbol: string, ticker: Record<string, unknown>): Pro
     `Index: $${index.toFixed(2)}  ` +
     `Mark: $${mark.toFixed(2)}  ` +
     `Last: $${last.toFixed(2)}  ` +
-    `Index−Last: ${ilSign}$${indexLast.toFixed(2)}  ` +
-    `Mark−Last: ${mlSign}$${markLast.toFixed(2)}`,
+    `Index−Last: ${fmtSigned(indexLast)}  ` +
+    `Mark−Last: ${fmtSigned(markLast)}`,
   );
 
   // SMS alert disabled: was firing when mark/index deviate from last by more
