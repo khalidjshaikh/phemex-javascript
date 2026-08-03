@@ -8,6 +8,10 @@
  * (a Buy stop must trigger above the market price, or the API rejects it
  * with TE_RISING_TRIGGER_DIRECTLY).
  *
+ * The last trade price from last.txt (written by phemex-mark-price2.ts) is
+ * shown in the log for reference only; the stop is anchored to the entry
+ * price, so a missing/stale last.txt never affects stop placement.
+ *
  * Runs forever, checking every 30 seconds, until Ctrl+C.
  *
  * Usage:
@@ -19,12 +23,15 @@
  *   --help, -h          Show this help message
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
 import { calcPnlPct, fetchPositions, setStopLoss } from "../src/positions.js";
 import { fetchUntriggeredOrders } from "../src/untriggered-orders.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
+const LAST_FILE = resolve(import.meta.dirname, "..", "last.txt");
 
 const CENT = 0.01;
 const POLL_MS = 30_000;   // check every 30 seconds
@@ -60,6 +67,16 @@ function fmtNum(n: number, d: number = 2): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Read the last trade price from last.txt (project root); null if unavailable. */
+function readLastPrice(): number | null {
+  try {
+    const last = parseFloat(readFileSync(LAST_FILE, "utf8").trim());
+    return Number.isFinite(last) && last > 0 ? last : null;
+  } catch {
+    return null;
+  }
 }
 
 /** True if the symbol already has an untriggered Stop (stop-loss) order. */
@@ -98,10 +115,13 @@ async function main(): Promise<void> {
   while (true) {
     try {
       const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+      const last = readLastPrice();
+      const lastTxt = last === null ? "n/a" : last.toFixed(2);
       if (positions.length === 0) {
-        console.log(`[${fmtTime()}]   –  No open positions`);
+        console.log(`[${fmtTime()}]   last price: ${lastTxt}  –  No open positions`);
       } else {
         // List every open position with entry price, size, and PnL.
+        console.log(`[${fmtTime()}]   last price: ${lastTxt}  –  ${positions.length} open position${positions.length === 1 ? "" : "s"}`);
         for (const pos of positions) {
           const size = parseFloat(pos.size || "0");
           const entry = parseFloat(pos.avgEntryPriceRp || "0");
