@@ -4,17 +4,18 @@
  * limit-launcher.ts — Runs two orders per side based on the sign of markLast.txt:
  *
  *   markLast > 0:
- *     1) long-limit.ts  (mark-based)           → spawned, NOT awaited
+ *     1) long-limit.ts  (mark-based)           → spawned and AWAITED (waits for exit)
  *     2) long-limit.ts  (last-based, one-shot) → spawned and AWAITED (waits for exit)
  *   markLast < 0:
- *     1) short-limit.ts (mark-based)           → spawned, NOT awaited
+ *     1) short-limit.ts (mark-based)           → spawned and AWAITED (waits for exit)
  *     2) short-limit.ts (last-based, one-shot) → spawned and AWAITED (waits for exit)
  *
  * The launcher loops forever; each cycle it re-reads markLast.txt/indexLast.txt,
- * keeps exactly one mark-based child per side alive (respawns if it exits), and
- * awaits the one-shot last-based placement. On a sign flip the old child is
- * SIGINTed (it finishes its current cycle) before the new side starts.
- * The awaited one-shot has a watchdog: if it does not exit within CMD2_TIMEOUT_MS
+ * spawns the mark-based child and AWAITS its exit (it runs its own
+ * place → sleep → cancel cycle and exits), then awaits the one-shot last-based
+ * placement. On a sign flip the launcher simply switches sides — the awaited
+ * mark-based child has already exited by the time the flip is detected.
+ * The awaited one-shot has a watchdog: if it does not exit within SPREAD_LAST_TIMEOUT_MS
  * it is SIGINTed and the cycle moves on (guards against the child blocking
  * forever in its markLast gate or on a stalled price fetch).
  * indexLast.txt is read alongside markLast.txt and logged for context.
@@ -40,8 +41,8 @@ const SHORT_SCRIPT = resolve(__dirname, "short-limit.ts");
 
 type Side = "long" | "short";
 
-/** Per-side commands: cmd1 is spawned without awaiting, cmd2 is awaited. */
-const LONG_CMD1 = [
+/** Per-side commands: priceMark is spawned and awaited, spreadLast is awaited. */
+const LONG_PRICE_MARK = [
   "--symbol", "XBRUSDT",
   "--spread", "-0",
   "--gap", "-0.01",
@@ -53,7 +54,7 @@ const LONG_CMD1 = [
   "--price", "mark",
 ];
 
-const LONG_CMD2 = [
+const LONG_SPREAD_LAST = [
   "--symbol", "XBRUSDT",
   "--spread", "-16",
   "--dispersion", "1",
@@ -63,7 +64,7 @@ const LONG_CMD2 = [
   "--price", "last",
 ];
 
-const SHORT_CMD1 = [
+const SHORT_PRICE_MARK = [
   "--symbol", "XBRUSDT",
   "--spread", "+0",
   "--gap", "+0.01",
@@ -75,7 +76,7 @@ const SHORT_CMD1 = [
   "--price", "mark",
 ];
 
-const SHORT_CMD2 = [
+const SHORT_SPREAD_LAST = [
   "--symbol", "XBRUSDT",
   "--spread", "+16",
   "--dispersion", "1",
@@ -85,9 +86,9 @@ const SHORT_CMD2 = [
   "--price", "last",
 ];
 
-const SIDES: Record<Side, { script: string; cmd1: string[]; cmd2: string[] }> = {
-  long: { script: LONG_SCRIPT, cmd1: LONG_CMD1, cmd2: LONG_CMD2 },
-  short: { script: SHORT_SCRIPT, cmd1: SHORT_CMD1, cmd2: SHORT_CMD2 },
+const SIDES: Record<Side, { script: string; priceMark: string[]; spreadLast: string[] }> = {
+  long: { script: LONG_SCRIPT, priceMark: LONG_PRICE_MARK, spreadLast: LONG_SPREAD_LAST },
+  short: { script: SHORT_SCRIPT, priceMark: SHORT_PRICE_MARK, spreadLast: SHORT_SPREAD_LAST },
 };
 
 /** Pause between cycles (also the retry interval when no action applies). */
@@ -106,10 +107,10 @@ const DISABLED_POLL_MS = 7_000;
  * the child blocking forever in its markLast gate or on a stalled fetch.
  * A normal cycle (fetch + place + 5s sleep + cancel) finishes well under this.
  */
-const CMD2_TIMEOUT_MS = 20_000;
+const SPREAD_LAST_TIMEOUT_MS = 20_000;
 
-/** Kill-switches per side: when true, neither the mark-based spawn (cmd1)
- *  nor the last-based one-shot (cmd2) is run for that side. */
+/** Kill-switches per side: when true, neither the mark-based spawn (priceMark)
+ *  nor the last-based one-shot (spreadLast) is run for that side. */
 const DISABLE_LONG = false;
 const DISABLE_SHORT = false;
 
@@ -117,9 +118,9 @@ function isSideDisabled(side: Side): boolean {
   return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
 }
 
-let child1: ChildProcess | null = null; // mark-based child (not awaited)
+let child1: ChildProcess | null = null; // mark-based child (awaited)
 let currentSide: Side | null = null;
-let awaitingCmd2: { proc: ChildProcess } | null = null;
+let awaitingSpreadLastCmd: { proc: ChildProcess } | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -152,49 +153,45 @@ function cycleTag(cycle: number): string {
   return `[${cycle} ${stamp}]`;
 }
 
-/** Spawn the mark-based child; do NOT await it. Respawns once it exits. */
-function spawnCmd1(script: string, args: string[]): void {
-  console.log(`   ▶  starting ${basename(script)} ${args.join(" ")}  (not awaited)`);
-  const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
-  proc.on("error", (err) => {
-    console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
-    if (child1 === proc) child1 = null;
+/** Spawn the mark-based child and wait for it to exit (resolves on exit/error). */
+function runPriceMarkCommand(script: string, args: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    console.log(`   ▶  starting ${basename(script)} ${args.join(" ")}  (awaited)`);
+    const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
+    proc.on("error", (err) => {
+      console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
+      if (child1 === proc) child1 = null;
+      resolve();
+    });
+    proc.on("exit", (code, signal) => {
+      console.log(`   ⏹  ${basename(script)} exited (code=${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
+      if (child1 === proc) child1 = null;
+      resolve();
+    });
+    child1 = proc;
   });
-  proc.on("exit", (code, signal) => {
-    console.log(`   ⏹  ${basename(script)} exited (code=${code ?? "?"}${signal ? `, signal ${signal}` : ""})`);
-    if (child1 === proc) child1 = null;
-  });
-  child1 = proc;
-}
-
-/** SIGINT the mark-based child (it finishes its current cycle) and forget it. */
-function stopCmd1(): void {
-  if (!child1) return;
-  console.log("   ⏹  stopping mark-based child (SIGINT — finishes current cycle) …");
-  child1.kill("SIGINT");
-  child1 = null;
 }
 
 /** Spawn the one-shot last-based child and wait for it to finish. */
-function runCmd2(script: string, args: string[]): Promise<number> {
+function runSpreadLastCommand(script: string, args: string[]): Promise<number> {
   return new Promise((resolve) => {
     const proc = spawn(script, args, { cwd: ROOT, stdio: "inherit" });
-    awaitingCmd2 = { proc };
+    awaitingSpreadLastCmd = { proc };
     const watchdog = setTimeout(() => {
-      console.error(`   ⏱  ${basename(script)} did not exit within ${CMD2_TIMEOUT_MS / 1000}s — SIGINTing it and moving on`);
-      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      console.error(`   ⏱  ${basename(script)} did not exit within ${SPREAD_LAST_TIMEOUT_MS / 1000}s — SIGINTing it and moving on`);
+      if (awaitingSpreadLastCmd?.proc === proc) awaitingSpreadLastCmd = null;
       proc.kill("SIGINT");
       resolve(124);
-    }, CMD2_TIMEOUT_MS);
+    }, SPREAD_LAST_TIMEOUT_MS);
     proc.on("error", (err) => {
       clearTimeout(watchdog);
       console.error(`   ✗  failed to launch ${basename(script)}:`, err instanceof Error ? err.message : err);
-      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      if (awaitingSpreadLastCmd?.proc === proc) awaitingSpreadLastCmd = null;
       resolve(1);
     });
     proc.on("exit", (code, signal) => {
       clearTimeout(watchdog);
-      if (awaitingCmd2?.proc === proc) awaitingCmd2 = null;
+      if (awaitingSpreadLastCmd?.proc === proc) awaitingSpreadLastCmd = null;
       resolve(code ?? (signal ? 1 : 0));
     });
   });
@@ -205,16 +202,17 @@ function usage(): never {
 Usage: ./limit-launcher.ts
 
 Runs two order scripts per side, chosen by the sign of markLast.txt:
-  markLast > 0  → long-limit.ts   ${LONG_CMD1.join(" ")}   (spawned, not awaited)
-                 long-limit.ts   ${LONG_CMD2.join(" ")} --gap -<gap> --qty <qty>   (awaited — waits for exit)
-  markLast < 0  → short-limit.ts  ${SHORT_CMD1.join(" ")}   (spawned, not awaited)
-                 short-limit.ts  ${SHORT_CMD2.join(" ")} --gap +<gap> --qty <qty>   (awaited — waits for exit)
-The mark-based child is spawned without waiting; the last-based one-shot is
+  markLast > 0  → long-limit.ts   ${LONG_PRICE_MARK.join(" ")}   (awaited — waits for exit)
+                 long-limit.ts   ${LONG_SPREAD_LAST.join(" ")} --gap -<gap> --qty <qty>   (awaited — waits for exit)
+  markLast < 0  → short-limit.ts  ${SHORT_PRICE_MARK.join(" ")}   (awaited — waits for exit)
+                 short-limit.ts  ${SHORT_SPREAD_LAST.join(" ")} --gap +<gap> --qty <qty>   (awaited — waits for exit)
+Both children are awaited: the mark-based child runs its place → sleep → cancel
+cycle and exits on its own; the last-based one-shot is
 awaited to completion each cycle. The --gap of the last-based one-shot is
 computed each cycle as min(max(|indexLast|, |markLast|), 10) / 100 with the
 sign shown (- for long, + for short); its --qty is 0.1 when
-max(|indexLast|, |markLast|) > 10, else 0.01. On a sign flip the old child is
-stopped with SIGINT (it finishes its current cycle) and the new side starts.
+max(|indexLast|, |markLast|) > 10, else 0.01. On a sign flip the launcher
+simply switches sides for the next cycle (the awaited child has already exited).
 markLast.txt and indexLast.txt are read from the project root.
 Ctrl+C stops the children and exits.
 `);
@@ -228,10 +226,9 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => {
     stopRequested = true;
     console.log("   ⏹  Stop requested — stopping children …");
-    stopCmd1();
-    if (awaitingCmd2) {
-      awaitingCmd2.proc.kill("SIGINT");
-      awaitingCmd2 = null;
+    if (awaitingSpreadLastCmd) {
+      awaitingSpreadLastCmd.proc.kill("SIGINT");
+      awaitingSpreadLastCmd = null;
     }
   });
 
@@ -244,7 +241,6 @@ async function main(): Promise<void> {
     const desired: Side | null = markLast > 0 ? "long" : markLast < 0 ? "short" : null;
 
     if (desired !== currentSide) {
-      stopCmd1();
       currentSide = desired;
     }
 
@@ -254,43 +250,35 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const { script, cmd1, cmd2 } = SIDES[desired];
-    // console.log(desired)
-    // console.log(SIDES[desired])
-    // console.log(isSideDisabled(desired))
+    const { script, priceMark, spreadLast } = SIDES[desired];
     if (isSideDisabled(desired)) {
       console.log(`${cycleTag(cycle)} ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
       await sleep(DISABLED_POLL_MS);
       continue;
     }
 
-    // console.log(child1)
-    if (!child1) {
-      // console.log("spawn")
-      spawnCmd1(script, cmd1);
-    } else {
-      console.log(`${cycleTag(cycle)} mark-based ${desired} child already running, keeping it`);
-    }
+    // Start the mark-based child; it exits after its own cycle.
+    const priceMarkPromise = runPriceMarkCommand(script, priceMark);
 
     if (Number.isNaN(indexLast)) {
       console.log(`${cycleTag(cycle)} indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
+      await priceMarkPromise;
+      if (stopRequested) break;
       await sleep(POLL_MS);
       continue;
     }
     const maxAbs = Math.abs(markLast); //maxAbsLastValue(markLast, indexLast);
     const gapMag = 0.05 - (Math.min(maxAbs, 0.4)) /2; //* 0.05 / 0.10;
-    // const gapMag = 0.05 - maxAbs/2; //* 0.05 / 0.10;
     const qty = maxAbs > 0.1 ? "0.1" : "0.01";
-    const cmd2Args = [...cmd2, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
+    const cmdSpreadLastArgs = [...spreadLast, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
 
-    // console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${cmd2Args.join(" ")}  (awaiting) …`);
-    // const code = await runCmd2(script, cmd2Args);
-    // console.log(`${cycleTag(cycle)} ${basename(script)} (last-based) finished with exit code ${code}`);
+    console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${priceMark.join(" ")} and ${basename(script)} ${cmdSpreadLastArgs.join(" ")} in parallel (awaiting) …`);
+    const [, code] = await Promise.all([priceMarkPromise, runSpreadLastCommand(script, cmdSpreadLastArgs)]);
+    console.log(`${cycleTag(cycle)} ${basename(script)} (last-based) finished with exit code ${code}`);
     if (stopRequested) break;
     await sleep(POLL_MS);
   }
 
-  stopCmd1();
   console.log("Launcher stopped.");
 }
 
