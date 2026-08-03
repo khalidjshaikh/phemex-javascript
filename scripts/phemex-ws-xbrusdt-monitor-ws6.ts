@@ -88,6 +88,14 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+/** Format a millisecond duration as `0s`, `1s`, `1m 47s`, … */
+function fmtElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
+}
+
 //homelastTickerPrice ??= 0
 //lastTradePrice ??= 0
 // streak ??= 0
@@ -114,6 +122,13 @@ apiKey = creds.PHEMEX_API_KEY;
 secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
 function updateDirection(last: number, prev: number): void {
+  // First tick after startup — seed the streak baseline from the first real
+  // price instead of measuring the delta from the 0 sentinel (lastTickerPrice).
+  if (!prev) {
+    streakStartPrice = last;
+    streak = 1;
+    return;
+  }
   if (last > prev) {
     if (direction === "↑") streak++;
     else { direction = "↑"; streak = 1; streakStartPrice = prev; }
@@ -268,6 +283,8 @@ class TradeBatchProcessor {
   static streakStartPrice: number | null = null;
   static lastLongPrice: number | null = null;
   static lastShortPrice: number | null = null;
+  /** ms timestamp of the last processed trade — used to print elapsed time since the previous line */
+  static lastLogTimeMs: number | null = null;
 
   /** Set to true when the direction just changed on the most recent process_trade call. */
   static directionChanged: boolean = false;
@@ -294,7 +311,8 @@ class TradeBatchProcessor {
   static process_trade(trade: unknown[]): void {
     const [timestamp, side, price, quantity] = trade;
     const p = Number(price);
-    const date = new Date(Number(timestamp / 1e6));
+    const tsMs = Number(timestamp / 1e6);
+    const date = new Date(tsMs);
     let arrow = '';
     let delta = 0;
     let sign = '';
@@ -329,6 +347,13 @@ class TradeBatchProcessor {
     const streakDeltaMinShort = delta <= -ENTRY_DELTA_MIN_SHORT ? `≤-${ENTRY_DELTA_MIN_SHORT.toFixed(2)}` : "";
         
     arrow = arrow ? `${arrow.padEnd(3)}` : '';
+
+    // Elapsed time since the previous line, from the trades' own timestamps
+    let elapsedStr = "";
+    if (this.lastLogTimeMs !== null) {
+      elapsedStr = `${fmtElapsed(Math.max(0, tsMs - this.lastLogTimeMs))}`.padEnd(6);
+    }
+    this.lastLogTimeMs = tsMs;
     // console.log(
     //   `[${date.toLocaleString().padEnd(22)}] #325 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${(Math.abs(delta) >= ENTRY_DELTA_MIN ? "≥" + ENTRY_DELTA_MIN : "").padEnd(5)} ${bigMove.padEnd(3)}`
     // );
@@ -341,10 +366,12 @@ class TradeBatchProcessor {
           `Δ${deltaStr.padEnd(5)} ` +
           `${lastDeltaStr.padStart(5)} ` +
           `${arrow} ` +
+          `${elapsedStr} ` +
           `${streakDeltaMinShort.padEnd(6)} ` +
           `${lastDeltaMinShort.padEnd(6)} ` +
           `${streakDeltaMinLong.padEnd(6)} ` +
-          `${lastDeltaMinLong.padEnd(6)}`
+          `${lastDeltaMinLong.padEnd(6)} ` +
+          ``
       ).trimEnd()
     );
     this.prevPrice = p;
