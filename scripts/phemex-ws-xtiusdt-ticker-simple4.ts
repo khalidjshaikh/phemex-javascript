@@ -48,23 +48,25 @@ let direction: '↑' | '↓' = '↑';
 let streak = 0;
 let streakStartPrice = 0;
 let streakStartTime = Date.now();
+let prevTime: number = 0;
 
 
-function updateDirection(last: number, prev: number): void {
+function updateDirection(last: number, prev: number, ts: Date | number = Date.now()): void {
+  const tsMs = ts instanceof Date ? ts.getTime() : ts;
   // First tick after startup — seed the streak baseline from the first real
   // price instead of measuring the delta from the 0 sentinel.
   if (prev === 0) {
     streakStartPrice = last;
-    streakStartTime = Date.now();
+    streakStartTime = tsMs;
     streak = 1;
     return;
   }
   if (last > prev) {
     if (direction === '↑') streak++;
-    else { direction = '↑'; streak = 1; streakStartPrice = prev; streakStartTime = Date.now(); }
+    else { direction = '↑'; streak = 1; streakStartPrice = prev; streakStartTime = tsMs; }
   } else if (last < prev) {
     if (direction === '↓') streak++;
-    else { direction = '↓'; streak = 1; streakStartPrice = prev; streakStartTime = Date.now(); }
+    else { direction = '↓'; streak = 1; streakStartPrice = prev; streakStartTime = tsMs; }
   }
 }
 
@@ -128,6 +130,7 @@ const ws = new ReconnectingWs(WS_URL, {
     if (m.method === "perp_market24h_pack_p.update" && Array.isArray(m.fields) && Array.isArray(m.data)) {
       const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
       if (ticker) {
+        console.log("printTicker")
         printTicker(SYMBOL, ticker);
       }
       return;
@@ -137,25 +140,43 @@ const ws = new ReconnectingWs(WS_URL, {
     // USDT-M trade channel — real-time trade price
     // ---------------------------------------------------------------
     if (m.trades_p && m.symbol === SYMBOL) {
+      // console.log(m)
       const trades = m.trades_p as unknown[][];
-      if (trades.length > 0 && trades[0].length >= 3) {
-        const last = Number(trades[0][2]);
-        const now = new Date().toLocaleString();
-        const arrow = direction === '↑' ? '↑' : '↓';
-        if (last !== lastPrice) {
-          updateDirection(last, lastPrice);
-          const elapsed = Math.floor((Date.now() - streakStartTime) / 1000);
-          const durationStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
-          const delta = last - streakStartPrice;
-          const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
-          const streakStr = ` (${direction}×${streak}, ${deltaStr}, ${durationStr})`;
-          const tradeLine = `${now}  ${SYMBOL}  ${arrow}$${last.toFixed(2)}${streakStr}`;
-          process.stdout.write(tradeLine);
-          console.log();
-          lastPrice = last;
-          fs.writeFileSync(PRICE_FILE, String(last), "utf8");
-          fs.appendFileSync(TICK_LOG, tradeLine + "\n", "utf8");
-          notifyLimitScripts();
+      const sortedTrades = trades.slice().sort((a, b) => Number(a[0]) - Number(b[0]));
+      let streakStartTime: number = sortedTrades.length > 0 ? Number(sortedTrades[0][0]) / 1e6 : 0; // first trade timestamp in ms
+      if (sortedTrades.length > 0) {
+        for (const trade of sortedTrades) {
+          // console.log(trade)
+          if (trade.length >= 3) {
+            const last: number = Number(trade[2]); 
+            const side: string = String(trade[1]); // 'Buy' or 'Sell'
+            const size: number = Number(trade[3]); // trade size
+            const tradeTs: number = Number(trade[0]); // trade timestamp in ms
+            const now: Date = new Date(tradeTs/1e6);
+            const arrow: String = direction === '↑' ? '↑' : '↓';
+            // if (last !== lastPrice) {
+              updateDirection(last, lastPrice, tradeTs);
+              // const elapsed = tradeTs/1e6 - prevTime/1e6;
+              // let durationStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+              // console.log([now.getTime(), now, now.toLocaleString()])
+              // console.log([tradeTs/1e6, new Date(tradeTs/1e6), (new Date(tradeTs/1e6)).toLocaleString()])
+              // console.log([prevTime/1e6, new Date(prevTime/1e6), (new Date(prevTime/1e6)).toLocaleString()])
+              // console.log(elapsed)
+              const elapsed: float = (new Date(tradeTs/1e6) - new Date(prevTime/1e6))/1e3
+              let durationStr : String = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${(elapsed % 60).toFixed(0)}s` : `${elapsed.toFixed(0)}s`;
+              const delta = last - streakStartPrice;
+              const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
+              const streakStr = ` (${direction}×${streak}, ${deltaStr}, ${durationStr})`;
+              const tradeLine = `[${now.toLocaleString()}] ${SYMBOL} ${side.padStart(4)} ${size} ${arrow}$${last.toFixed(2)}${streakStr}`;
+              process.stdout.write(tradeLine);
+              console.log();
+              lastPrice = last;
+              fs.writeFileSync(PRICE_FILE, String(last), "utf8");
+              fs.appendFileSync(TICK_LOG, tradeLine + "\n", "utf8");
+              notifyLimitScripts();
+            // }
+            prevTime = tradeTs;
+          }
         }
       }
     }

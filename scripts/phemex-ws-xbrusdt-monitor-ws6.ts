@@ -81,7 +81,7 @@ const PRICE_FILE = `${(parseArg("symbol") ?? "xbrusdt").toLowerCase()}-last-pric
 /* ------------------------------------------------------------------ */
 
 function fmtTime(): string {
-  return new Date().toLocaleString().padEnd(22);
+  return new Date().toLocaleString();
 }
 
 function fmtNum(n: number, d: number = 2): string {
@@ -116,6 +116,7 @@ let prevDirection: "↑" | "↓" = "↑";
 /** API credentials, set once in main() */
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
+let symbol: string;
 
 const creds = loadCredentials();
 apiKey = creds.PHEMEX_API_KEY;
@@ -316,8 +317,9 @@ class TradeBatchProcessor {
     let arrow = '';
     let delta = 0;
     let sign = '';
+    let dir: any;
     if (this.prevPrice !== null) {
-      let dir: any = p > this.prevPrice ? '↑' : p < this.prevPrice ? '↓' : this.prevDirection;
+      dir = p > this.prevPrice ? '↑' : p < this.prevPrice ? '↓' : this.prevDirection;
       // Save pre-update direction for auto_trade flip detection
       this.prevPrevDirection = this.prevDirection;
       this.directionChanged = (dir !== this.prevDirection);
@@ -329,7 +331,8 @@ class TradeBatchProcessor {
       }
       delta = this.streakStartPrice !== null ? p - this.streakStartPrice : 0;
       sign = delta >= 0 ? '+' : '';
-      arrow = this.streak > 1 ? `${dir}${this.streak}` : dir;
+      // arrow = this.streak > 1 ? `${dir}${this.streak}` : dir;
+      arrow = `${dir}x${this.streak}`;
       this.prevDirection = dir;
     } else {
       this.streak = 1;
@@ -346,12 +349,12 @@ class TradeBatchProcessor {
     const lastDeltaMinShort = lastDelta <= -ENTRY_DELTA_MIN_SHORT ? `≤-${ENTRY_DELTA_MIN_SHORT.toFixed(2)}` : "";
     const streakDeltaMinShort = delta <= -ENTRY_DELTA_MIN_SHORT ? `≤-${ENTRY_DELTA_MIN_SHORT.toFixed(2)}` : "";
         
-    arrow = arrow ? `${arrow.padEnd(3)}` : '';
+    arrow = arrow ? `${arrow.padStart(2)}` : '';
 
     // Elapsed time since the previous line, from the trades' own timestamps
     let elapsedStr = "";
     if (this.lastLogTimeMs !== null) {
-      elapsedStr = `${fmtElapsed(Math.max(0, tsMs - this.lastLogTimeMs))}`.padEnd(6);
+      elapsedStr = `${fmtElapsed(Math.max(0, tsMs - this.lastLogTimeMs))}`;
     }
     this.lastLogTimeMs = tsMs;
     // console.log(
@@ -359,19 +362,24 @@ class TradeBatchProcessor {
     // );
     console.log(
       (
-        `[${date.toLocaleString().padEnd(22)}] #334 ` +
-          `${side.padEnd(4)} ` +
+        (
+          `[${date.toLocaleString()}]`.padEnd(24) +
+          `${symbol} ` +
+          `${side.padStart(4)} ` +
           `${Number(quantity).toFixed(2).padStart(5)} ` +
-          `${('$' + Number(price).toFixed(2)).padStart(6)} ` +
-          `Δ${deltaStr.padEnd(5)} ` +
-          `${lastDeltaStr.padStart(5)} ` +
-          `${arrow} ` +
-          `${elapsedStr} ` +
-          `${streakDeltaMinShort.padEnd(6)} ` +
-          `${lastDeltaMinShort.padEnd(6)} ` +
-          `${streakDeltaMinLong.padEnd(6)} ` +
-          `${lastDeltaMinLong.padEnd(6)} ` +
-          ``
+          `${(dir + '$' + Number(price).toFixed(2)).padStart(6)} ` +
+          `(` + 
+          `${arrow}, `+
+          `Δ${deltaStr.padEnd(5)}, ` +
+          `${lastDeltaStr.padStart(5)}, ` +
+          `${elapsedStr}` +
+          `)`
+        ).padEnd(80) + 
+        ` ${streakDeltaMinShort.padEnd(6)} ` +
+        `${lastDeltaMinShort.padEnd(6)} ` +
+        `${streakDeltaMinLong.padEnd(6)} ` +
+        `${lastDeltaMinLong.padEnd(6)} ` +
+        ``
       ).trimEnd()
     );
     this.prevPrice = p;
@@ -491,10 +499,10 @@ class TradeBatchProcessor {
 
 async function main(): Promise<void> {
 
-  console.log(`[${fmtTime()}] #460 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
-  console.log(`[${fmtTime()}] #461   Symbol:       ${SYMBOL}`);
-  console.log(`[${fmtTime()}] #462   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
-  console.log(`[${fmtTime()}] #463 ═════════════════════════════════════════════════════════════`);
+  console.log(`[${fmtTime()}] #502 ═ XBRUSDT WS Monitor (read-only) ═══════════════════════════`);
+  console.log(`[${fmtTime()}] #503   Symbol:       ${SYMBOL}`);
+  console.log(`[${fmtTime()}] #504   Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
+  console.log(`[${fmtTime()}] #505 ═════════════════════════════════════════════════════════════`);
 
   // ---------------------------------------------------------------
   // WebSocket — ticker + trade feed
@@ -507,6 +515,8 @@ async function main(): Promise<void> {
     onMessage: async (msg) => {
       try {
         const m = msg as Record<string, unknown>;
+        symbol = m.symbol as string;
+        // console.log(m)
         if(msg.trades_p && msg.trades_p.length == 1000){
           TradeBatchProcessor.reset();
           for (const trade of msg.trades_p.reverse()) {
@@ -595,8 +605,7 @@ async function main(): Promise<void> {
         console.log(
           `[${fmtTime()}] #554 ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
           `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-          `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 8)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  ` +
-          `margin: $${fmtNum(margin, 8)}`
+          `PnL: ${pnl >= 0 ? "+" : "-"}$${fmtNum(Math.abs(pnl), 8)} (${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 8)}%)  `
         );
 
         // Adopt a position this process didn't open (previous run / another
