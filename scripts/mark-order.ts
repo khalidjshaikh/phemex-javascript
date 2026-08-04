@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 
 import { watchMarkPrice } from "../src/mark-price.js";

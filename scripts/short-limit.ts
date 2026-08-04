@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * short-limit.ts  —  Place a Short (Sell) limit order on XTIUSDT at the

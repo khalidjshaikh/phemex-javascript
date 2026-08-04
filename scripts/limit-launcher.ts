@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * limit-launcher.ts — Runs two orders per side based on the sign of markLast.txt:

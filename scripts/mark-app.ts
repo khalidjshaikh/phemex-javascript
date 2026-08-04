@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * mark-app.ts — prints the live Phemex mark & last price for a perpetual symbol.

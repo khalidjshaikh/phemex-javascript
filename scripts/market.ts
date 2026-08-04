@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * market.ts  —  Place a Long or Short market order with leverage on Phemex.

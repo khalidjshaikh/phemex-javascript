@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * phemex-add-conditional-orders.ts  —  Create stop-loss and/or take-profit

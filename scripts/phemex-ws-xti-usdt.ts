@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 
 /**
  * Phemex WebSocket XTIUSDT Price — subscribes to the XTIUSDT 24h ticker and

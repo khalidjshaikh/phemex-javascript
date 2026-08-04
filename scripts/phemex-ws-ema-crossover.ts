@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 
 /**
  * phemex-ws-ema-crossover.ts  —  EMA20/EMA50 crossover trading bot with
