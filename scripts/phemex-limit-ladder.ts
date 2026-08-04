@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * phemex-limit-ladder.ts — Place a ladder of resting limit orders on XBRUSDT

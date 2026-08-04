@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * monitor-tsla.ts — Monitor TSLAUSDT price, notify via email when it
  * crosses the 300 USDT threshold.

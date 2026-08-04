@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * phemex-cancel-complex-orders.ts  —  Cancel ALL complex orders (including

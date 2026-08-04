@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * short.ts  —  Place a Short (Sell) market order on XTIUSDT with stop-loss.

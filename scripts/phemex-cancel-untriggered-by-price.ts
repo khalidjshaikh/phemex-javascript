@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * phemex-cancel-untriggered-by-price.ts  —  Cancel untriggered orders
