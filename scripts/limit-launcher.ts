@@ -56,7 +56,7 @@ const LONG_PRICE_MARK = [
 
 const LONG_SPREAD_LAST = [
   "--symbol", "XBRUSDT",
-  "--spread", "-28",
+  "--spread", "-16",
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
