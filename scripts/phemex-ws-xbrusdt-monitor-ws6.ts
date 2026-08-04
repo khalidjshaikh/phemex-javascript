@@ -12,11 +12,11 @@
  *
  * Usage:  ./phemex-ws-xbrusdt-monitor-ws.ts
  */
-import { add as gpuAdd } from '../src/gpu.js';
-  (async () => console.log(`[${fmtTime()}] #16 ${await gpuAdd(2, 3)}`))();
+//import { add as gpuAdd } from '../src/gpu.js';
+//  (async () => console.log(`[${fmtTime()}] #16 ${await gpuAdd(2, 3)}`))();
 
-import { add as npuAdd } from '../src/npu.js';
-  (async () => console.log(`[${fmtTime()}] #19 ${await npuAdd(2, 3)}`))();
+//import { add as npuAdd } from '../src/npu.js';
+//  (async () => console.log(`[${fmtTime()}] #19 ${await npuAdd(2, 3)}`))();
 
 
 // async function main(): Promise<void> {
