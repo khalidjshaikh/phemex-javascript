@@ -12,7 +12,7 @@
  *   --symbol <symbol>    Contract symbol (default: XTIUSDT)
  *   --price <mark|last>  Price source: mark price or last traded price (default: mark)
  *   --qty <quantity>  Contract quantity (default: 0.01)
- *   --spread <value>  Spread count: +N one-sided above, -N one-sided below, N symmetric
+ *   --spread <value>  Spread: integer rung count, or decimal price distance (e.g. -0.16)
  *   --dispersion <value>  Tick spacing multiplier (default: 1.0)
  *   --gap <number>    Add this value to the entry price before applying spread and dispersion
  *   --takeProfit <price|last|mark|last±offset|mark±offset>  Take-profit trigger price: a literal price, 'last'/'mark' for the current last/mark price, or 'last+0.10' / 'mark+0.10' for that price plus an offset
@@ -41,7 +41,7 @@ Options:
   --symbol <symbol>    Contract symbol (default: ${SYMBOL})
   --price <mark|last>  Price source: mark price or last traded price (default: mark)
   --qty <quantity>      Contract quantity (default: 0.01)
-  --spread <value>      Spread count: +N one-sided above, -N one-sided below, N symmetric
+  --spread <value>      Spread: integer rung count, or decimal price distance (e.g. -0.16)
   --dispersion <value>  Tick spacing multiplier (default: 1.0)
   --gap <number>        Add this value to the entry price before applying spread and dispersion
   --takeProfit <price|last|mark|last±offset|mark±offset>  Take-profit trigger price: a literal price, 'last'/'mark' for the current last/mark price, or 'last+0.10' / 'mark+0.10' for that price plus an offset

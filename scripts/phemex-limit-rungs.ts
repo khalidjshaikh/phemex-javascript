@@ -24,6 +24,8 @@
  *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --dry-run
  *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-short
  *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-long
+ *   ./phemex-limit-rungs.ts --from 50 --to 80 --cancel          # cancel active orders with price in [50, 80]
+ *   ./phemex-limit-rungs.ts --from 50 --to 80 --cancel --dry-run
  *
  * Options:
  *   --symbol <symbol>   Contract symbol (default: XBRUSDT)
@@ -35,6 +37,7 @@
  *   --side <long|short> Order side (default: long; not allowed in close mode)
  *   --close-short       Reduce-only Buy ladder that closes an open short
  *   --close-long        Reduce-only Sell ladder that closes an open long
+ *   --cancel            Cancel all active orders with price within [--from, --to]
  *   --dry-run           Print the ladder without placing any orders
  *   --help, -h          Show this help message
  */
@@ -159,6 +162,157 @@ async function placeLinearReduceOnly(
   return data;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Cancel mode — cancel active orders with price in [from, to]        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fetch all active orders for a symbol (ordStatus=New plus ordStatus=Untriggered,
+ * merged and deduplicated by orderID). Returns raw API rows.
+ */
+async function fetchActiveOrders(
+  symbol: string,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<Record<string, unknown>[]> {
+  const isUsdtM = symbol.toUpperCase().endsWith("USDT");
+  const endpoint = isUsdtM ? "/g-orders/activeList" : "/orders/activeList";
+  const merged = new Map<string, Record<string, unknown>>();
+
+  for (const ordStatus of ["New", "Untriggered"]) {
+    const resp = (await request(
+      "GET",
+      endpoint,
+      `ordStatus=${ordStatus}&symbol=${symbol}`,
+      apiKey,
+      secretRaw,
+      "",
+    )) as Record<string, unknown>;
+
+    // code 10002 / "OM_ORDER_NOT_FOUND" means no orders — not an error
+    if (resp.code !== 0 && resp.code !== 10002) {
+      console.error(`  ✗  API error fetching ${ordStatus} orders: ${String(resp.msg ?? resp.code)}`);
+      continue;
+    }
+    const data = resp.data as Record<string, unknown> | undefined;
+    const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
+    for (const row of rows) {
+      const oid = String(row.orderID ?? "");
+      if (oid) merged.set(oid, row);
+    }
+  }
+  return [...merged.values()];
+}
+
+/**
+ * True when the order row is reduce-only (execInst=ReduceOnly, or reduceOnly=true).
+ * Reduce-only orders are stored as conditional orders and need untriggered=true
+ * on the cancel request.
+ */
+function isReduceOnlyRow(o: Record<string, unknown>): boolean {
+  return /reduceonly/i.test(String(o.execInst ?? "")) || o.reduceOnly === true;
+}
+
+/**
+ * Position side for a cancel request. Reduce-only Buy orders close a short
+ * (posSide Short); reduce-only Sell orders close a long (posSide Long).
+ * Plain orders: Buy → Long, Sell → Short.
+ */
+function posSideFor(o: Record<string, unknown>): string {
+  const side = String(o.side ?? "Buy").toLowerCase();
+  if (isReduceOnlyRow(o)) return side === "buy" ? "Short" : "Long";
+  return side === "buy" ? "Long" : "Short";
+}
+
+/**
+ * Cancel one order by ID. DELETE /g-orders (USDT-M) or /orders (Coin-M).
+ * Success is reported in the response body's data[0].bizError (top-level
+ * `code` is 0 even when the order was not found), so check both.
+ */
+async function cancelOrderRow(
+  symbol: string,
+  orderId: string,
+  row: Record<string, unknown>,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<{ ok: boolean; detail: string }> {
+  const qp = new URLSearchParams({ orderID: orderId, symbol });
+  qp.set("posSide", posSideFor(row));
+  if (isReduceOnlyRow(row)) qp.set("untriggered", "true");
+
+  const endpoint = symbol.toUpperCase().endsWith("USDT") ? "/g-orders" : "/orders";
+  const resp = (await request("DELETE", endpoint, qp.toString(), apiKey, secretRaw, "")) as Record<string, unknown>;
+  const data = resp.data as { bizError?: number }[] | undefined;
+  const bizError = data?.[0]?.bizError;
+  const ok = resp.code === 0 && (bizError === undefined || bizError === 0);
+  return ok ? { ok: true, detail: "" } : { ok: false, detail: String(resp.msg ?? `bizError ${bizError}`) };
+}
+
+/** Cancel every active order whose limit price falls within [from, to] (inclusive). */
+async function runCancelMode(
+  symbol: string,
+  from: number,
+  to: number,
+  dryRun: boolean,
+): Promise<void> {
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+
+  const creds = loadCredentialsPath(CREDS_FILE);
+  const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+
+  console.log(`[${fmtTime()}] ⟐  Fetching active ${symbol} orders …`);
+  const rows = await fetchActiveOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
+
+  const targets = rows
+    .filter((o) => {
+      const price = parseFloat(String(o.priceRp ?? o.price ?? ""));
+      return !Number.isNaN(price) && price >= lo && price <= hi;
+    })
+    .sort((a, b) => parseFloat(String(b.priceRp ?? b.price)) - parseFloat(String(a.priceRp ?? a.price)));
+
+  console.log(`[${fmtTime()}]   Found ${targets.length} active order(s) with price in [$${lo}, $${hi}].`);
+  if (targets.length === 0) return;
+
+  if (dryRun) {
+    console.log(`[${fmtTime()}]   DRY RUN — would cancel:\n`);
+    for (const o of targets) {
+      console.log(
+        `  ·  ${String(o.orderID ?? "?").padEnd(36)}  ${String(o.side ?? "?").padEnd(4)} qty ` +
+        `${String(o.orderQtyRq ?? o.orderQty ?? "?").padStart(6)} limit @ ${String(o.priceRp ?? o.price ?? "?").padStart(8)}` +
+        `  (posSide ${posSideFor(o)})`,
+      );
+    }
+    console.log(`\n[${fmtTime()}]   DRY RUN — nothing cancelled.`);
+    return;
+  }
+
+  let ok = 0;
+  let fail = 0;
+  for (const o of targets) {
+    const orderId = String(o.orderID ?? "");
+    const side = String(o.side ?? "Buy");
+    const price = String(o.priceRp ?? o.price ?? "?");
+    process.stdout.write(`[${fmtTime()}]   ${orderId}  ${side} @ ${price}  …  `);
+    try {
+      const result = await cancelOrderRow(symbol, orderId, o, creds.PHEMEX_API_KEY, secretRaw);
+      if (result.ok) {
+        console.log("✓");
+        ok++;
+      } else {
+        console.log(`✗  ${result.detail}`);
+        fail++;
+      }
+    } catch (err: unknown) {
+      console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      fail++;
+    }
+    await new Promise((r) => setTimeout(r, ORDER_DELAY_MS));
+  }
+  console.log(`[${fmtTime()}] ✔  Done — ${ok} cancelled, ${fail} failed.`);
+  if (fail > 0) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
   // No options at all → show usage instead of silently placing the default
@@ -178,6 +332,13 @@ async function main(): Promise<void> {
   const symbol = getArgValue("--symbol") ?? SYMBOL;
   const from = numArg("--from", FROM);
   const to = numArg("--to", TO);
+
+  // Cancel mode: ignore step/qty/leverage/side and cancel orders by price range
+  if (process.argv.includes("--cancel")) {
+    await runCancelMode(symbol, from, to, dryRun);
+    return;
+  }
+
   const step = numArg("--step", STEP);
   const qty = numArg("--qty", QTY);
   const leverage = numArg("--leverage", LEVERAGE);

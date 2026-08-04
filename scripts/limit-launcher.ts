@@ -112,7 +112,7 @@ const SPREAD_LAST_TIMEOUT_MS = 20_000;
 /** Kill-switches per side: when true, neither the mark-based spawn (priceMark)
  *  nor the last-based one-shot (spreadLast) is run for that side. */
 const DISABLE_LONG = false;
-const DISABLE_SHORT = false;
+const DISABLE_SHORT = true;
 
 function isSideDisabled(side: Side): boolean {
   return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
@@ -250,7 +250,11 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const { script, priceMark, spreadLast } = SIDES[desired];
+    console.dir(SIDES)
+    console.log(desired)
+    // const { script, priceMark, spreadLast } = SIDES[desired];
+    const { script, priceMark, spreadLast } = SIDES["long"];
+  
     if (isSideDisabled(desired)) {
       console.log(`${cycleTag(cycle)} ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
       await sleep(DISABLED_POLL_MS);

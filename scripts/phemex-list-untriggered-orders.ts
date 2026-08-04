@@ -15,6 +15,7 @@
  * Usage:
  *   npx tsx phemex-list-untriggered-orders.ts --symbol BTCUSD
  *   npx tsx phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
+ *   npx tsx phemex-list-untriggered-orders.ts --symbol XBRUSDT,XTIUSDT
  */
 
 import { base64UrlDecode } from "../src/http-client.js";
@@ -34,18 +35,19 @@ import {
 
 function usage(): never {
   console.log(`
-Usage: ./phemex-list-untriggered-orders.ts --symbol <symbol> [--dry-run]
+Usage: ./phemex-list-untriggered-orders.ts --symbol <symbol[,symbol...]> [--dry-run]
 
-List untriggered trigger orders for a symbol via GET /orders/activeList.
+List untriggered trigger orders for one or more symbols via GET /orders/activeList.
 
 Options:
-  --symbol <symbol>   Trading pair (e.g. BTCUSD, ETHUSD, BTCUSDT)
+  --symbol <symbols>  Trading pair(s), comma-separated (e.g. BTCUSD, ETHUSD, XBRUSDT,XTIUSDT)
   --dry-run           Show what would be sent without executing
   --help, -h          Show this help message
 
 Examples:
   ./phemex-list-untriggered-orders.ts --symbol BTCUSD
   ./phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
+  ./phemex-list-untriggered-orders.ts --symbol XBRUSDT,XTIUSDT
 `);
   process.exit(0);
 }
@@ -68,18 +70,23 @@ function classifyOrder(side: string, reduceOnly: boolean): string {
 async function main(): Promise<void> {
   if (hasFlag("--help") || hasFlag("-h")) usage();
 
-  const symbol = getArg("--symbol");
-  if (!symbol) usage();
+  const symbolArg = getArg("--symbol");
+  if (!symbolArg) usage();
+
+  // Support a comma-separated list of symbols (e.g. --symbol XBRUSDT,XTIUSDT)
+  const symbols = symbolArg
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (symbols.length === 0) usage();
 
   const dryRun = hasFlag("--dry-run");
 
-  // Both USDT-M and Coin-M use "Untriggered" as the ordStatus string value
-  const isUsdtM = symbol.toUpperCase().endsWith("USDT");
-  const query = untriggeredQuery(symbol);
-
   if (dryRun) {
     console.log(`\n  DRY RUN — Would send:\n`);
-    console.log(`  GET ${untriggeredEndpoint(symbol)}?${query}`);
+    for (const symbol of symbols) {
+      console.log(`  GET ${untriggeredEndpoint(symbol)}?${untriggeredQuery(symbol)}`);
+    }
     console.log();
     process.exit(0);
   }
@@ -87,31 +94,47 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`⟐  Fetching untriggered orders for ${symbol} (${isUsdtM ? "USDT-M" : "Coin-M"}) …`);
+  // Collect rows across all symbols, tagging each with its source symbol.
+  const collected: { symbol: string; order: UntriggeredOrder }[] = [];
+  for (const symbol of symbols) {
+    // Both USDT-M and Coin-M use "Untriggered" as the ordStatus string value
+    const isUsdtM = symbol.toUpperCase().endsWith("USDT");
+    console.log(`⟐  Fetching untriggered orders for ${symbol} (${isUsdtM ? "USDT-M" : "Coin-M"}) …`);
 
-  let rows;
-  try {
-    rows = await fetchUntriggeredOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
-  } catch (err: unknown) {
-    // code 10002 / "OM_ORDER_NOT_FOUND" is handled inside the library as an empty result
-    if (err instanceof ApiError) {
-      console.error(`  ✗  API error: ${err.message}`);
-    } else {
-      console.error(`  ✗  Request failed: ${err instanceof Error ? err.message : String(err)}`);
+    let rows;
+    try {
+      rows = await fetchUntriggeredOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
+    } catch (err: unknown) {
+      // code 10002 / "OM_ORDER_NOT_FOUND" is handled inside the library as an empty result
+      if (err instanceof ApiError) {
+        console.error(`  ✗  API error for ${symbol}: ${err.message}`);
+      } else {
+        console.error(`  ✗  Request failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      continue;
     }
-    process.exit(1);
+
+    for (const order of rows) collected.push({ symbol, order });
   }
 
-  if (rows.length === 0) {
+  if (collected.length === 0) {
     console.log("  ℹ  No untriggered orders found.");
     return;
   }
 
-  console.log(`  ✓  Found ${rows.length} untriggered order(s) for ${symbol} (classified by reduce-only flag):\n`);
-  for (const o of rows) {
+  // Sort by symbol, then by price (descending) so the highest rung prints first
+  collected.sort(
+    (a, b) =>
+      a.symbol.localeCompare(b.symbol) || parseFloat(b.order.price) - parseFloat(a.order.price),
+  );
+
+  const symbolWidth = Math.max(...collected.map((c) => c.symbol.length), 6);
+
+  console.log(`  ✓  Found ${collected.length} untriggered order(s) (classified by reduce-only flag):\n`);
+  for (const { symbol, order: o } of collected) {
     const action = classifyOrder(o.side, isReduceOnly(o));
     console.log(
-      `${(o.orderID || "?").padEnd(36)}  ${(o.side || "?").padEnd(4)} qty ` +
+      `${symbol.padEnd(symbolWidth)}  ${(o.orderID || "?").padEnd(36)}  ${(o.side || "?").padEnd(4)} qty ` +
       `${(o.qty || "?").padStart(6)} limit @ ${(o.price || "?").padStart(5)}  →  ${action}`,
     );
   }

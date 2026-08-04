@@ -52,7 +52,7 @@ Config keys (JSON object):
   side             Buy | Sell
   posSide          Long | Short
   qty              Contract quantity
-  spread           +N one-sided above, -N one-sided below, N symmetric
+  spread           Integer rung count, or decimal price distance (e.g. -0.16)
   dispersion       Tick spacing multiplier (default: 1.0)
   gap              Added to the entry price before spread (default: 0)
   takeProfit       Optional take-profit trigger price

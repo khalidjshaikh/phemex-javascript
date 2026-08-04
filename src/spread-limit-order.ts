@@ -33,7 +33,7 @@ export interface SpreadLimitOrderConfig {
   posSide: "Long" | "Short";
   /** Contract quantity */
   qty: number;
-  /** Raw spread value: "+N" one-sided above, "-N" one-sided below, "N" symmetric */
+  /** Raw spread value: integer rung count or decimal price distance */
   spread: string;
   /** Tick spacing multiplier (default: 1.0) */
   dispersion?: number;
@@ -151,10 +151,11 @@ export function resolveCredentials(): { apiKey: string; secretRaw: Buffer } {
 /**
  * Parse a raw spread value.
  * Returns the numeric value and whether the sign was explicit
- * ("+5"/"-3" are one-sided, "5" is symmetric).
+ * ("+5"/"-3" are one-sided, "5" is symmetric). Integers are rung counts;
+ * decimals are absolute price distances converted to rung counts later.
  */
 export function parseSpread(raw: string): { value: number; explicitSign: boolean } {
-  if (!/^[+-]?\d+$/.test(raw)) {
+  if (!/^[+-]?(?:\d+|\d*\.\d+)$/.test(raw)) {
     throw new Error(`Invalid --spread value: ${raw}`);
   }
   return {
@@ -163,12 +164,30 @@ export function parseSpread(raw: string): { value: number; explicitSign: boolean
   };
 }
 
+function spreadStepCount(spread: number, dispersion: number): number {
+  if (Number.isInteger(spread)) return Math.abs(spread);
+
+  const tick = 0.01 * dispersion;
+  const rawSteps = Math.abs(spread) / tick;
+  const roundedSteps = Math.round(rawSteps);
+
+  if (roundedSteps < 1 || Math.abs(rawSteps - roundedSteps) > 1e-9) {
+    throw new Error(
+      `Decimal --spread value ${spread} must align with tick size ${tick.toFixed(8).replace(/0+$/, "").replace(/\.$/, "")}`,
+    );
+  }
+
+  return roundedSteps;
+}
+
 /**
  * Build the ladder of order prices around a reference price.
  *
- * One-sided: +N = N ticks above ref (inclusive), -N = N ticks below ref (inclusive)
- * Symmetric: N = N ticks below AND N ticks above ref
+ * One-sided integer: +N = N ticks above ref (inclusive), -N = N ticks below ref (inclusive)
+ * Symmetric integer: N = N ticks below AND N ticks above ref
  *   e.g. 2 → [ref-0.02, ref-0.01, ref, ref+0.01, ref+0.02] (5 orders)
+ * Decimal spreads are price distances: -0.16 at dispersion 1 means 16 one-cent
+ * rungs below ref, while -0.16 at dispersion 2 means 8 two-cent rungs below.
  */
 export function buildSpreadPrices(
   referencePrice: number,
@@ -178,15 +197,16 @@ export function buildSpreadPrices(
 ): number[] {
   if (spread === 0) return [referencePrice];
   const tick = 0.01 * dispersion;
+  const steps = spreadStepCount(spread, dispersion);
 
   if (explicitSign) {
     const orders = [referencePrice];
     if (spread > 0) {
-      for (let i = 1; i <= spread; i++) {
+      for (let i = 1; i <= steps; i++) {
         orders.push(+(referencePrice + i * tick).toFixed(2));
       }
     } else {
-      for (let i = 1; i <= Math.abs(spread); i++) {
+      for (let i = 1; i <= steps; i++) {
         orders.unshift(+(referencePrice - i * tick).toFixed(2));
       }
     }
@@ -194,7 +214,6 @@ export function buildSpreadPrices(
   }
 
   const orders: number[] = [];
-  const steps = Math.abs(spread);
   for (let i = steps; i >= 1; i--) {
     orders.push(+(referencePrice - i * tick).toFixed(2));
   }
