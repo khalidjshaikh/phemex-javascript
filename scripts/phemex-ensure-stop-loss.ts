@@ -3,14 +3,14 @@
 /**
  * phemex-ensure-stop-loss.ts — Fetch all open USDT-M positions; for every
  * position that has no stop-loss set (no untriggered `Stop` order), place a
- * stop-market order 1 cent away from the position's entry price:
- * long → Sell stop 1 cent below entry, short → Buy stop 1 cent above entry
- * (a Buy stop must trigger above the market price, or the API rejects it
- * with TE_RISING_TRIGGER_DIRECTLY).
+ * stop-market order at least 1 cent past the safe side of entry/current price:
+ * long → Sell stop below entry/current price, short → Buy stop above
+ * entry/current price. Phemex rejects already-crossed triggers with errors
+ * like TE_FALLING_TRIGGER_DIRECTLY or TE_RISING_TRIGGER_DIRECTLY.
  *
  * The last trade price from last.txt (written by phemex-mark-price2.ts) is
- * shown in the log for reference only; the stop is anchored to the entry
- * price, so a missing/stale last.txt never affects stop placement.
+ * shown in the log for reference only. Placement fetches a fresh live last
+ * price for the symbol before calculating the trigger.
  *
  * Runs forever, checking every --poll seconds (default 30), until Ctrl+C.
  *
@@ -30,6 +30,7 @@ import { resolve } from "node:path";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
+import { fetchTickerPrices } from "../src/mark-price.js";
 import { calcPnlPct, fetchPositions, setStopLoss } from "../src/positions.js";
 import { fetchUntriggeredOrders } from "../src/untriggered-orders.js";
 
@@ -44,9 +45,9 @@ function usage(): never {
 Usage: ./phemex-ensure-stop-loss.ts [options]
 
 Fetch all open USDT-M positions. For each position that has no stop-loss
-(no untriggered Stop order), place a stop-market order ${CENT} away from the
-position's entry price (long → Sell stop ${CENT} below entry, short → Buy
-stop ${CENT} above entry).
+(no untriggered Stop order), place a stop-market order at least ${CENT} past
+the safe side of entry/current price (long → Sell stop below entry/current
+price, short → Buy stop above entry/current price).
 Checks every --poll seconds (default ${DEFAULT_POLL_MS / 1000}); runs until Ctrl+C.
 
 Options:
@@ -67,6 +68,14 @@ function fmtTime(): string {
 
 function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function floorCents(n: number): number {
+  return Math.floor((n + Number.EPSILON) * 100) / 100;
+}
+
+function ceilCents(n: number): number {
+  return Math.ceil((n - Number.EPSILON) * 100) / 100;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -100,6 +109,18 @@ async function hasStopLoss(
   }
 }
 
+async function stopReferencePrices(symbol: string): Promise<{ last: number | null }> {
+  try {
+    const { lastPrice } = await fetchTickerPrices(symbol);
+    return { last: lastPrice };
+  } catch (err: unknown) {
+    console.error(
+      `[${fmtTime()}]   ⚠  Could not fetch live last price for ${symbol}; skipping stop placement: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { last: null };
+  }
+}
+
 async function main(): Promise<void> {
   if (hasFlag("--help") || hasFlag("-h")) usage();
   const dryRun = hasFlag("--dry-run");
@@ -130,6 +151,9 @@ async function main(): Promise<void> {
   while (true) {
     try {
       const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+      // console.dir(positions, { depth: null, colors: true });
+      // console.log(positions)
+      // console.dir(positions)
       const last = readLastPrice();
       const lastTxt = last === null ? "n/a" : last.toFixed(2);
       if (positions.length === 0) {
@@ -141,13 +165,15 @@ async function main(): Promise<void> {
           const size = parseFloat(pos.size || "0");
           const entry = parseFloat(pos.avgEntryPriceRp || "0");
           const mark = parseFloat(pos.markPriceRp || "0");
+          const liq = parseFloat(pos.liqPriceRp || "0");
           const margin = parseFloat(pos.posCostRv || "0");
           const pnlPct = calcPnlPct(pos);
           const posSide = pos.side === "Buy" ? "Long" : "Short";
+          const liqTxt = liq > 0 ? `liq: $${fmtNum(liq)}  ` : "";
           console.log(
             `[${fmtTime()}]   ${pos.symbol}  ${posSide}  ` +
             `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-            `PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  margin: $${fmtNum(margin, 4)}`,
+            `${liqTxt}PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  margin: $${fmtNum(margin, 4)}`,
           );
         }
       }
@@ -155,17 +181,32 @@ async function main(): Promise<void> {
       for (const pos of positions) {
         const qty = parseFloat(pos.size || "0");
         const entry = parseFloat(pos.avgEntryPriceRp || "0");
+        const mark = parseFloat(pos.markPriceRp || "0");
         const posSide = pos.side === "Buy" ? "Long" : "Short";
         const side = pos.side === "Buy" ? "Sell" : "Buy";
-        // Buy stops must trigger above the market; Sell stops below.
-        const stopPrice = Math.round((entry + (side === "Buy" ? CENT : -CENT)) * 100) / 100;
 
         if (await hasStopLoss(pos.symbol, creds.PHEMEX_API_KEY, secretRaw)) {
           console.log(`[${fmtTime()}]   –  ${pos.symbol} ${posSide} — stop-loss already set, skipping`);
           continue;
         }
 
-        console.log(`[${fmtTime()}] ⟐  ${pos.symbol} ${posSide} size ${qty} — no stop-loss, placing ${side} stop @ ${stopPrice.toFixed(2)}`);
+        const { last: liveLast } = await stopReferencePrices(pos.symbol);
+        if (liveLast === null || liveLast <= 0) {
+          continue;
+        }
+
+        const refs = [entry];
+        if (mark > 0) refs.push(mark);
+        refs.push(liveLast);
+
+        // ByLastPrice stops are rejected if the trigger is already crossed.
+        // Keep Sell stops below every current reference; Buy stops above them.
+        const stopPrice = side === "Buy"
+          ? ceilCents(Math.max(...refs) + CENT)
+          : floorCents(Math.min(...refs) - CENT);
+        const liveLastTxt = liveLast === null ? "n/a" : liveLast.toFixed(2);
+
+        console.log(`[${fmtTime()}] ⟐  ${pos.symbol} ${posSide} size ${qty} — no stop-loss, placing ${side} stop @ ${stopPrice.toFixed(2)} (entry ${entry.toFixed(2)}, mark ${mark.toFixed(2)}, live last ${liveLastTxt})`);
         if (dryRun) {
           console.log(`[${fmtTime()}]   ·  DRY-RUN: would place stop-market ${side} ${qty} ${pos.symbol} (posSide ${posSide}) at ${stopPrice.toFixed(2)}`);
           continue;
