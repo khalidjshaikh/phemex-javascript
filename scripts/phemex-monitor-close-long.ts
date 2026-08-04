@@ -30,6 +30,7 @@ const SYMBOL = "XBRUSDT";
 const CLOSE_PRICE = 86;
 const DEFAULT_INTERVAL_SEC = 30;
 const LAST_TXT = "last.txt";
+const ANCHOR_QTY = 1; // keep at least 1 XBR at the anchor price
 
 // Track the last-known price so we can detect changes from last.txt
 let _lastPrice: number | undefined;
@@ -390,12 +391,11 @@ async function checkAndPlace(
 
   // 3. Placement — ensure the $86 anchor exists first, then place the
   //    remainder at the last.txt price.
-  const ANCHOR_QTY = 0.01; // one rung stays parked at $86
 
   if (dryRun) {
-    let anchorRung = 0;
-    if (anchorQty <= 0) {
-      anchorRung = Math.min(ANCHOR_QTY, remaining);
+    const anchorShortfall = Math.max(0, ANCHOR_QTY - anchorQty);
+    const anchorRung = Math.min(anchorShortfall, remaining);
+    if (anchorRung > 0) {
       console.log(
         `[${fmtTime()}]  🔷  DRY RUN — would place anchor: reduce-only Sell ${anchorRung} ${SYMBOL} @ $${ANCHOR_PRICE}`,
       );
@@ -409,10 +409,11 @@ async function checkAndPlace(
     return true;
   }
 
-  // Place the anchor rung at $86 if none exists yet
+  // Top up the anchor rung at $86 up to ANCHOR_QTY
+  const anchorShortfall = Math.max(0, ANCHOR_QTY - anchorQty);
   let anchorRung = 0;
-  if (anchorQty <= 0 && remaining > 0) {
-    anchorRung = Math.min(ANCHOR_QTY, remaining);
+  if (anchorShortfall > 0 && remaining > 0) {
+    anchorRung = Math.min(anchorShortfall, remaining);
     try {
       const result = await placeLinearReduceOnly(
         {
