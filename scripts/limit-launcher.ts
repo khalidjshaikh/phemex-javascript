@@ -250,8 +250,8 @@ async function main(): Promise<void> {
       continue;
     }
 
-    console.dir(SIDES)
-    console.log(desired)
+    // console.dir(SIDES)
+    // console.log(desired)
     // const { script, priceMark, spreadLast } = SIDES[desired];
     const { script, priceMark, spreadLast } = SIDES["long"];
   
