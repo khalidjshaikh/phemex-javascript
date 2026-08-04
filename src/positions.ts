@@ -15,6 +15,7 @@ export interface Position {
   avgEntryPrice: string;
   avgEntryPriceRp: string;
   markPriceRp: string;
+  liqPriceRp: string;
   posCostRv: string;
   leverageRr: string;
   unrealisedPnl?: string;

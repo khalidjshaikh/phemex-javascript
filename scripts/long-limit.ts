@@ -85,6 +85,7 @@ async function waitForPositiveMarkLast(shouldStop?: () => boolean): Promise<void
     if (shouldStop?.()) return;
     try {
       stored = parseFloat(readFileSync("markLast.txt", "utf8"));
+      stored = 1
     } catch {
       stored = NaN; // file missing or unreadable — keep polling
     }
@@ -163,7 +164,7 @@ async function main(): Promise<void> {
       dispersion: dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0,
       gap: gapRaw !== undefined ? parseFloat(gapRaw) : 0.0,
       takeProfit,
-      stopLossOffset: 0.01,
+      // stopLossOffset: 0.01,
       leverage: LEVERAGE,
       referencePrice,
       pidFile: PID_FILE,

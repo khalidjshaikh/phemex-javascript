@@ -108,6 +108,7 @@ export async function fetchUntriggeredOrders(
 ): Promise<UntriggeredOrder[]> {
   const _request = httpRequest ?? request;
   const resp = await _request("GET", untriggeredEndpoint(symbol), untriggeredQuery(symbol), apiKey, secretRaw, "");
+  // console.dir(resp, { depth: null, colors: true }); 
 
   // code 10002 / "OM_ORDER_NOT_FOUND" means no orders — not an error
   if (resp.code !== 0 && resp.code !== 10002) {

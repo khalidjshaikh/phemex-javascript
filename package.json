@@ -13,7 +13,7 @@
     "dotenv": "^17.4.2",
     "nodemailer": "^9.0.3",
     "onnx-proto": "^8.0.1",
-    "onnxruntime-node": "^1.27.0",
+    "onnxruntime-node": "^1.21.1",
     "webgpu": "^0.4.0"
   },
   "devDependencies": {
