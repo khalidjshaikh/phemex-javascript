@@ -6,12 +6,12 @@
  *
  * For the default 1.0 XBRUSDT long position this places:
  *
- *   Take-profit (Sell LimitIfTouched): 50 orders, 1 cent apart,
- *     entry + 0.01 … entry + 0.50, 0.01 qty each  →  0.50 total
- *   Stop-loss   (Buy Stop):             50 orders, 1 cent apart,
- *     entry − 0.01 … entry − 0.50, 0.01 qty each  →  0.50 total
+ *   Take-profit (Sell LimitIfTouched): 10 orders, 5 cents apart,
+ *     entry + 0.05 … entry + 0.50, 0.01 qty each  →  0.10 total
+ *   Stop-loss   (Buy Stop):             10 orders, 5 cents apart,
+ *     entry − 0.05 … entry − 0.50, 0.01 qty each  →  0.10 total
  *
- *   = 100 conditional orders covering the full 1.0 position.
+ *   = 20 conditional orders, 0.01 qty each (0.20 total coverage).
  *
  * For a short position the ladders mirror: TP below entry, SL above entry.
  * The live position's entry price and side are read from the API (unless
@@ -32,10 +32,12 @@
  *   --pos-side <Side>    Long or Short (default: live position side)
  *   --tp-cents <n>       TP ladder length in cents above entry (default: 50)
  *   --sl-cents <n>       SL ladder length in cents below entry (default: 50)
- *   --step <cents>       Cent step between ladder rungs (default: 1)
+ *   --step <cents>       Cent step between ladder rungs (default: 5)
  *   --qty <size>         Quantity per conditional order (default: 0.01)
  *   --trigger-type <t>   ByLastPrice (default) or ByMarkPrice
  *   --dry-run            Log every order that would be placed, send nothing
+ *   --fill-missing       Review open conditional orders; re-place only rungs
+ *                        that are no longer open (already triggered)
  *   --help, -h           Show this help message
  */
 
@@ -43,6 +45,7 @@ import { base64UrlDecode, request } from "../src/http-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentials } from "../src/credentials.js";
 import { fetchPositions, type Position } from "../src/positions.js";
+import { fetchUntriggeredOrders, type UntriggeredOrder } from "../src/untriggered-orders.js";
 import { uuid } from "../src/uuid.js";
 
 /* ------------------------------------------------------------------ */
@@ -52,7 +55,7 @@ import { uuid } from "../src/uuid.js";
 const DEFAULT_SYMBOL = "XBRUSDT";
 const DEFAULT_TP_CENTS = 50;
 const DEFAULT_SL_CENTS = 50;
-const DEFAULT_STEP_CENTS = 1;
+const DEFAULT_STEP_CENTS = 5;
 const DEFAULT_QTY = 0.01;
 const DEFAULT_TRIGGER = "ByLastPrice";
 
@@ -62,10 +65,10 @@ Usage: ./phemex-create-tp-sl-ladder.ts [options]
 
 Create a take-profit ladder and a stop-loss ladder of conditional orders
 for one USDT-M position (default: 1.0 XBRUSDT, long). By default this is
-100 reduce-only orders of 0.01 qty each:
+20 reduce-only orders of 0.01 qty each:
 
-  TP: Sell LimitIfTouched from entry+0.01 up to entry+0.50 (50 orders)
-  SL: Buy  Stop         from entry−0.01 down to entry−0.50 (50 orders)
+  TP: Sell LimitIfTouched from entry+0.05 up to entry+0.50 (10 orders)
+  SL: Buy  Stop         from entry−0.05 down to entry−0.50 (10 orders)
 
 The live position's entry price and side come from the API; credentials
 are read from .phemex-credentials.json.
@@ -76,10 +79,12 @@ Options:
   --pos-side <Side>    Long or Short (default: live position side)
   --tp-cents <n>       TP ladder length in cents above entry (default: 50)
   --sl-cents <n>       SL ladder length in cents below entry (default: 50)
-  --step <cents>       Cent step between ladder rungs (default: 1)
+  --step <cents>       Cent step between ladder rungs (default: 5)
   --qty <size>         Quantity per conditional order (default: 0.01)
   --trigger-type <t>   ByLastPrice (default) or ByMarkPrice
   --dry-run            Log every order that would be placed, send nothing
+  --fill-missing       Review open conditional orders and re-place only the
+                       missing rungs (already triggered ones)
   --help, -h           Show this help message
 
 Examples:
@@ -161,6 +166,7 @@ async function main(): Promise<void> {
   const qty = parseFloat(getArg("--qty") ?? "") || DEFAULT_QTY;
   const triggerType = getArg("--trigger-type") ?? DEFAULT_TRIGGER;
   const dryRun = hasFlag("--dry-run");
+  const fillMissing = hasFlag("--fill-missing");
 
   if (posSideArg !== undefined && !["Long", "Short"].includes(posSideArg)) {
     console.error(`✗  --pos-side must be 'Long' or 'Short', got "${posSideArg}"`);
@@ -206,8 +212,11 @@ async function main(): Promise<void> {
 
   const side: "Buy" | "Sell" = posSide === "Long" ? "Sell" : "Buy";
   // Long: TP above entry / SL below. Short: mirrored (TP below / SL above).
-  const tpPrices = ladder(entry, stepCents, tpCents, posSide === "Long" ? 1 : -1);
-  const slPrices = ladder(entry, stepCents, slCents, posSide === "Long" ? -1 : 1);
+  // Rung count = span in cents ÷ step in cents (e.g. 50 ÷ 5 = 10 rungs per side).
+  const tpRungs = Math.floor(tpCents / stepCents);
+  const slRungs = Math.floor(slCents / stepCents);
+  const tpPrices = ladder(entry, stepCents, tpRungs, posSide === "Long" ? 1 : -1);
+  const slPrices = ladder(entry, stepCents, slRungs, posSide === "Long" ? -1 : 1);
 
   const tpTotal = round2(qty * tpPrices.length);
   const slTotal = round2(qty * slPrices.length);
@@ -223,10 +232,35 @@ async function main(): Promise<void> {
     }
   }
 
+  /* -- Review existing conditional orders (--fill-missing) ---------- */
+  const existingKeys = new Set<string>();
+  let kept = 0;
+  if (fillMissing) {
+    let existing: UntriggeredOrder[] = [];
+    try {
+      existing = await fetchUntriggeredOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
+    } catch (err: unknown) {
+      console.error(`[${fmtTime()}]   ✗  Could not list untriggered orders: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    for (const o of existing) {
+      const px = parseFloat(o.stopPx || "0");
+      if (!Number.isFinite(px)) continue;
+      existingKeys.add(`${o.ordType}|${round2(px).toFixed(2)}`);
+    }
+    console.log(`[${fmtTime()}]   ℹ  ${existing.length} conditional order(s) currently open — re-placing only missing rungs`);
+  }
+
   let placed = 0;
   let failed = 0;
 
   async function send(label: string, ordType: "Stop" | "LimitIfTouched", stopPx: number, price: number | null): Promise<void> {
+    const key = `${ordType}|${stopPx.toFixed(2)}`;
+    if (fillMissing && existingKeys.has(key)) {
+      kept++;
+      console.log(`[${fmtTime()}]   ✓  ${label}  ${side} ${qty} @ ${stopPx.toFixed(2)} — already open, keeping`);
+      return;
+    }
     const query = buildOrderQuery({ symbol, side, posSide: posSide!, ordType, stopPx, qty, price, triggerType });
     console.log(`[${fmtTime()}]   ${label}  ${side} ${qty} @ ${stopPx.toFixed(2)}${ordType === "LimitIfTouched" ? ` (limit ${(price ?? 0).toFixed(2)})` : ""}`);
     if (dryRun) {
@@ -251,10 +285,15 @@ async function main(): Promise<void> {
   for (const px of tpPrices) await send("TP", "LimitIfTouched", px, px);
   for (const px of slPrices) await send("SL", "Stop", px, null);
 
+  const totalRungs = tpPrices.length + slPrices.length;
   if (dryRun) {
-    console.log(`[${fmtTime()}]   DRY RUN — ${tpPrices.length + slPrices.length} orders logged, nothing sent.`);
+    const log = fillMissing
+      ? `${kept} already open (kept), ${totalRungs - kept} missing (would re-place)`
+      : `${totalRungs} orders logged`;
+    console.log(`[${fmtTime()}]   DRY RUN — ${log}, nothing sent.`);
   } else {
-    console.log(`[${fmtTime()}]   Done — ${placed} placed, ${failed} failed.`);
+    const log = fillMissing ? `${kept} kept, ${placed} re-placed, ${failed} failed` : `${placed} placed, ${failed} failed`;
+    console.log(`[${fmtTime()}]   Done — ${log}.`);
   }
 }
 
