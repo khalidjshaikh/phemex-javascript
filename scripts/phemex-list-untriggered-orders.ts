@@ -7,6 +7,11 @@
  * The API call lives in src/untriggered-orders.ts
  * (fetchUntriggeredOrders → GET /orders/activeList?ordStatus=Untriggered&symbol=<symbol>).
  *
+ * Each order is classified from its own reduce-only flag (execInst=ReduceOnly
+ * in the raw row): a reduce-only Buy is "close short" and a reduce-only Sell
+ * is "close long"; an order that is not reduce-only opens a position (Buy →
+ * open long, Sell → open short).
+ *
  * Usage:
  *   npx tsx phemex-list-untriggered-orders.ts --symbol BTCUSD
  *   npx tsx phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
@@ -20,6 +25,7 @@ import {
   untriggeredEndpoint,
   untriggeredQuery,
   ApiError,
+  type UntriggeredOrder,
 } from "../src/untriggered-orders.js";
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +48,17 @@ Examples:
   ./phemex-list-untriggered-orders.ts --symbol ETHUSD  --dry-run
 `);
   process.exit(0);
+}
+
+/** True when the order is reduce-only (execInst=ReduceOnly, or reduceOnly=true). */
+function isReduceOnly(o: UntriggeredOrder): boolean {
+  return /reduceonly/i.test(String(o.raw.execInst ?? "")) || o.raw.reduceOnly === true;
+}
+
+/** Classify an order from its side and reduce-only flag. */
+function classifyOrder(side: string, reduceOnly: boolean): string {
+  if (reduceOnly) return side === "Buy" ? "close short" : "close long";
+  return side === "Buy" ? "open long" : "open short";
 }
 
 /* ------------------------------------------------------------------ */
@@ -87,11 +104,16 @@ async function main(): Promise<void> {
 
   if (rows.length === 0) {
     console.log("  ℹ  No untriggered orders found.");
-  } else {
-    console.log(`  ✓  Found ${rows.length} untriggered order(s):\n`);
-    for (const o of rows) {
-      console.log(`${o.orderID || "?"} ${o.side || "?"} qty ${o.qty || "?"} limit @ ${o.price || "?"}`);
-    }
+    return;
+  }
+
+  console.log(`  ✓  Found ${rows.length} untriggered order(s) for ${symbol} (classified by reduce-only flag):\n`);
+  for (const o of rows) {
+    const action = classifyOrder(o.side, isReduceOnly(o));
+    console.log(
+      `${(o.orderID || "?").padEnd(36)}  ${(o.side || "?").padEnd(4)} qty ` +
+      `${(o.qty || "?").padStart(6)} limit @ ${(o.price || "?").padStart(5)}  →  ${action}`,
+    );
   }
 }
 
