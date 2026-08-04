@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * mark-limit.ts — Place paired Long (+gap) and Short (−gap) spread limit

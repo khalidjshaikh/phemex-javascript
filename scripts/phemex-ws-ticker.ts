@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 
 /**
  * Phemex WebSocket Ticker — subscribes to the BTCUSD 24h ticker channel and

@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * phemex-xti-short-monitor.ts — Monitor XTIUSDT short position with trailing stop-loss.

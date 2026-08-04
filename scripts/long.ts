@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
  * long.ts  —  Place a Long (Buy) market order on XTIUSDT with stop-loss.

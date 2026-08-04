@@ -1,25 +1,45 @@
-#!/usr/bin/env npx tsx
-
+#!/usr/bin/env -S npx tsx
+// SPDX-License-Identifier: MIT
 /**
- * Phemex Public Time — fetches the server timestamp.
+ * phemex-public-time.ts  —  Fetches the Phemex server timestamp.
+ *
  * Public endpoint, no credentials needed.
  *
- * Usage:  npx tsx phemex-public-time.ts
+ * Usage:
+ *   npx tsx phemex-public-time.ts
  */
 
 import { publicGet } from "../src/http-client.js";
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface TimeResponse {
+  code: number;
+  msg?: string;
+  data?: {
+    serverTime?: number;
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main                                                               */
+/* ------------------------------------------------------------------ */
+
 async function main(): Promise<void> {
-  const resp = await publicGet("/public/time", null);
+  console.error("⟐  Fetching /public/time …");
+
+  const resp = (await publicGet("/public/time", null)) as unknown as TimeResponse;
 
   if (resp.code !== 0) {
-    console.error("API error:", resp.msg || "unknown error");
+    console.error(`✗  API error: ${resp.msg ?? resp.code}`);
     process.exit(1);
   }
 
-  const serverTime = (resp.data as { serverTime?: number })?.serverTime;
+  const serverTime = resp.data?.serverTime;
   if (serverTime == null) {
-    console.error("Missing serverTime in response");
+    console.error("✗  Missing serverTime in response");
     process.exit(1);
   }
 
