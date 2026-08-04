@@ -34,7 +34,7 @@
  *   --sl-cents <n>       SL ladder length in cents below entry (default: 50)
  *   --step <cents>       Cent step between ladder rungs (default: 1)
  *   --qty <size>         Quantity per conditional order (default: 0.01)
- *   --trigger-type <t>   ByMarkPrice (default) or ByLastPrice
+ *   --trigger-type <t>   ByLastPrice (default) or ByMarkPrice
  *   --dry-run            Log every order that would be placed, send nothing
  *   --help, -h           Show this help message
  */
@@ -54,7 +54,7 @@ const DEFAULT_TP_CENTS = 50;
 const DEFAULT_SL_CENTS = 50;
 const DEFAULT_STEP_CENTS = 1;
 const DEFAULT_QTY = 0.01;
-const DEFAULT_TRIGGER = "ByMarkPrice";
+const DEFAULT_TRIGGER = "ByLastPrice";
 
 function usage(): never {
   console.log(`
@@ -78,7 +78,7 @@ Options:
   --sl-cents <n>       SL ladder length in cents below entry (default: 50)
   --step <cents>       Cent step between ladder rungs (default: 1)
   --qty <size>         Quantity per conditional order (default: 0.01)
-  --trigger-type <t>   ByMarkPrice (default) or ByLastPrice
+  --trigger-type <t>   ByLastPrice (default) or ByMarkPrice
   --dry-run            Log every order that would be placed, send nothing
   --help, -h           Show this help message
 
