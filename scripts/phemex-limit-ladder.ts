@@ -31,7 +31,7 @@ import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
 import { placeLinear, setLeverageUsdtM } from "../src/place-limit-order.js";
 
-const CREDS_FILE = ".phemex-credentials-gmail.json";
+const CREDS_FILE = ".phemex-credentials.json";
 
 // Defaults
 const SYMBOL = "XBRUSDT";
