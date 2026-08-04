@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * monitor-xau.ts — Monitor XAUUSDT price via phemex-cli, notify when it
  * crosses 4000 USDT.
