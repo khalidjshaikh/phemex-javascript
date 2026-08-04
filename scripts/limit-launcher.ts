@@ -111,8 +111,10 @@ const SPREAD_LAST_TIMEOUT_MS = 20_000;
 
 /** Kill-switches per side: when true, neither the mark-based spawn (priceMark)
  *  nor the last-based one-shot (spreadLast) is run for that side. */
-const DISABLE_LONG = false;
-const DISABLE_SHORT = true;
+const DISABLE_LONG: boolean = false;
+const DISABLE_SHORT: boolean = true;
+const ENABLE_MARK_FOLLOWER: boolean = false;
+
 
 function isSideDisabled(side: Side): boolean {
   return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
@@ -262,17 +264,21 @@ async function main(): Promise<void> {
     }
 
     // Start the mark-based child; it exits after its own cycle.
-    const priceMarkPromise = runPriceMarkCommand(script, priceMark);
+    let priceMarkPromise: () => Promise<void> = async () => {};
 
-    if (Number.isNaN(indexLast)) {
-      console.log(`${cycleTag(cycle)} indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
-      await priceMarkPromise;
-      if (stopRequested) break;
-      await sleep(POLL_MS);
-      continue;
+    if(ENABLE_MARK_FOLLOWER) {
+      priceMarkPromise = runPriceMarkCommand(script, priceMark);
+
+      if (Number.isNaN(indexLast)) {
+        console.log(`${cycleTag(cycle)} indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
+        await priceMarkPromise;
+        if (stopRequested) break;
+        await sleep(POLL_MS);
+        continue;
+      }
     }
     const maxAbs = Math.abs(markLast); //maxAbsLastValue(markLast, indexLast);
-    const gapMag = 0.05 - (Math.min(maxAbs, 0.4)) /2; //* 0.05 / 0.10;
+    // const gapMag = 0.05 - (Math.min(maxAbs, 0.4)) /2; //* 0.05 / 0.10;
     // const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const qty: Number = 0.01
     // const cmdSpreadLastArgs = [...spreadLast, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
