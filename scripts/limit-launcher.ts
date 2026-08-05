@@ -46,7 +46,7 @@ const LONG_PRICE_MARK = [
   "--symbol", "XBRUSDT",
   "--spread", "-0",
   "--gap", "-0.01",
-  "--dispersion", "1",
+  "--dispersion", "2",
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
@@ -56,7 +56,7 @@ const LONG_PRICE_MARK = [
 
 const LONG_SPREAD_LAST = [
   "--symbol", "XBRUSDT",
-  "--spread", "-16",
+  "--spread", "-24",
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
@@ -282,7 +282,7 @@ async function main(): Promise<void> {
     // const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const qty: Number = 0.01
     // const cmdSpreadLastArgs = [...spreadLast, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
-    const cmdSpreadLastArgs = [...spreadLast, "--gap", -0.10, "--qty", qty];
+    const cmdSpreadLastArgs = [...spreadLast, "--gap", -0.70, "--qty", qty];
     console.log(markLast)
 
     console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${priceMark.join(" ")} and ${basename(script)} ${cmdSpreadLastArgs.join(" ")} in parallel (awaiting) …`);
