@@ -16,6 +16,7 @@
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --delay 2000
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from last --to mark --step 0.01 --close-long
+ *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from mark+0.20 --to mark-0.20 --step 0.01 --close-long
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --close-long
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --delay 500
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --dry-run
@@ -30,8 +31,10 @@
  *                         leftover from a sweep).
  *   --from <price>        Sweep start price (default: 50)
  *   --to <price>          Sweep end price, inclusive (default: 60)
- *                         Both accept a number, "last" (last.txt), or
- *                         "mark" (mark.txt), resolved at sweep start.
+ *                         Both accept a number, "last" (last.txt), "mark"
+ *                         (mark.txt), or an offset like "mark+0.20" /
+ *                         "mark-0.20" (mark.txt ± cents), resolved at
+ *                         sweep start.
  *   --step <price>        Price step between rungs, as a magnitude (default: 1)
  *                         Direction follows --from → --to (downward allowed)
  *   --qty <quantity>      Quantity per order (default: 1)
@@ -101,7 +104,9 @@ Options:
                         read from last.txt / mark.txt.  Cancel with --cancel.
   --cancel              Manually cancel the tracked resting close order
   --from <price>        Sweep start price (default: ${FROM}); also "last"/"mark"
+                        or offsets "mark+0.20" / "mark-0.20" (± cents)
   --to <price>          Sweep end price, inclusive (default: ${TO}); also "last"/"mark"
+                        or offsets "mark+0.20" / "mark-0.20" (± cents)
   --step <price>        Price step between rungs, as a magnitude (default: ${STEP})
                         Direction follows --from → --to (downward allowed)
   --qty <quantity>      Quantity per order (default: ${QTY})
@@ -119,6 +124,7 @@ Examples:
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --price mark --close-long --qty 0.01 --delay 2000
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --cancel
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from last --to mark --step 0.01 --close-long
+   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from mark+0.20 --to mark-0.20 --step 0.01 --close-long
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --close-long
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --delay 500
@@ -147,13 +153,36 @@ function numArg(name: string, fallback: number): number {
   return v;
 }
 
+/** Offset form: "mark+0.20" / "last-0.05" — price file ± delta (US-ASCII +/-). */
+const PRICE_EXPR = /^(last|mark)([+-])(\d+(?:\.\d+)?)$/;
+
 /**
- * Resolve a price arg that may be "last" (last.txt), "mark" (mark.txt), or
- * a plain number; falls back to `fallback` when the arg is absent.
- * Used for --from / --to sweep endpoints.
+ * Resolve a price arg that may be "last" (last.txt), "mark" (mark.txt),
+ * "last/mark ± delta" (e.g. "mark+0.20"), or a plain number; falls back to
+ * `fallback` when the arg is absent.  Used for --from / --to sweep endpoints.
  */
 function priceArgValue(name: string, raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
+
+  // Offset form: "mark+0.20" / "last-0.05" — price file ± delta
+  const m = PRICE_EXPR.exec(raw);
+  if (m) {
+    let base: number;
+    try {
+      base = readPriceFile(m[1] === "last" ? LAST_FILE : MARK_FILE);
+    } catch (err: unknown) {
+      console.error(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+    const delta = parseFloat(m[3]);
+    const price = m[2] === "+" ? base + delta : base - delta;
+    if (!Number.isFinite(price) || price <= 0) {
+      console.error(`✗  Invalid price for ${name}: "${raw}" → $${price}`);
+      process.exit(1);
+    }
+    return Math.round(price * 10_000) / 10_000;
+  }
+
   if (raw === "last" || raw === "mark") {
     try {
       return readPriceFile(raw === "last" ? LAST_FILE : MARK_FILE);
@@ -162,9 +191,10 @@ function priceArgValue(name: string, raw: string | undefined, fallback: number):
       process.exit(1);
     }
   }
+
   const v = parseFloat(raw);
   if (!Number.isFinite(v)) {
-    console.error(`✗  Invalid value for ${name}: "${raw}" — use a number, "last", or "mark"`);
+    console.error(`✗  Invalid value for ${name}: "${raw}" — use a number, "last", "mark", or "mark±delta"`);
     process.exit(1);
   }
   return v;
