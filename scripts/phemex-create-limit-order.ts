@@ -8,6 +8,15 @@
  *   ./phemex-create-limit-order.ts --account <type> --symbol <pair> --side <Buy|Sell>
  *                                   --price <num> --qty <num> [options]
  *
+ * Ladder mode (--from/--to): place a limit order at --from, wait --delay ms,
+ * cancel it, then re-offer at --from+--step, sweeping up/down to --to
+ * (inclusive).  Each rung is place → wait → cancel; stops early on fill.
+ * With --loop the sweep repeats indefinitely — file-based endpoints
+ * ("last"/"mark") are re-read each pass so the range tracks the market —
+ * until a rung fills or an API error stops it (Ctrl+C to interrupt).
+ * Prices accept a number, "last"/"mark" (last.txt / mark.txt at project
+ * root), or an offset like "last-0.10" / "mark+0.20" (file ± delta).
+ *
  * Examples:
  *   ./phemex-create-limit-order.ts --account spot    --symbol BTCUSDT --side Buy  --price 60000 --qty 0.001
  *   ./phemex-create-limit-order.ts --account usdt-m  --symbol BTCUSDT --side Buy  --price 60000 --qty 0.01
@@ -40,11 +49,17 @@
  *                   GoodTillCancel | PostOnly | ImmediateOrCancel | FillOrKill
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { request, base64UrlDecode } from "../src/http-client.js";
 import { uuid } from "../src/uuid.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
 import { setLeverageCoinM, setLeverageUsdtM } from "../src/place-limit-order.js";
+
+const ROOT = resolve(import.meta.dirname, ".."); // project root
+const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
+const MARK_FILE = resolve(ROOT, "mark.txt");
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -62,6 +77,16 @@ interface CliArgs {
   takeProfit?: number;
   stopLoss?: number;
   jsonOutput: boolean;
+  /** Ladder mode (--from/--to) — sweep a limit order across a price range. */
+  ladder: boolean;
+  from?: number;
+  to?: number;
+  fromSrc?: string;
+  toSrc?: string;
+  step: number;
+  delay: number;
+  /** Infinite loop: repeat the ladder sweep until filled or interrupted. */
+  loop: boolean;
 }
 
 interface ProductInfo {
@@ -76,6 +101,60 @@ interface ProductInfo {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+/** Offset form: "mark+0.20" / "last-0.05" / "mark+.1" — price file ± delta (US-ASCII +/-). */
+const PRICE_EXPR = /^(last|mark)([+-])(\d+(?:\.\d+)?|\.\d+)$/;
+
+/** Read the price stored in last.txt / mark.txt (project root). */
+function readPriceFile(file: string): number {
+  const raw = readFileSync(file, "utf8").trim();
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v) || v <= 0) {
+    throw new Error(`Invalid price in ${file}: "${raw}"`);
+  }
+  return v;
+}
+
+/**
+ * Resolve a price arg that may be "last" (last.txt), "mark" (mark.txt),
+ * "last/mark ± delta" (e.g. "mark+0.20"), or a plain number.  On failure
+ * pushes an error into `errors` and returns undefined.
+ */
+function resolvePriceArg(raw: string, errors: string[], label: string): number | undefined {
+  const m = PRICE_EXPR.exec(raw);
+  if (m) {
+    let base: number;
+    try {
+      base = readPriceFile(m[1] === "last" ? LAST_FILE : MARK_FILE);
+    } catch (err: unknown) {
+      errors.push(`${label}  ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+    const delta = parseFloat(m[3]);
+    const price = m[2] === "+" ? base + delta : base - delta;
+    if (!Number.isFinite(price) || price <= 0) {
+      errors.push(`${label}  invalid price "${raw}" → $${price}`);
+      return undefined;
+    }
+    return Math.round(price * 10_000) / 10_000;
+  }
+
+  if (raw === "last" || raw === "mark") {
+    try {
+      return readPriceFile(raw === "last" ? LAST_FILE : MARK_FILE);
+    } catch (err: unknown) {
+      errors.push(`${label}  ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) {
+    errors.push(`${label}  invalid price "${raw}" — use a number, "last", "mark", or "last±delta" / "mark±delta"`);
+    return undefined;
+  }
+  return v;
+}
+
 function usage(): never {
   const text = `
 Usage:
@@ -87,6 +166,12 @@ Examples:
   usdt-m  Sell  3000 sats 100x S    ./phemex-create-limit-order.ts --account usdt-m    --symbol BTCUSDT --side Sell  --price 63000 --qty 1  --leverage 100 --posSide Short
   coin-m  Long   3000 sats 100x L   ./phemex-create-limit-order.ts --account coin-m    --symbol BTCUSD  --side Long  --price 6e4   --qty 1  --leverage 100
   coin-m  Short  3000 sats 100x S   ./phemex-create-limit-order.ts --account coin-m    --symbol BTCUSD  --side Short --price 6.3e4 --qty 1  --leverage 100
+  usdt-m  Ladder open long 79.49→79.62 (step 0.01, 1s each)
+            ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from 79.49 --to 79.62 --qty 0.01 --posSide Long --leverage 100 --step 0.01 --delay 1000
+  usdt-m  Ladder from last-0.10 → last (file-based endpoints)
+            ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from last-0.10 --to last --qty 0.01 --posSide Long --leverage 100 --delay 1000 --step 0.01
+  usdt-m  Ladder loop — sweep last-0.10 → last-0.01 forever (until filled)
+            ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from last-0.10 --to last-0.01 --qty 0.01 --posSide Long --leverage 100 --delay 1000 --step 0.01 --loop
 
 Required flags:
   --account    Account type
@@ -100,7 +185,8 @@ Required flags:
                Coin-M:  BTCUSD, ETHUSD, ...
 
   --side       Order direction: Buy | Sell
-  --price      Limit price in quote currency (e.g. 60000)
+  --price      Limit price in quote currency (e.g. 60000; also "last"/"mark"
+               or "last±delta" / "mark±delta" — omit with --from/--to ladder)
   --qty        Quantity
                Spot:    base currency amount (e.g. 0.001 BTC)
                USDT-M:  contract quantity (e.g. 0.01)
@@ -128,6 +214,19 @@ Optional flags:
 
   --stopLoss      Stop-loss trigger price (usdt-m only, optional)
                   Example:  --stopLoss 76     set SL at $76.00
+
+  --from <price>  Ladder start price — place a limit order at each rung from
+                  --from to --to (requires --to; --price is not needed).
+                  Prices accept a number, "last"/"mark" (last.txt / mark.txt),
+                  or an offset like "last-0.10" / "mark+0.20" (file ± delta)
+  --to <price>    Ladder end price, inclusive (same syntax as --from)
+  --step <price>  Ladder step between rungs, as a magnitude (default: 0.01);
+                  direction follows --from → --to (downward allowed)
+  --delay <ms>    Ladder: wait between place and cancel (default: 0)
+
+  --loop          Ladder: repeat the sweep indefinitely — re-reads
+                  last.txt / mark.txt each pass so the range tracks the
+                  market.  Stops on fill or API error; Ctrl+C to interrupt.
 
   --json          Print the order result as JSON instead of the human-readable summary
 `.trim();
@@ -160,6 +259,12 @@ function parseArgs(): CliArgs {
   const leverageRaw = m("--leverage");
   const takeProfitRaw = m("--takeProfit");
   const stopLossRaw = m("--stopLoss");
+  const fromRaw = m("--from");
+  const toRaw = m("--to");
+  const stepRaw = m("--step");
+  const delayRaw = m("--delay");
+  const ladder = fromRaw !== undefined || toRaw !== undefined;
+  const loop = argv.includes("--loop");
   const jsonOutput = argv.includes("--json");
 
   // Normalize case for side and posSide
@@ -183,9 +288,14 @@ function parseArgs(): CliArgs {
   if (!sideNorm || !["Buy", "Sell"].includes(sideNorm)) {
     errors.push("--side     must be Buy or Sell (case-insensitive)");
   }
-  if (!price || isNaN(Number(price))) {
-    errors.push("--price    is required (numeric)");
+  if (!ladder && price === undefined) {
+    errors.push("--price    is required (numeric) — or use --from/--to for a ladder");
   }
+  if (ladder && price !== undefined) {
+    errors.push("--price    cannot be combined with --from/--to (ladder mode)");
+  }
+  // "last"/"mark" (last.txt / mark.txt) and "last±delta" / "mark±delta" resolve here
+  const priceValue = !ladder && price !== undefined ? resolvePriceArg(price, errors, "--price") : undefined;
   if (!qty || isNaN(Number(qty))) {
     errors.push("--qty      is required (numeric)");
   }
@@ -218,6 +328,35 @@ function parseArgs(): CliArgs {
     }
   }
 
+  // Validate ladder mode (--from/--to)
+  let step = stepRaw !== undefined ? Number(stepRaw) : 0.01;
+  let delay = delayRaw !== undefined ? Number(delayRaw) : 0;
+  let from: number | undefined;
+  let to: number | undefined;
+  if (ladder) {
+    if (fromRaw === undefined || toRaw === undefined) {
+      errors.push("--from/--to  both required for ladder mode");
+    } else {
+      from = resolvePriceArg(fromRaw, errors, "--from");
+      to = resolvePriceArg(toRaw, errors, "--to");
+    }
+    if (isNaN(step) || step === 0) {
+      errors.push("--step     must be a non-zero number (default: 0.01)");
+    }
+    if (isNaN(delay) || delay < 0) {
+      errors.push("--delay    must be a non-negative number of ms (default: 0)");
+    }
+    if (jsonOutput) {
+      errors.push("--json     cannot be combined with --from/--to (ladder mode)");
+    }
+    if (account === "spot") {
+      errors.push("--from/--to ladder is not supported for spot (no spot cancel path)");
+    }
+  }
+  if (loop && !ladder) {
+    errors.push("--loop     requires --from/--to ladder mode");
+  }
+
   if (errors.length > 0) {
     console.error("✗  Missing or invalid arguments:\n");
     for (const e of errors) console.error(`   ${e}`);
@@ -229,7 +368,7 @@ function parseArgs(): CliArgs {
     account: account as CliArgs["account"],
     symbol: symbol as string,
     side: sideNorm as CliArgs["side"],
-    price: Number(price),
+    price: ladder ? 0 : (priceValue ?? 0),
     qty: Number(qty),
     posSide,
     timeInForce,
@@ -237,6 +376,14 @@ function parseArgs(): CliArgs {
     takeProfit,
     stopLoss,
     jsonOutput,
+    ladder,
+    from,
+    to,
+    fromSrc: fromRaw,
+    toSrc: toRaw,
+    step,
+    delay,
+    loop,
   };
 }
 
@@ -421,6 +568,166 @@ async function placeInverse(args: CliArgs, apiKey: string, secretRaw: Buffer): P
 }
 
 /* ------------------------------------------------------------------ */
+/*  Ladder mode (--from/--to)                                          */
+/* ------------------------------------------------------------------ */
+
+/** Wait for the given number of milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Place a limit order at a specific rung price.  Same dispatch as the
+ * single-order path, with `args.price` overridden per rung.
+ */
+async function placeAt(args: CliArgs, price: number, apiKey: string, secretRaw: Buffer): Promise<PlaceOrderResult> {
+  const rung = { ...args, price };
+  switch (args.account) {
+    case "spot":
+      return placeSpot(rung, apiKey, secretRaw);
+    case "usdt-m":
+      return placeLinear(rung, apiKey, secretRaw);
+    case "coin-m":
+      return placeInverse(rung, apiKey, secretRaw);
+  }
+}
+
+/**
+ * Cancel a rung order by ID.  Returns a status string:
+ *   "cancelled"  — successfully cancelled
+ *   "filled"     — order not found (already filled / does not exist)
+ *   "error: …"   — something went wrong
+ */
+async function cancelRung(
+  symbol: string,
+  orderId: string,
+  posSide: string,
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<string> {
+  const qp = new URLSearchParams({ orderID: orderId, symbol, posSide });
+  const endpoint = symbol.toUpperCase().endsWith("USDT") ? "/g-orders" : "/orders";
+  const resp = (await request("DELETE", endpoint, qp.toString(), apiKey, secretRaw, "")) as Record<string, unknown>;
+
+  // code 0 = success
+  if (resp.code === 0) return "cancelled";
+
+  // Order not found (20001 / 60017 / 10002 / "not found") → already filled
+  const msg = String(resp.msg ?? "");
+  const data = resp.data as { bizError?: number }[] | undefined;
+  const bizError = data?.[0]?.bizError;
+  if (
+    /not.?found/i.test(msg) ||
+    /20001/.test(msg) || /60017/.test(msg) || /10002/.test(msg) ||
+    bizError === 60017 || bizError === 10002
+  ) return "filled";
+
+  const biz = bizError === undefined ? "" : ` bizError=${bizError}`;
+  return `error: code=${String(resp.code ?? "?")} msg="${msg}"${biz}`;
+}
+
+/** Outcome of a single ladder sweep. */
+type LadderOutcome = "filled" | "aborted" | "complete";
+
+/**
+ * Resolve the ladder --from/--to endpoints for one pass.  File-based
+ * endpoints ("last", "mark", "last±delta", …) are re-read so the range
+ * tracks the current price on every pass (used by --loop).
+ */
+function resolveLadderRange(args: CliArgs): { from: number; to: number } {
+  const errors: string[] = [];
+  const from = args.fromSrc !== undefined ? resolvePriceArg(args.fromSrc, errors, "--from") : args.from;
+  const to = args.toSrc !== undefined ? resolvePriceArg(args.toSrc, errors, "--to") : args.to;
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return { from: from as number, to: to as number };
+}
+
+/**
+ * Sweep an opening limit order across from → to: place at each price,
+ * wait --delay ms, cancel, then move to the next rung.  Stops early if an
+ * order gets filled (cancel returns "not found") or an API call errors.
+ * Returns the outcome; `pass` is shown in the header (loop mode).
+ */
+async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from: number, to: number, pass: number): Promise<LadderOutcome> {
+  const dir = to >= from ? 1 : -1;
+  const prices: number[] = [];
+  for (let p = from; dir > 0 ? p <= to + 1e-9 : p >= to - 1e-9; p += dir * Math.abs(args.step)) {
+    prices.push(Math.round(p * 10_000) / 10_000);
+  }
+
+  const passLabel = pass > 1 ? ` (pass ${pass})` : "";
+  console.log(`═ ${args.symbol} Ladder: ${args.side} / ${args.posSide} — opening${passLabel} ══════════════════`);
+  const fromSrc = args.fromSrc !== undefined ? ` (${args.fromSrc})` : "";
+  const toSrc = args.toSrc !== undefined ? ` (${args.toSrc})` : "";
+  console.log(`   Range:     $${from}${fromSrc} → $${to}${toSrc} (inclusive)   step: $${Math.abs(args.step)}   rungs: ${prices.length}`);
+  console.log(`   Qty/order: ${args.qty}   delay: ${args.delay}ms  place → wait → cancel`);
+  console.log(`   Leverage:  ${args.leverage ?? "cross-margin"}${args.takeProfit !== undefined ? `   TP: $${args.takeProfit}` : ""}${args.stopLoss !== undefined ? `   SL: $${args.stopLoss}` : ""}`);
+  console.log(`══════════════════════════════════════════════════════`);
+
+  let filled = false;
+  let aborted: string | null = null;
+  let swept = 0;
+
+  for (const price of prices) {
+    // --- Place ---
+    process.stdout.write(`   ${args.side} ${args.qty} ${args.symbol} @ $${price.toFixed(4)}  →  placing …  `);
+    let orderId: string;
+    try {
+      const result = await placeAt(args, price, apiKey, secretRaw);
+      orderId = result.orderID ?? result.clOrdID ?? "";
+      if (!orderId) throw new Error("No orderID in response");
+      console.log(`✓  orderID: ${orderId.slice(0, 8)}…`);
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.log(`✗  ${reason}`);
+      aborted = reason;
+      break;
+    }
+
+    // --- Wait ---
+    if (args.delay > 0) {
+      process.stdout.write(`       waiting ${args.delay}ms …  `);
+      await sleep(args.delay);
+      console.log("✓");
+    }
+
+    // --- Cancel ---
+    process.stdout.write(`       cancelling ${orderId.slice(0, 8)}…  `);
+    try {
+      const status = await cancelRung(args.symbol, orderId, args.posSide, apiKey, secretRaw);
+      if (status === "cancelled") {
+        console.log("✓  cancelled");
+      } else if (status === "filled") {
+        console.log("⚡  already filled — ladder stopped");
+        filled = true;
+        break;
+      } else {
+        console.log(`✗  ${status}`);
+        aborted = status;
+        break;
+      }
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.log(`✗  ${reason}`);
+      aborted = reason;
+      break;
+    }
+    swept++;
+  }
+
+  console.log(`══════════════════════════════════════════════════════`);
+  if (filled) {
+    console.log(`✔  Ladder filled at rung ${swept + 1}/${prices.length} — position opened.`);
+    return "filled";
+  } else if (aborted) {
+    console.log(`✗  Ladder aborted at rung ${swept + 1}/${prices.length} — ${aborted}`);
+    return "aborted";
+  }
+  console.log(`✔  Ladder complete — ${swept}/${prices.length} rung(s) swept, none filled.`);
+  return "complete";
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -442,6 +749,22 @@ async function main(): Promise<void> {
         await setLeverageUsdtM(args.symbol, args.leverage, args.posSide, creds.PHEMEX_API_KEY, secretRaw);
         break;
     }
+  }
+
+  if (args.ladder) {
+    if (args.loop) {
+      console.log("↻  Loop mode: re-sweeping until filled — Ctrl+C to stop");
+      for (let pass = 1; ; pass++) {
+        const { from, to } = resolveLadderRange(args);
+        const outcome = await runLadder(args, creds.PHEMEX_API_KEY, secretRaw, from, to, pass);
+        if (outcome === "filled") return;
+        if (outcome === "aborted") return;
+        console.log(`\n↻  Pass ${pass} complete — sweeping again …`);
+      }
+    }
+    const { from, to } = resolveLadderRange(args);
+    await runLadder(args, creds.PHEMEX_API_KEY, secretRaw, from, to, 1);
+    return;
   }
 
   let result: PlaceOrderResult;

@@ -161,9 +161,9 @@ async function main(): Promise<void> {
       // Header
       console.log(
         `${"Time".padEnd(12)} ${"ExecId".padEnd(10)} ` +
-        `${"Qty".padEnd(10)} ${"Price".padEnd(12)} ${"Fee".padEnd(12)} ${"Fee/Qty".padEnd(12)} ${"Cls".padEnd(16)} ${"Side".padEnd(16)} ${"*".padEnd(2)}`
+        `${"Qty".padEnd(10)} ${"Price".padEnd(12)} ${"Fee".padEnd(12)} ${"Fee/Qty".padEnd(12)} ${"Side".padEnd(16)} ${"*".padEnd(2)}`
       );
-      console.log("─".repeat(110));
+      console.log("─".repeat(93));
 
       let totalQty = 0;
       let totalFee = 0;
@@ -203,10 +203,10 @@ async function main(): Promise<void> {
 
         console.log(
           `${created.padEnd(12)} ${execId.padEnd(10)} ` +
-          `${qty.padEnd(10)} ${price.padEnd(12)} ${fee.padEnd(12)} ${feePerQty.padEnd(12)} ${cls.padEnd(16)} ${sideLabel.padEnd(16)} ${mismatch.padEnd(2)}`
+          `${qty.padEnd(10)} ${price.padEnd(12)} ${fee.padEnd(12)} ${feePerQty.padEnd(12)} ${sideLabel.padEnd(16)} ${mismatch.padEnd(2)}`
         );
       }
-      console.log("─".repeat(110));
+      console.log("─".repeat(93));
       console.log(
         `Rows: ${rows.length} | Σ Total Qty: ${Math.round(totalQty * 1e8) / 1e8}  |  Total Fee: ${Math.round(totalFee * 1e8) / 1e8}  |  ` +
         `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
