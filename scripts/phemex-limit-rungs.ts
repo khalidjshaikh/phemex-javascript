@@ -20,14 +20,14 @@
  * over-close; it errors out if no position of that side is open.
  *
  * Usage:
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --side short # OPEN SHORT # SELL
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-short --side short # CLOSE SHORT # BUY
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --cancel-open # CANCEL OPEN SHORT
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-close # CANCEL CLOSE SHORT
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-long --side long # CLOSE LONG # SELL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --side short # OPEN SHORT # SELL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-short --side short # CANCEL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --close-short # CLOSE SHORT # BUY
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --cancel-close # CLOSE SHORT # CANCEL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --close-long # CLOSE LONG # SELL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-close # CANCEL
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL OPEN LONG
- *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-close # CANCEL CLOSE LONG
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL
  *
  * Options:
  *   --symbol <symbol>   Contract symbol (default: XBRUSDT)
@@ -97,15 +97,17 @@ Options:
      --help, -h          Show this help message
 
    Examples:
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --side short # OPEN SHORT # SELL
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-short --side short # CLOSE SHORT # BUY
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --cancel-open # CANCEL OPEN SHORT
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-close # CANCEL CLOSE SHORT
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --side short # OPEN SHORT # SELL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-short --side short # CANCEL
 
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-long --side long # CLOSE LONG # SELL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --close-short # CLOSE SHORT # BUY
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --cancel-close # CLOSE SHORT # CANCEL
+
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --close-long # CLOSE LONG # SELL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-close # CANCEL
+
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL OPEN LONG
-       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-close # CANCEL CLOSE LONG
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL
 `);
   process.exit(0);
 }
