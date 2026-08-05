@@ -29,7 +29,7 @@ List trade fills (executed trades) via /exchange/order/v2/tradingList.
 
 Options:
   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — defaults to XBRUSDT
-  --limit <n>         Max results (default 50, max 200)
+  --limit <n>         Max results (default 50; values >200 are paged in batches of 200)
   --days <n>          Look back days (default 7)
   --dry-run           Show what would be sent without executing
   --help, -h          Show this help message
@@ -46,6 +46,11 @@ Examples:
 /* ------------------------------------------------------------------ */
 
 const actionMap: Record<number, string> = {
+  1: "Buy",
+  2: "Sell",
+};
+
+const sideMap: Record<number, string> = {
   1: "Buy",
   2: "Sell",
 };
@@ -77,18 +82,24 @@ async function main(): Promise<void> {
   if (hasFlag("--help") || hasFlag("-h")) usage();
 
   const symbol = getArg("--symbol") || "XBRUSDT";
-  const limit = Math.min(Math.max(parseInt(getArg("--limit") || "50", 10) || 50, 1), 200);
+  const limit = Math.max(parseInt(getArg("--limit") || "50", 10) || 50, 1);
   const days = parseInt(getArg("--days") || "7", 10) || 7;
   const dryRun = hasFlag("--dry-run");
 
   const now = Date.now();
   const start = now - days * 86_400_000;
 
-  const query = `symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=0&limit=${limit}&withCount=true`;
+  const pageSize = 200; // Phemex caps tradingList at 200 rows per request
 
   if (dryRun) {
-    console.log(`\n  DRY RUN — Would send:\n`);
-    console.log(`  GET /exchange/order/v2/tradingList?${query}`);
+    const pages = Math.ceil(limit / pageSize);
+    console.log(`\n  DRY RUN — Would send ${pages} request(s):\n`);
+    for (let off = 0; off < limit; off += pageSize) {
+      const lim = Math.min(pageSize, limit - off);
+      console.log(
+        `  GET /exchange/order/v2/tradingList?symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${off}&limit=${lim}&withCount=true`
+      );
+    }
     console.log();
     process.exit(0);
   }
@@ -96,53 +107,91 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`⟐  Fetching fills for ${symbol} (last ${days} days, limit ${limit}) …`);
+  const rows: Record<string, unknown>[] = [];
+  let total = 0;
+  let offset = 0;
 
-  const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
+  while (rows.length < limit) {
+    const pageLimit = Math.min(pageSize, limit - rows.length);
+    const query = `symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${offset}&limit=${pageLimit}&withCount=true`;
 
-  if (resp.code === 0) {
+    console.log(`⟐  Fetching fills for ${symbol} (last ${days} days, limit ${limit}) — offset ${offset} …`);
+
+    const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
+    if (resp.code !== 0) {
+      console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
+      process.exit(1);
+    }
+
     const data = resp.data as Record<string, unknown> | undefined;
-    const rows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
-    const total = (data?.total as number | undefined) ?? rows.length;
+    const pageRows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
+    total = (data?.total as number | undefined) ?? rows.length + pageRows.length;
+    rows.push(...pageRows);
 
-    if (rows.length === 0) {
-      console.log("  ℹ  No fills found.");
-    } else {
+    // Stop on a short page (end of data) or once all matching fills are collected
+    if (pageRows.length < pageLimit || (total > 0 && rows.length >= total)) break;
+    offset += pageLimit;
+  }
+
+  if (rows.length === 0) {
+    console.log("  ℹ  No fills found.");
+  } else {
       console.log(`  ✓  Found ${total} fill(s), showing ${rows.length}:\n`);
 
       // Header
       console.log(
-        `${"Time".padEnd(26)} ${"ExecId".padEnd(10)} ${"Action".padEnd(5)} ` +
-        `${"Qty".padStart(10)} ${"Price".padStart(12)} ${"Type".padEnd(10)} ` +
-        `${"PosSide".padEnd(8)} ${"Fee".padStart(10)}`
+        `${"Time".padEnd(12)} ${"ExecId".padEnd(10)} ` +
+        `${"Qty".padEnd(10)} ${"Price".padEnd(12)} ${"Fee".padEnd(12)} ${"Fee/Qty".padEnd(12)} ${"Cls".padEnd(16)} ${"Side".padEnd(16)} ${"*".padEnd(2)}`
       );
-      console.log("─".repeat(100));
+      console.log("─".repeat(110));
 
+      let totalQty = 0;
+      let totalFee = 0;
+      let totalFeeClose = 0;
+      let totalFeeOpen = 0;
+      let countClose = 0;
+      let countOpen = 0;
       for (const f of rows) {
+        // console.log(f)
         const execId = String(f.execId ?? "?");
-        const action = actionMap[Number(f.action)] ?? String(f.action ?? "?");
-        const tradeType = tradeTypeMap[Number(f.tradeType)] ?? String(f.tradeType ?? "?");
-        const ordType = ordTypeMap[Number(f.ordType)] ?? String(f.ordType ?? "?");
-        const posSide = posSideMap[Number(f.posSide)] ?? String(f.posSide ?? "?");
+        const side = sideMap[Number(f.side)] ?? String(f.side ?? "?");
         const qty = String(f.execQtyRq ?? "?");
-        const price = String(f.execPriceRp ?? "?");
-        const fee = String(f.execFeeRv ?? "-");
-        const created = f.createdAt ? new Date(Number(f.createdAt)).toISOString() : "?";
+        const price = f.execPriceRp != null ? Number(f.execPriceRp).toFixed(2) : "?";
+        const fee = f.execFeeRv != null ? Number(f.execFeeRv).toFixed(8) : "-";
+        const feePerQty =
+          f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
+            ? (Number(f.execFeeRv) / Number(f.execQtyRq)).toFixed(8)
+            : "-";
+        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleTimeString() : "?";
+        totalQty += Number(f.execQtyRq) || 0;
+        totalFee += Number(f.execFeeRv) || 0;
 
-        const typeLabel = `${ordType}/${tradeType}`;
+        const sideLabel = side === "Buy" ? "Buy/Open Long" : side === "Sell" ? "Sell/Close Long" : "";
+
+        const feeQty3 = feePerQty !== "-" ? feePerQty.slice(2, 5) : "";
+        const cls = feeQty3 === "048" ? "Sell/Close Long" : feeQty3 === "008" ? "Buy/Open Long" : "?";
+
+        const mismatch = cls !== sideLabel ? "*" : "";
+
+        if (cls === "Sell/Close Long") {
+          totalFeeClose += Number(f.execFeeRv) || 0;
+          countClose++;
+        } else if (cls === "Buy/Open Long") {
+          totalFeeOpen += Number(f.execFeeRv) || 0;
+          countOpen++;
+        }
 
         console.log(
-          `${created}  ${execId.padEnd(8)} ${action.padEnd(5)} ` +
-          `${qty.padStart(10)} ${price.padStart(12)} ${typeLabel.padEnd(10)} ` +
-          `${posSide.padEnd(8)} ${fee.padStart(10)}`
+          `${created.padEnd(12)} ${execId.padEnd(10)} ` +
+          `${qty.padEnd(10)} ${price.padEnd(12)} ${fee.padEnd(12)} ${feePerQty.padEnd(12)} ${cls.padEnd(16)} ${sideLabel.padEnd(16)} ${mismatch.padEnd(2)}`
         );
       }
-      console.log("─".repeat(100));
+      console.log("─".repeat(110));
+      console.log(
+        `Rows: ${rows.length} | Σ Total Qty: ${Math.round(totalQty * 1e8) / 1e8}  |  Total Fee: ${Math.round(totalFee * 1e8) / 1e8}  |  ` +
+        `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
+      );
     }
-  } else {
-    console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
-    process.exit(1);
-  }
 }
 
 main().catch((err) => {
