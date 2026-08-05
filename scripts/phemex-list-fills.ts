@@ -10,6 +10,7 @@
  *   ./phemex-list-fills.ts --symbol XBRUSDT --limit 50
  *   ./phemex-list-fills.ts --symbol XBRUSDT --days 7
  *   ./phemex-list-fills.ts --symbol XBRUSDT --days 30 --limit 200
+ *   ./phemex-list-fills.ts --symbol XBRUSDT --loop --interval 5
  *   ./phemex-list-fills.ts --help, -h
  */
 
@@ -23,7 +24,7 @@ import { loadCredentialsLocal } from "../src/credentials.js";
 
 function usage(): never {
   console.log(`
-Usage: ./phemex-list-fills.ts --symbol <symbol> [--limit <n>] [--days <n>] [--dry-run]
+Usage: ./phemex-list-fills.ts --symbol <symbol> [--limit <n>] [--days <n>] [--loop] [--interval <sec>] [--dry-run]
 
 List trade fills (executed trades) via /exchange/order/v2/tradingList.
 
@@ -31,12 +32,15 @@ Options:
   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — defaults to XBRUSDT
   --limit <n>         Max results (default 50; values >200 are paged in batches of 200)
   --days <n>          Look back days (default 7)
+  --loop              Repeat the listing every --interval seconds until Ctrl+C
+  --interval <sec>    Poll period in seconds (default 2; used with --loop)
   --dry-run           Show what would be sent without executing
   --help, -h          Show this help message
 
 Examples:
   ./phemex-list-fills.ts --symbol XBRUSDT
   ./phemex-list-fills.ts --symbol XBRUSDT --limit 100 --days 30
+  ./phemex-list-fills.ts --symbol XBRUSDT --loop --interval 5
 `);
   process.exit(0);
 }
@@ -85,15 +89,20 @@ async function main(): Promise<void> {
   const limit = Math.max(parseInt(getArg("--limit") || "50", 10) || 50, 1);
   const days = parseInt(getArg("--days") || "7", 10) || 7;
   const dryRun = hasFlag("--dry-run");
-
-  const now = Date.now();
-  const start = now - days * 86_400_000;
+  const loopMode = hasFlag("--loop");
+  const intervalSec = parseInt(getArg("--interval") || "2", 10);
+  if (!Number.isInteger(intervalSec) || intervalSec < 1) {
+    console.error(`  ✗  Invalid --interval: "${getArg("--interval")}" — use a whole number of seconds >= 1`);
+    process.exit(1);
+  }
 
   const pageSize = 200; // Phemex caps tradingList at 200 rows per request
 
   if (dryRun) {
+    const now = Date.now();
+    const start = now - days * 86_400_000;
     const pages = Math.ceil(limit / pageSize);
-    console.log(`\n  DRY RUN — Would send ${pages} request(s):\n`);
+    console.log(`\n  DRY RUN — Would send ${pages} request(s)${loopMode ? ` per cycle (--loop, every ${intervalSec}s until Ctrl+C)` : ""}:\n`);
     for (let off = 0; off < limit; off += pageSize) {
       const lim = Math.min(pageSize, limit - off);
       console.log(
@@ -107,35 +116,46 @@ async function main(): Promise<void> {
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  const rows: Record<string, unknown>[] = [];
-  let total = 0;
-  let offset = 0;
+  let cycle = 0;
+  for (;;) {
+    cycle++;
+    const now = Date.now();
+    const start = now - days * 86_400_000;
 
-  while (rows.length < limit) {
-    const pageLimit = Math.min(pageSize, limit - rows.length);
-    const query = `symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${offset}&limit=${pageLimit}&withCount=true`;
-
-    console.log(`⟐  Fetching fills for ${symbol} (last ${days} days, limit ${limit}) — offset ${offset} …`);
-
-    const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
-    if (resp.code !== 0) {
-      console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
-      process.exit(1);
+    if (loopMode) {
+      console.log(`\n${"─".repeat(80)}`);
+      console.log(`  [${new Date().toLocaleString()}] cycle #${cycle} — last ${days} days, limit ${limit}, poll every ${intervalSec}s (Ctrl+C to stop)`);
     }
 
-    const data = resp.data as Record<string, unknown> | undefined;
-    const pageRows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
-    total = (data?.total as number | undefined) ?? rows.length + pageRows.length;
-    rows.push(...pageRows);
+    const rows: Record<string, unknown>[] = [];
+    let total = 0;
+    let offset = 0;
 
-    // Stop on a short page (end of data) or once all matching fills are collected
-    if (pageRows.length < pageLimit || (total > 0 && rows.length >= total)) break;
-    offset += pageLimit;
-  }
+    while (rows.length < limit) {
+      const pageLimit = Math.min(pageSize, limit - rows.length);
+      const query = `symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${offset}&limit=${pageLimit}&withCount=true`;
 
-  if (rows.length === 0) {
-    console.log("  ℹ  No fills found.");
-  } else {
+      console.log(`⟐  Fetching fills for ${symbol} (last ${days} days, limit ${limit}) — offset ${offset} …`);
+
+      const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
+      if (resp.code !== 0) {
+        console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
+        process.exit(1);
+      }
+
+      const data = resp.data as Record<string, unknown> | undefined;
+      const pageRows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
+      total = (data?.total as number | undefined) ?? rows.length + pageRows.length;
+      rows.push(...pageRows);
+
+      // Stop on a short page (end of data) or once all matching fills are collected
+      if (pageRows.length < pageLimit || (total > 0 && rows.length >= total)) break;
+      offset += pageLimit;
+    }
+
+    if (rows.length === 0) {
+      console.log("  ℹ  No fills found.");
+    } else {
       console.log(`  ✓  Found ${total} fill(s), showing ${rows.length}:\n`);
 
       // Header
@@ -192,6 +212,10 @@ async function main(): Promise<void> {
         `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
       );
     }
+
+    if (!loopMode) break;
+    await new Promise((r) => setTimeout(r, intervalSec * 1000));
+  }
 }
 
 main().catch((err) => {

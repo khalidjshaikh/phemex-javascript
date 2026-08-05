@@ -13,10 +13,16 @@
  * Usage:
  *   ./phemex-limit-ladder.ts
  *   ./phemex-limit-ladder.ts --symbol XBRUSDT --from 70 --to 83 --step 1
+ *   ./phemex-limit-ladder.ts --price 79
+ *   ./phemex-limit-ladder.ts --price last-0.40
  *   ./phemex-limit-ladder.ts --dry-run
  *
  * Options:
  *   --symbol <symbol>   Contract symbol (default: XBRUSDT)
+ *   --price <n|last|mark>  Single-rung ladder (shorthand for --from X --to X);
+ *                        also accepts an offset like "last-0.40" / "mark+0.20"
+ *                        (last.txt / mark.txt ± delta). Cannot combine with
+ *                        --from / --to.
  *   --from <price>      Ladder start price (default: 70)
  *   --to <price>        Ladder end price, inclusive (default: 83)
  *   --step <price>      Price step between rungs (default: 1)
@@ -27,11 +33,16 @@
  *   --help, -h          Show this help message
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
 import { placeLinear, setLeverageUsdtM } from "../src/place-limit-order.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
+const ROOT = resolve(import.meta.dirname, ".."); // project root
+const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
+const MARK_FILE = resolve(ROOT, "mark.txt"); // written by phemex-mark-price2.ts
 
 // Defaults
 const SYMBOL = "XBRUSDT";
@@ -52,6 +63,10 @@ at ${LEVERAGE}x leverage.
 
 Options:
   --symbol <symbol>   Contract symbol (default: ${SYMBOL})
+  --price <n|last|mark>  Single-rung ladder (shorthand for --from X --to X);
+                        also accepts an offset like "last-0.40" / "mark+0.20"
+                        (last.txt / mark.txt ± delta). Cannot combine with
+                        --from / --to.
   --from <price>      Ladder start price (default: ${FROM})
   --to <price>        Ladder end price, inclusive (default: ${TO})
   --step <price>      Price step between rungs (default: ${STEP})
@@ -64,6 +79,8 @@ Options:
 Examples:
   ./phemex-limit-ladder.ts
   ./phemex-limit-ladder.ts --from 70 --to 83 --step 1 --dry-run
+  ./phemex-limit-ladder.ts --price 79 --dry-run
+  ./phemex-limit-ladder.ts --price last-0.40 --dry-run
   ./phemex-limit-ladder.ts --side short --qty 0.05
   ./phemex-limit-ladder.ts --symbol XBRUSDT --qty 0.05
 `);
@@ -90,6 +107,52 @@ function numArg(name: string, fallback: number): number {
   return v;
 }
 
+/** Offset form: "last-0.40" / "mark+0.20" — price file ± delta (US-ASCII +/-). */
+const PRICE_EXPR = /^(last|mark)([+-])(\d+(?:\.\d+)?)$/;
+
+/** Read a price file (last.txt / mark.txt, project root). Throws if unavailable. */
+function readPriceFile(file: string): number {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8").trim();
+  } catch {
+    throw new Error(`Cannot read ${file} — run phemex-mark-price2.ts first, or pass --price <n>`);
+  }
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`Invalid price in ${file}: "${raw}"`);
+  return v;
+}
+
+/**
+ * Resolve a --price arg — a number, "last" / "mark" (last.txt / mark.txt),
+ * or an offset like "last-0.40" / "mark+0.20" (file ± delta) — to a concrete
+ * price and a human-readable source label. Throws on invalid input.
+ */
+function resolvePriceArg(raw: string): { price: number; src: string } {
+  const m = PRICE_EXPR.exec(raw);
+  if (m) {
+    const file = m[1] === "last" ? LAST_FILE : MARK_FILE;
+    const base = readPriceFile(file);
+    const delta = parseFloat(m[3]);
+    const price = m[2] === "+" ? base + delta : base - delta;
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error(`Invalid price for --price: "${raw}" → $${price}`);
+    }
+    const rounded = Math.round(price * 10_000) / 10_000;
+    return { price: rounded, src: `${raw} → $${rounded.toFixed(4)}` };
+  }
+  if (raw === "last" || raw === "mark") {
+    const file = raw === "last" ? LAST_FILE : MARK_FILE;
+    const price = readPriceFile(file);
+    return { price, src: `${raw}.txt ($${price.toFixed(4)})` };
+  }
+  const price = parseFloat(raw);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`Invalid --price: "${raw}" — use a number, "last", "mark", or "last±delta" / "mark±delta"`);
+  }
+  return { price: Math.round(price * 10_000) / 10_000, src: `--price $${price.toFixed(4)}` };
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
   // No options at all → show usage instead of silently placing the default
@@ -98,8 +161,32 @@ async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
 
   const symbol = getArgValue("--symbol") ?? SYMBOL;
-  const from = numArg("--from", FROM);
-  const to = numArg("--to", TO);
+
+  // --price <n|last|mark|last±delta|mark±delta> is shorthand for a single-rung
+  // ladder (--from X --to X). It cannot be combined with --from / --to.
+  const priceArg = getArgValue("--price");
+  const fromArg = getArgValue("--from");
+  const toArg = getArgValue("--to");
+  let from: number;
+  let to: number;
+  let priceSrc: string | null = null;
+  if (priceArg !== undefined) {
+    if (fromArg !== undefined || toArg !== undefined) {
+      console.error(`✗  --price cannot be combined with --from / --to`);
+      process.exit(1);
+    }
+    try {
+      const r = resolvePriceArg(priceArg);
+      from = to = r.price;
+      priceSrc = r.src;
+    } catch (err: unknown) {
+      console.error(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  } else {
+    from = numArg("--from", FROM);
+    to = numArg("--to", TO);
+  }
   const step = numArg("--step", STEP);
   const qty = numArg("--qty", QTY);
   const leverage = numArg("--leverage", LEVERAGE);
@@ -132,7 +219,11 @@ async function main(): Promise<void> {
   }
 
   console.log(`[${fmtTime()}] ═ ${symbol} ${posSide} Limit Ladder ═══════════════════════`);
-  console.log(`[${fmtTime()}]   Range:     $${from} → $${to} (inclusive)`);
+  if (priceSrc !== null) {
+    console.log(`[${fmtTime()}]   Price:     ${priceSrc}`);
+  } else {
+    console.log(`[${fmtTime()}]   Range:     $${from} → $${to} (inclusive)`);
+  }
   console.log(`[${fmtTime()}]   Step:      $${step}   orders: ${prices.length}`);
   console.log(`[${fmtTime()}]   Qty/order: ${qty}   leverage: ${leverage}x   side: ${side} / ${posSide}`);
   console.log(`[${fmtTime()}]   Mode:      ${dryRun ? "DRY-RUN — no orders will be placed" : "LIVE — placing orders"}`);

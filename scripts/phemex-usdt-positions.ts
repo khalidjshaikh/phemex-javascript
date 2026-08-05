@@ -111,7 +111,7 @@ async function pollPositions(
   apiKey: string,
   secretRaw: Buffer,
 ): Promise<Position[]> {
-  const settlementCurrencies = ["USDT", "USD"];
+  const settlementCurrencies = ["USDT"];
   const allPositions: Position[] = [];
 
   for (const cur of settlementCurrencies) {

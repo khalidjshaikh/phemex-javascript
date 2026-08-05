@@ -50,6 +50,7 @@ const LONG_PRICE_MARK = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
+  "--gap", "0.00",
   // "--takeProfit", "mark+.1",
   "--price", "mark",
 ];
@@ -60,6 +61,7 @@ const LONG_SPREAD_LAST = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
+  "--gap", "0.00",
   // "--takeProfit", "last+.1",
   "--price", "mark",
 ];
@@ -72,16 +74,18 @@ const SHORT_PRICE_MARK = [
   "--qty", "0.01",
   "--cancel",
   "--sleep", "5",
+  "--gap", "0.00",
   // "--takeProfit", "mark-.1",
   "--price", "mark",
 ];
 
 const SHORT_SPREAD_LAST = [
   "--symbol", "XBRUSDT",
-  "--spread", "+16",
+  "--spread", "+1",
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
+  "--gap", "0.00",
   // "--takeProfit", "last-.1",
   "--price", "last",
 ];
@@ -111,8 +115,8 @@ const SPREAD_LAST_TIMEOUT_MS = 20_000;
 
 /** Kill-switches per side: when true, neither the mark-based spawn (priceMark)
  *  nor the last-based one-shot (spreadLast) is run for that side. */
-const DISABLE_LONG: boolean = false;
-const DISABLE_SHORT: boolean = true;
+const DISABLE_LONG: boolean = true;
+const DISABLE_SHORT: boolean = false;
 const ENABLE_MARK_FOLLOWER: boolean = false;
 
 
@@ -283,7 +287,8 @@ async function main(): Promise<void> {
     const qty: Number = 0.01
     // const cmdSpreadLastArgs = [...spreadLast, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
     // const cmdSpreadLastArgs = [...spreadLast, "--gap", -0.70, "--qty", qty];
-    const cmdSpreadLastArgs = [...spreadLast, "--gap", +0.00, "--qty", qty];
+    // const cmdSpreadLastArgs = [...spreadLast, "--gap", +0.00, "--qty", qty];
+    const cmdSpreadLastArgs = [...spreadLast];
     console.log(markLast)
 
     console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${priceMark.join(" ")} and ${basename(script)} ${cmdSpreadLastArgs.join(" ")} in parallel (awaiting) …`);
