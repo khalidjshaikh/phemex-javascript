@@ -138,7 +138,8 @@ function fmtTime(): string {
 }
 
 function getArgValue(name: string): string | undefined {
-  const i = process.argv.indexOf(name);
+  // Last occurrence wins — a later --qty/--from/--to/... overrides an earlier one.
+  const i = process.argv.lastIndexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
