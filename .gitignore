@@ -39,3 +39,4 @@ src/lib/globals.json
 xtiusdt-last-price.txt
 model.onnx
 .aider*
+.phemex-last-close.json
