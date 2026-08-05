@@ -360,26 +360,20 @@ class TradeBatchProcessor {
     // console.log(
     //   `[${date.toLocaleString().padEnd(22)}] #325 ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${(Math.abs(delta) >= ENTRY_DELTA_MIN ? "≥" + ENTRY_DELTA_MIN : "").padEnd(5)} ${bigMove.padEnd(3)}`
     // );
+    // Fixed-width columns: ts(24) symbol(8) side(5) qty(6) price(9)
+    // delta(24) then the four optional flag columns (7 each).
     console.log(
       (
-        (
-          `[${date.toLocaleString()}]`.padEnd(24) +
-          `${symbol} ` +
-          `${side.padStart(4)} ` +
-          `${Number(quantity).toFixed(2).padStart(5)} ` +
-          `${(dir + '$' + Number(price).toFixed(2)).padStart(6)} ` +
-          `(` + 
-          `${arrow}, `+
-          `Δ${deltaStr.padEnd(5)}, ` +
-          `${lastDeltaStr.padStart(5)}, ` +
-          `${elapsedStr}` +
-          `)`
-        ).padEnd(80) + 
+        `[${date.toLocaleString()}]`.padEnd(24) +
+        `${symbol} `.padEnd(8) +
+        `${side.padStart(4)} ` +
+        `${Number(quantity).toFixed(2).padStart(5)} ` +
+        `${(dir + '$' + Number(price).toFixed(2)).padStart(8)} ` +
+        `${arrow.padEnd(4)} Δ${deltaStr} ${lastDeltaStr.padStart(6)} ${elapsedStr.padEnd(6)}` +
         ` ${streakDeltaMinShort.padEnd(6)} ` +
         `${lastDeltaMinShort.padEnd(6)} ` +
         `${streakDeltaMinLong.padEnd(6)} ` +
-        `${lastDeltaMinLong.padEnd(6)} ` +
-        ``
+        `${lastDeltaMinLong.padEnd(6)} `
       ).trimEnd()
     );
     this.prevPrice = p;
