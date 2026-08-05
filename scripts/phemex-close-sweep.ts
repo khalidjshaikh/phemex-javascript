@@ -4,7 +4,7 @@
  * phemex-close-sweep.ts — Sweep close orders across a price range, placing
  * a reduce-only order at each price, waiting a delay, then cancelling it
  * before moving to the next rung.  Stops early if the order gets filled
- * (cancel returns "not found").
+ * (cancel returns "not found") or on any API error (e.g. TE_REDUCE_ONLY_ABORT).
  *
  * Purpose:  chase the price with a closing order without leaving stale
  * resting orders on the book.  Each rung is place → wait → cancel.
@@ -19,7 +19,8 @@
  *   --symbol <symbol>     Contract symbol (default: XBRUSDT)
  *   --from <price>        Sweep start price (default: 50)
  *   --to <price>          Sweep end price, inclusive (default: 60)
- *   --step <price>        Price step between rungs (default: 1)
+ *   --step <price>        Price step between rungs, as a magnitude (default: 1)
+ *                         Direction follows --from → --to (downward allowed)
  *   --qty <quantity>      Quantity per order (default: 1)
  *   --delay <ms>          Wait between place and cancel (default: 1000)
  *   --close-short         Reduce-only Buy ladder closing an open short (default)
@@ -57,13 +58,15 @@ function usage(): never {
 Usage: scripts/phemex-close-sweep.ts [options]
 
 Sweep close orders across a price range — place at each price, wait,
-cancel, then move to the next.  Stops early if an order gets filled.
+cancel, then move to the next.  Stops early if an order gets filled or
+an API call errors.
 
 Options:
   --symbol <symbol>     Contract symbol (default: ${SYMBOL})
   --from <price>        Sweep start price (default: ${FROM})
   --to <price>          Sweep end price, inclusive (default: ${TO})
-  --step <price>        Price step between rungs (default: ${STEP})
+  --step <price>        Price step between rungs, as a magnitude (default: ${STEP})
+                        Direction follows --from → --to (downward allowed)
   --qty <quantity>      Quantity per order (default: ${QTY})
   --delay <ms>          Wait between place and cancel (default: ${DELAY_MS})
   --close-short         Reduce-only Buy ladder closing an open short (default)
@@ -215,10 +218,6 @@ async function main(): Promise<void> {
     console.error(`✗  --step must be non-zero (got ${step})`);
     process.exit(1);
   }
-  if ((to - from) * step < 0) {
-    console.error(`✗  --to (${to}) is not reachable from --from (${from}) with step ${step}`);
-    process.exit(1);
-  }
   if (qty <= 0) {
     console.error(`✗  --qty must be > 0 (got ${qty})`);
     process.exit(1);
@@ -228,9 +227,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Build the price list
+  // Build the price list — direction follows --from → --to, step is a magnitude
+  const dir = to >= from ? 1 : -1;
   const prices: number[] = [];
-  for (let p = from; step > 0 ? p <= to + 1e-9 : p >= to - 1e-9; p += step) {
+  for (let p = from; dir > 0 ? p <= to + 1e-9 : p >= to - 1e-9; p += dir * Math.abs(step)) {
     prices.push(Math.round(p * 10_000) / 10_000);
   }
 
@@ -246,7 +246,7 @@ async function main(): Promise<void> {
   // Log header
   console.log(`[${fmtTime()}] ═ ${symbol} Close-${closeLabel} Sweep ═════════════════════════`);
   console.log(`[${fmtTime()}]   Range:     $${from} → $${to} (inclusive)`);
-  console.log(`[${fmtTime()}]   Step:      $${step}   rungs: ${prices.length}`);
+  console.log(`[${fmtTime()}]   Step:      $${Math.abs(step)}   rungs: ${prices.length}`);
   console.log(`[${fmtTime()}]   Qty/order: ${qty}   side: ${side} / ${posSide}  reduceOnly`);
   console.log(`[${fmtTime()}]   Delay:     ${delay}ms  place → wait → cancel`);
   console.log(`[${fmtTime()}]   Mode:      ${dryRun ? "DRY-RUN" : "LIVE"}`);
@@ -262,10 +262,11 @@ async function main(): Promise<void> {
 
   let swept = 0;
   let filled = false;
+  let aborted: string | null = null;
 
   for (const price of prices) {
-    if (filled) {
-      console.log(`[${fmtTime()}]   –  Already filled — skipping $${price.toFixed(4)} and the rest.`);
+    if (filled || aborted) {
+      console.log(`[${fmtTime()}]   –  Already ${filled ? "filled" : "aborted"} — skipping $${price.toFixed(4)} and the rest.`);
       break;
     }
 
@@ -278,9 +279,11 @@ async function main(): Promise<void> {
       if (!orderId) throw new Error("No orderID in response");
       console.log(`✓  orderID: ${orderId.slice(0, 8)}…`);
     } catch (err: unknown) {
-      console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.log(`✗  ${reason}`);
       swept++;
-      continue;
+      aborted = reason;
+      break;
     }
 
     // --- Wait ---
@@ -301,9 +304,16 @@ async function main(): Promise<void> {
         filled = true;
       } else {
         console.log(`✗  ${status}`);
+        swept++;
+        aborted = status;
+        break;
       }
     } catch (err: unknown) {
-      console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.log(`✗  ${reason}`);
+      swept++;
+      aborted = reason;
+      break;
     }
     swept++;
   }
@@ -311,6 +321,8 @@ async function main(): Promise<void> {
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════`);
   if (filled) {
     console.log(`[${fmtTime()}] ✔  Sweep filled at rung ${swept}/${prices.length} — position closed.`);
+  } else if (aborted) {
+    console.log(`[${fmtTime()}] ✗  Sweep aborted at rung ${swept}/${prices.length} — ${aborted}`);
   } else {
     console.log(`[${fmtTime()}] ✔  Sweep complete — ${swept}/${prices.length} rung(s) swept, none filled.`);
   }
