@@ -20,12 +20,14 @@
  * over-close; it errors out if no position of that side is open.
  *
  * Usage:
- *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1
- *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --dry-run
- *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-short
- *   ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-long
- *   ./phemex-limit-rungs.ts --from 50 --to 80 --cancel          # cancel active orders with price in [50, 80]
- *   ./phemex-limit-rungs.ts --from 50 --to 80 --cancel --dry-run
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --side short # OPEN SHORT # SELL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-short --side short # CLOSE SHORT # BUY
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --cancel-open # CANCEL OPEN SHORT
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-close # CANCEL CLOSE SHORT
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-long --side long # CLOSE LONG # SELL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL OPEN LONG
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-close # CANCEL CLOSE LONG
  *
  * Options:
  *   --symbol <symbol>   Contract symbol (default: XBRUSDT)
@@ -38,6 +40,10 @@
  *   --close-short       Reduce-only Buy ladder that closes an open short
  *   --close-long        Reduce-only Sell ladder that closes an open long
  *   --cancel            Cancel all active orders with price within [--from, --to]
+ *   --cancel-close      Cancel only reduce-only (close) orders in [--from, --to]
+ *   --cancel-open       Cancel only non-reduce-only (open) orders in [--from, --to]
+ *   --cancel-short      Cancel only short-side (posSide=Short) orders in [--from, --to]
+ *   --cancel-long       Cancel only long-side (posSide=Long) orders in [--from, --to]
  *   --dry-run           Print the ladder without placing any orders
  *   --help, -h          Show this help message
  */
@@ -81,17 +87,25 @@ Options:
   --leverage <n>      Leverage (default: ${LEVERAGE}; ignored in close mode)
   --side <long|short> Order side (default: long; not allowed in close mode)
   --close-short       Reduce-only Buy ladder that closes an open short
-  --close-long        Reduce-only Sell ladder that closes an open long
-  --dry-run           Print the ladder without placing any orders
-  --help, -h          Show this help message
+     --close-long        Reduce-only Sell ladder that closes an open long
+     --cancel            Cancel all active orders with price within [--from, --to]
+     --cancel-close      Cancel only reduce-only (close) orders in [--from, --to]
+     --cancel-open       Cancel only non-reduce-only (open) orders in [--from, --to]
+     --cancel-short      Cancel only short-side (posSide=Short) orders in [--from, --to]
+     --cancel-long       Cancel only long-side (posSide=Long) orders in [--from, --to]
+     --dry-run           Print the ladder without placing any orders
+     --help, -h          Show this help message
 
-Examples:
-  ./phemex-limit-rungs.ts --from 50 --to 70 --step 1
-  ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --dry-run
-  ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-short
-  ./phemex-limit-rungs.ts --from 50 --to 70 --step 1 --close-long
-  ./phemex-limit-rungs.ts --from 100 --to 90 --step -1 --side short
-  ./phemex-limit-rungs.ts --symbol XBRUSDT --qty 0.05
+   Examples:
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --side short # OPEN SHORT # SELL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-short --side short # CLOSE SHORT # BUY
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 80 --to 80 --cancel-open # CANCEL OPEN SHORT
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 79 --to 79 --cancel-close # CANCEL CLOSE SHORT
+
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-long --side long # CLOSE LONG # SELL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL OPEN LONG
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 70 --to 70 --cancel-close # CANCEL CLOSE LONG
 `);
   process.exit(0);
 }
@@ -254,6 +268,8 @@ async function runCancelMode(
   from: number,
   to: number,
   dryRun: boolean,
+  cancelFilter: "close" | "open" | "all" = "all",
+  cancelPosSide: "short" | "long" | "all" = "all",
 ): Promise<void> {
   const lo = Math.min(from, to);
   const hi = Math.max(from, to);
@@ -269,9 +285,22 @@ async function runCancelMode(
       const price = parseFloat(String(o.priceRp ?? o.price ?? ""));
       return !Number.isNaN(price) && price >= lo && price <= hi;
     })
+    .filter((o) => {
+      if (cancelFilter === "close") return isReduceOnlyRow(o);
+      if (cancelFilter === "open") return !isReduceOnlyRow(o);
+      return true; // "all"
+    })
+    .filter((o) => {
+      if (cancelPosSide === "all") return true;
+      const ps = posSideFor(o).toLowerCase();
+      return ps === cancelPosSide;
+    })
     .sort((a, b) => parseFloat(String(b.priceRp ?? b.price)) - parseFloat(String(a.priceRp ?? a.price)));
 
-  console.log(`[${fmtTime()}]   Found ${targets.length} active order(s) with price in [$${lo}, $${hi}].`);
+  const filterLabel =
+    (cancelFilter === "close" ? " close-only" : cancelFilter === "open" ? " open-only" : "") +
+    (cancelPosSide === "short" ? " short-side" : cancelPosSide === "long" ? " long-side" : "");
+  console.log(`[${fmtTime()}]   Found ${targets.length} active order(s) with price in [$${lo}, $${hi}]${filterLabel}.`);
   if (targets.length === 0) return;
 
   if (dryRun) {
@@ -334,8 +363,26 @@ async function main(): Promise<void> {
   const to = numArg("--to", TO);
 
   // Cancel mode: ignore step/qty/leverage/side and cancel orders by price range
-  if (process.argv.includes("--cancel")) {
-    await runCancelMode(symbol, from, to, dryRun);
+  const cancelClose = process.argv.includes("--cancel-close");
+  const cancelOpen = process.argv.includes("--cancel-open");
+  const cancelShort = process.argv.includes("--cancel-short");
+  const cancelLong = process.argv.includes("--cancel-long");
+  if (cancelClose && cancelOpen) {
+    console.error(`✗  Cannot combine --cancel-close with --cancel-open`);
+    process.exit(1);
+  }
+  if (cancelShort && cancelLong) {
+    console.error(`✗  Cannot combine --cancel-short with --cancel-long`);
+    process.exit(1);
+  }
+  let cancelFilter: "close" | "open" | "all" = "all";
+  if (cancelClose) cancelFilter = "close";
+  else if (cancelOpen) cancelFilter = "open";
+  let cancelPosSide: "short" | "long" | "all" = "all";
+  if (cancelShort) cancelPosSide = "short";
+  else if (cancelLong) cancelPosSide = "long";
+  if (process.argv.includes("--cancel") || cancelClose || cancelOpen || cancelShort || cancelLong) {
+    await runCancelMode(symbol, from, to, dryRun, cancelFilter, cancelPosSide);
     return;
   }
 
