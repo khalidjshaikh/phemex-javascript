@@ -11,30 +11,35 @@
  *
  * Usage:
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01
+ *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price mark --close-long --qty 0.01
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --cancel
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --delay 2000
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1
+ *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from last --to mark --step 0.01 --close-long
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --close-long
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --delay 500
  *   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --dry-run
  *
  * Options:
  *   --symbol <symbol>     Contract symbol (default: XBRUSDT)
- *   --price <n|last>      Single resting close order at <n>, or at the price
- *                         read from last.txt (project root).  Order stays
- *                         resting until cancelled with --cancel.
+ *   --price <n|last|mark> Single resting close order at <n>, or at the price
+ *                         read from last.txt / mark.txt (project root).
+ *                         Order stays resting until cancelled with --cancel.
  *   --cancel              Manually cancel the resting order tracked in
  *                         .phemex-last-close.json (placed via --price, or a
  *                         leftover from a sweep).
  *   --from <price>        Sweep start price (default: 50)
  *   --to <price>          Sweep end price, inclusive (default: 60)
+ *                         Both accept a number, "last" (last.txt), or
+ *                         "mark" (mark.txt), resolved at sweep start.
  *   --step <price>        Price step between rungs, as a magnitude (default: 1)
  *                         Direction follows --from → --to (downward allowed)
  *   --qty <quantity>      Quantity per order (default: 1)
  *   --delay <ms>          Sweep: wait between place and cancel (default: 1000).
- *                         With --price last: loop period — keep re-reading
- *                         last.txt, cancel + re-place the close order as the
- *                         price moves, until the user exits (Ctrl+C).
+ *                         With --price last|mark: loop period — keep
+ *                         re-reading the price file, cancel + re-place the
+ *                         close order as the price moves, until the user
+ *                         exits (Ctrl+C).
  *   --close-short         Reduce-only Buy ladder closing an open short (default)
  *   --close-long          Reduce-only Sell ladder closing an open long
  *   --ignore-exception    On place/cancel API errors, log and continue
@@ -57,6 +62,7 @@ import { uuid } from "../src/uuid.js";
 const CREDS_FILE = ".phemex-credentials.json";
 const ROOT = resolve(import.meta.dirname, ".."); // project root
 const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
+const MARK_FILE = resolve(ROOT, "mark.txt"); // written by phemex-mark-price2.ts
 const STATE_FILE = resolve(ROOT, ".phemex-last-close.json"); // resting close order tracker
 
 // Defaults
@@ -81,25 +87,26 @@ Sweep close orders across a price range — place at each price, wait,
 cancel, then move to the next.  Stops early if an order gets filled or
 an API call errors.
 
-With --price <n|last> a single resting reduce-only close order is placed
-instead (no sweep); last reads the price from last.txt (project root).
-With --price last --delay <ms> the price is re-read every <ms> and the
-close order is cancelled + re-placed as it moves, until Ctrl+C.  Any
-resting order is tracked in .phemex-last-close.json and can be cancelled
-manually with --cancel.
+With --price <n|last|mark> a single resting reduce-only close order is
+placed instead (no sweep); last/mark reads the price from last.txt /
+mark.txt (project root).  With --price last|mark --delay <ms> the price
+is re-read every <ms> and the close order is cancelled + re-placed as it
+moves, until Ctrl+C.  Any resting order is tracked in
+.phemex-last-close.json and can be cancelled manually with --cancel.
+--from and --to also accept "last" / "mark" for sweep endpoints.
 
 Options:
   --symbol <symbol>     Contract symbol (default: ${SYMBOL})
-  --price <n|last>      Single resting close order at <n>, or at the price
-                        read from last.txt.  Cancel later with --cancel.
+  --price <n|last|mark> Single resting close order at <n>, or at the price
+                        read from last.txt / mark.txt.  Cancel with --cancel.
   --cancel              Manually cancel the tracked resting close order
-  --from <price>        Sweep start price (default: ${FROM})
-  --to <price>          Sweep end price, inclusive (default: ${TO})
+  --from <price>        Sweep start price (default: ${FROM}); also "last"/"mark"
+  --to <price>          Sweep end price, inclusive (default: ${TO}); also "last"/"mark"
   --step <price>        Price step between rungs, as a magnitude (default: ${STEP})
                         Direction follows --from → --to (downward allowed)
   --qty <quantity>      Quantity per order (default: ${QTY})
   --delay <ms>          Sweep: wait between place and cancel (default: ${DELAY_MS}).
-                        With --price last: loop period for re-reading last.txt.
+                        With --price last|mark: loop period for re-reading the price file.
   --close-short         Reduce-only Buy ladder closing an open short (default)
   --close-long          Reduce-only Sell ladder closing an open long
   --ignore-exception    On place/cancel errors, log and continue instead of
@@ -109,8 +116,9 @@ Options:
 
 Examples:
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01
+   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price mark --close-long --qty 0.01 --delay 2000
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --cancel
-   scripts/phemex-close-sweep.ts --symbol XBRUSDT --price last --close-long --qty 0.01 --delay 2000
+   scripts/phemex-close-sweep.ts --symbol XBRUSDT --from last --to mark --step 0.01 --close-long
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --close-long
    scripts/phemex-close-sweep.ts --symbol XBRUSDT --from 50 --to 60 --step 1 --delay 500
@@ -134,6 +142,29 @@ function numArg(name: string, fallback: number): number {
   const v = parseFloat(raw);
   if (!Number.isFinite(v)) {
     console.error(`✗  Invalid value for ${name}: "${raw}"`);
+    process.exit(1);
+  }
+  return v;
+}
+
+/**
+ * Resolve a price arg that may be "last" (last.txt), "mark" (mark.txt), or
+ * a plain number; falls back to `fallback` when the arg is absent.
+ * Used for --from / --to sweep endpoints.
+ */
+function priceArgValue(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  if (raw === "last" || raw === "mark") {
+    try {
+      return readPriceFile(raw === "last" ? LAST_FILE : MARK_FILE);
+    } catch (err: unknown) {
+      console.error(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) {
+    console.error(`✗  Invalid value for ${name}: "${raw}" — use a number, "last", or "mark"`);
     process.exit(1);
   }
   return v;
@@ -216,12 +247,16 @@ async function cancelOrder(
     if (bizError === undefined || bizError === 0) return "cancelled";
   }
 
-  // Order not found (20001 / 60017 / "not found") → already filled
+  // Order not found (20001 / 60017 / 10002 / "not found") → already filled
   const msg = String(resp.msg ?? "");
   const code = String(resp.code ?? "?");
   const data = resp.data as { bizError?: number }[] | undefined;
   const bizError = data?.[0]?.bizError;
-  if (/not.?found/i.test(msg) || /20001/.test(msg) || /60017/.test(msg) || bizError === 60017) return "filled";
+  if (
+    /not.?found/i.test(msg) ||
+    /20001/.test(msg) || /60017/.test(msg) || /10002/.test(msg) ||
+    bizError === 60017 || bizError === 10002
+  ) return "filled";
 
   const biz = bizError === undefined ? "" : ` bizError=${bizError}`;
   return `error: code=${code} msg="${msg}"${biz}`;
@@ -243,16 +278,16 @@ interface RestingOrderState {
   placedAt: string;
 }
 
-/** Read the last trade price from last.txt (project root). Throws if unavailable. */
-function readLastPrice(): number {
+/** Read a price file (last.txt / mark.txt, project root). Throws if unavailable. */
+function readPriceFile(file: string): number {
   let raw: string;
   try {
-    raw = readFileSync(LAST_FILE, "utf8").trim();
+    raw = readFileSync(file, "utf8").trim();
   } catch {
-    throw new Error(`Cannot read ${LAST_FILE} — run phemex-mark-price2.ts first, or pass --price <n>`);
+    throw new Error(`Cannot read ${file} — run phemex-mark-price2.ts first, or pass --price <n>`);
   }
   const v = parseFloat(raw);
-  if (!Number.isFinite(v) || v <= 0) throw new Error(`Invalid price in ${LAST_FILE}: "${raw}"`);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`Invalid price in ${file}: "${raw}"`);
   return v;
 }
 
@@ -292,26 +327,29 @@ interface LastLoopOptions {
   delay: number;
   dryRun: boolean;
   ignore: boolean;
+  priceFile: string;
+  priceLabel: string;
 }
 
 /**
- * Loop mode (--price last --delay <ms>): keep a resting reduce-only close
- * order at the current last.txt price.  Every `delay` ms re-read last.txt;
- * when the value moves, cancel the old order and place a new one at the new
- * price.  Runs until the process exits (Ctrl+C).  The final resting order is
- * tracked in STATE_FILE so it can be cancelled later with --cancel.
+ * Loop mode (--price last|mark --delay <ms>): keep a resting reduce-only
+ * close order at the current price-file value (last.txt / mark.txt).  Every
+ * `delay` ms re-read the file; when the value moves, cancel the old order
+ * and place a new one at the new price.  Runs until the process exits
+ * (Ctrl+C).  The final resting order is tracked in STATE_FILE so it can be
+ * cancelled later with --cancel.
  */
 async function runLastLoop(
   opts: LastLoopOptions,
   apiKey: string,
   secretRaw: Buffer,
 ): Promise<void> {
-  const { symbol, side, posSide, qty, delay, dryRun, ignore } = opts;
+  const { symbol, side, posSide, qty, delay, dryRun, ignore, priceFile, priceLabel } = opts;
   const closeLabel = side === "Sell" ? "long" : "short";
 
-  console.log(`[${fmtTime()}] ═ ${symbol} Close-${closeLabel} @ last.txt loop ══════════════`);
+  console.log(`[${fmtTime()}] ═ ${symbol} Close-${closeLabel} @ ${priceLabel} loop ══════════`);
   console.log(`[${fmtTime()}]   Qty:     ${qty}   side: ${side} / ${posSide}  reduceOnly`);
-  console.log(`[${fmtTime()}]   Poll:    ${delay}ms  re-read last.txt → cancel + re-place on change`);
+  console.log(`[${fmtTime()}]   Poll:    ${delay}ms  re-read ${priceLabel} → cancel + re-place on change`);
   console.log(`[${fmtTime()}]   Mode:    ${dryRun ? "DRY-RUN" : "LIVE"}  (Ctrl+C to exit; order stays resting, cancel with --cancel)`);
   if (ignore) console.log(`[${fmtTime()}]   Errors:  ignored (--ignore-exception) — loop keeps running on place/cancel errors`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════`);
@@ -322,7 +360,7 @@ async function runLastLoop(
   for (;;) {
     let newPrice: number;
     try {
-      newPrice = readLastPrice();
+      newPrice = readPriceFile(priceFile);
     } catch (err: unknown) {
       console.log(`[${fmtTime()}]   –  ${err instanceof Error ? err.message : String(err)} — retrying in ${delay}ms`);
       await sleep(delay);
@@ -430,12 +468,14 @@ async function main(): Promise<void> {
   const qty = numArg("--qty", QTY);
   const priceArg = getArgValue("--price");
   const cancel = process.argv.includes("--cancel");
-  const ignore = process.argv.includes("--ignore-exception");
+  const ignore = process.argv.includes("--ignore-exception") || process.argv.includes("--ignore-exceptions");
   const delay = numArg("--delay", DELAY_MS);
 
-  // Loop mode: --price last with an explicit --delay keeps re-reading
-  // last.txt and re-placing the close order as the price moves.
-  const loopLast = priceArg === "last" && getArgValue("--delay") !== undefined && delay > 0;
+  // Loop mode: --price last|mark with an explicit --delay keeps re-reading
+  // the price file and re-placing the close order as the price moves.
+  const priceLabel = priceArg === "mark" ? "mark.txt" : priceArg === "last" ? "last.txt" : null;
+  const priceFile = priceLabel === null ? null : resolve(ROOT, priceLabel);
+  const loopTrack = priceFile !== null && getArgValue("--delay") !== undefined && delay > 0;
 
   if (qty <= 0) {
     console.error(`✗  --qty must be > 0 (got ${qty})`);
@@ -492,21 +532,21 @@ async function main(): Promise<void> {
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Single resting close order at --price <n|last>                     */
+  /*  Single resting close order at --price <n|last|mark>               */
   /* ------------------------------------------------------------------ */
   if (priceArg !== undefined) {
-    // Loop mode: keep a close order at the current last.txt price.
-    if (loopLast) {
-      await runLastLoop({ symbol, side, posSide, qty, delay, dryRun, ignore }, creds.PHEMEX_API_KEY, secretRaw);
+    // Loop mode: keep a close order at the current price-file value.
+    if (loopTrack && priceFile !== null && priceLabel !== null) {
+      await runLastLoop({ symbol, side, posSide, qty, delay, dryRun, ignore, priceFile, priceLabel }, creds.PHEMEX_API_KEY, secretRaw);
       return;
     }
 
     let price: number;
     let priceSrc: string;
-    if (priceArg === "last") {
+    if (priceFile !== null && priceLabel !== null) {
       try {
-        price = readLastPrice();
-        priceSrc = `last.txt ($${price.toFixed(4)})`;
+        price = readPriceFile(priceFile);
+        priceSrc = `${priceLabel} ($${price.toFixed(4)})`;
       } catch (err: unknown) {
         console.error(`✗  ${err instanceof Error ? err.message : String(err)}`);
         process.exit(1);
@@ -514,7 +554,7 @@ async function main(): Promise<void> {
     } else {
       price = parseFloat(priceArg);
       if (!Number.isFinite(price) || price <= 0) {
-        console.error(`✗  Invalid --price: "${priceArg}" — use a number or "last"`);
+        console.error(`✗  Invalid --price: "${priceArg}" — use a number, "last", or "mark"`);
         process.exit(1);
       }
       priceSrc = `--price $${price.toFixed(4)}`;
@@ -557,8 +597,8 @@ async function main(): Promise<void> {
   }
 
   // --- Sweep mode ---
-  const from = numArg("--from", FROM);
-  const to = numArg("--to", TO);
+  const from = priceArgValue("--from", getArgValue("--from"), FROM);
+  const to = priceArgValue("--to", getArgValue("--to"), TO);
   const step = numArg("--step", STEP);
 
   // Validation
