@@ -28,6 +28,8 @@
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --cancel-close # CLOSE SHORT # CANCEL
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --close-long # CLOSE LONG # SELL
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-close # CANCEL
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --cancel --close-long --price 79.07 # WATCH: CANCEL CLOSE-LONG after 10s
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --cancel --close-long # WATCH: CANCEL ALL CLOSE-LONG at any price after 10s
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL
  *
@@ -39,6 +41,8 @@
  *                        Cannot be combined with --from/--to.
  *                        A price spec (--price, or both --from and --to) is
  *                        required — the $50 → $70 defaults are never assumed.
+ *                        Optional in watch-close mode (--cancel --close-*):
+ *                        omitting it watches close orders at any price.
  *   --from <price>      Ladder start price (default: 50)
  *   --to <price>        Ladder end price, inclusive (default: 70)
  *   --step <price>      Price step between rungs (default: 1)
@@ -99,6 +103,8 @@ Options:
                         Cannot be combined with --from/--to.
                         A price spec (--price, or both --from and --to) is
                         required — the $50 → $70 defaults are never assumed.
+                        Optional in watch-close mode (--cancel --close-*):
+                        omitting it watches close orders at any price.
   --from <price>      Ladder start price (default: ${FROM})
   --to <price>        Ladder end price, inclusive (default: ${TO})
   --step <price>      Price step between rungs (default: ${STEP})
@@ -112,6 +118,9 @@ Options:
      --cancel-open       Cancel only non-reduce-only (open) orders in [--from, --to]
      --cancel-short      Cancel only short-side (posSide=Short) orders in [--from, --to]
      --cancel-long       Cancel only long-side (posSide=Long) orders in [--from, --to]
+     --interval <sec>    Poll interval in seconds (default: 2; watch-close mode only)
+     --age <sec>         Cancel close orders older than this, in seconds (default: 10)
+     --once              Watch-close mode: single poll cycle, then exit
      --dry-run           Print the ladder without placing any orders
      --help, -h          Show this help message
 
@@ -126,6 +135,8 @@ Options:
 
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --close-long # CLOSE LONG # SELL
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-close # CANCEL
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --cancel --close-long --price 79.07 # WATCH: CANCEL CLOSE-LONG after 10s
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --cancel --close-long # WATCH: CANCEL ALL CLOSE-LONG at any price after 10s
 
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --side long # OPEN LONG # BUY
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 69 --to 69 --cancel-open # CANCEL
@@ -400,6 +411,148 @@ async function runCancelMode(
   if (fail > 0) process.exitCode = 1;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Watch-close cancel mode — cancel close orders aged past a limit    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Watch active orders and cancel close-side (reduce-only) orders whose
+ * price falls within [from, to] once they have existed longer than --age
+ * seconds. Each order ID is tracked in a Map<string, Date> holding the
+ * time it was first seen (tested); orders still present on later polls
+ * keep their original first-seen time, orders that vanished are dropped,
+ * and any tracked order whose first-seen time is older than --age seconds
+ * is cancelled. --close-long targets reduce-only Sell orders (posSide
+ * Long), --close-short targets reduce-only Buy orders (posSide Short).
+ */
+async function runWatchCloseCancelMode(
+  symbol: string,
+  closeMode: "long" | "short",
+  from: number,
+  to: number,
+  dryRun: boolean,
+): Promise<void> {
+  // NaN bounds mean "any price" — the price varies, so --price is optional.
+  const lo = Number.isNaN(from) ? null : Math.min(from, to);
+  const hi = Number.isNaN(to) ? null : Math.max(from, to);
+  const rangeLabel = lo === null && hi === null ? "any price" : `$${lo}–$${hi}`;
+  const intervalMs = Math.max(parseInt(getArgValue("--interval") ?? "", 10) || 2, 1) * 1000;
+  const ageMs = Math.max(parseInt(getArgValue("--age") ?? "", 10) || 10, 1) * 1000;
+  const once = process.argv.includes("--once");
+
+  // close-long = reduce-only Sell (posSide Long); close-short = reduce-only Buy (posSide Short)
+  const wantSide = closeMode === "long" ? "Sell" : "Buy";
+  const wantLabel = closeMode === "long" ? "close-long" : "close-short";
+
+  const creds = loadCredentialsPath(CREDS_FILE);
+  const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+
+  // orderID → time (Date) the order was first tested / first seen
+  const firstSeen = new Map<string, Date>();
+
+  console.log(`[${fmtTime()}] ═ Watch ${symbol} ${wantLabel} orders @ ${rangeLabel} ═${dryRun ? "  DRY RUN" : ""}`);
+  console.log(`[${fmtTime()}]   Poll every ${intervalMs / 1000}s · cancel ${wantLabel} orders older than ${ageMs / 1000}s · ${dryRun ? "no cancels will be sent" : "cancels enabled"}`);
+  console.log(`[${fmtTime()}] ═════════════════════════════════════════════════════════`);
+
+  let cancelled = 0;
+  let polls = 0;
+
+  async function poll(): Promise<void> {
+    polls++;
+    let rows: Record<string, unknown>[];
+    try {
+      rows = await fetchActiveOrders(symbol, creds.PHEMEX_API_KEY, secretRaw);
+    } catch (err: unknown) {
+      console.error(`[${fmtTime()}] ✗  Fetch failed: ${err instanceof Error ? err.message : String(err)} — retrying next cycle`);
+      return;
+    }
+
+    const now = new Date();
+
+    // Only close-side orders of the target side, with price within [lo, hi]
+    // (null bounds match any price)
+    const targets = rows.filter((o) => {
+      if (!isReduceOnlyRow(o)) return false;
+      if (String(o.side ?? "").toLowerCase() !== wantSide.toLowerCase()) return false;
+      const price = parseFloat(String(o.priceRp ?? o.price ?? ""));
+      return !Number.isNaN(price) && (lo === null || price >= lo) && (hi === null || price <= hi);
+    });
+
+    const currentIds = new Set<string>();
+    for (const o of targets) {
+      const oid = String(o.orderID ?? "");
+      if (!oid) continue;
+      currentIds.add(oid);
+      if (!firstSeen.has(oid)) {
+        firstSeen.set(oid, now);
+        console.log(
+          `[${fmtTime()}]   ➕  tracked ${oid}  ${String(o.side ?? "?")} qty ` +
+          `${String(o.orderQtyRq ?? o.orderQty ?? "?").padStart(6)} limit @ ${String(o.priceRp ?? o.price ?? "?")}  (${wantLabel})`,
+        );
+      }
+    }
+
+    // Drop orders that are no longer active (filled / cancelled elsewhere)
+    for (const [oid, seen] of firstSeen) {
+      if (!currentIds.has(oid)) {
+        const ageSec = ((now.getTime() - seen.getTime()) / 1000).toFixed(1);
+        console.log(`[${fmtTime()}]   🗑  dropped ${oid} (gone after ${ageSec}s)`);
+        firstSeen.delete(oid);
+      }
+    }
+
+    // Cancel tracked close orders that have existed longer than ageMs
+    for (const o of targets) {
+      const oid = String(o.orderID ?? "");
+      const seen = firstSeen.get(oid);
+      if (!seen) continue;
+      const openMs = now.getTime() - seen.getTime();
+      if (openMs < ageMs) continue;
+
+      const side = String(o.side ?? "?");
+      const price = String(o.priceRp ?? o.price ?? "?");
+      const ageSec = (openMs / 1000).toFixed(1);
+
+      if (dryRun) {
+        console.log(`[${fmtTime()}]   ✂  DRY RUN — would cancel ${oid}  ${side} @ ${price}  (${wantLabel}, existed ${ageSec}s > ${ageMs / 1000}s)`);
+        continue;
+      }
+
+      process.stdout.write(`[${fmtTime()}]   ✂  cancelling ${oid}  ${side} @ ${price}  (${wantLabel}, existed ${ageSec}s)  …  `);
+      try {
+        const result = await cancelOrderRow(symbol, oid, o, creds.PHEMEX_API_KEY, secretRaw);
+        if (result.ok) {
+          console.log("✓");
+          cancelled++;
+          firstSeen.delete(oid);
+        } else {
+          console.log(`✗  ${result.detail}`);
+        }
+      } catch (err: unknown) {
+        console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await new Promise((r) => setTimeout(r, ORDER_DELAY_MS));
+    }
+
+    if (targets.length === 0) {
+      console.log(`[${fmtTime()}]   ℹ  no ${wantLabel} orders at ${rangeLabel} (${firstSeen.size} tracked)`);
+    }
+  }
+
+  process.on("SIGINT", () => {
+    console.log(`\n[${fmtTime()}] ⏹  Stopped — ${polls} poll(s), ${cancelled} order(s) cancelled.`);
+    process.exit(0);
+  });
+
+  for (;;) {
+    await poll();
+    if (once) break;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  console.log(`[${fmtTime()}]   Done — ${polls} poll(s), ${cancelled} order(s) cancelled.`);
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes("--help") || process.argv.includes("-h")) usage();
   // No options at all → show usage instead of silently placing the default
@@ -415,6 +568,8 @@ async function main(): Promise<void> {
   const closeMode: CloseMode = closeShort ? "short" : closeLong ? "long" : "none";
   const closing = closeMode !== "none";
   const closeLabel = closeMode === "none" ? "" : closeMode; // "short" | "long"
+  // --cancel + --close-long/--close-short → watch-close mode (price optional)
+  const watchCancel = process.argv.includes("--cancel") && closeMode !== "none";
 
   const symbol = getArgValue("--symbol") ?? SYMBOL;
   const priceArg = getArgValue("--price");
@@ -423,17 +578,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   // Never assume the $50 → $70 defaults: without an explicit price spec
-  // (--price, or both --from and --to) show usage instead.
+  // (--price, or both --from and --to) show usage instead. The watch-close
+  // cancel mode is the exception — the price varies, so --price is optional
+  // there and omitting it means "any price".
   const hasFrom = getArgValue("--from") !== undefined;
   const hasTo = getArgValue("--to") !== undefined;
-  if (priceArg === undefined && !(hasFrom && hasTo)) {
+  if (priceArg === undefined && !(hasFrom && hasTo) && !watchCancel) {
     console.error(`✗  No price specified — pass --price <n|last|mark>, or both --from and --to.`);
     usage();
   }
   // --price <n|last|mark> is shorthand for a single-rung ladder (--from p --to p),
   // so it composes with the cancel modes (cancel orders at exactly that price).
-  const from = priceArg !== undefined ? priceArgValue("--price", priceArg, NaN) : numArg("--from", FROM);
-  const to = priceArg !== undefined ? from : numArg("--to", TO);
+  // In watch-close mode a missing price spec leaves the bounds open (NaN = any price).
+  const from = priceArg !== undefined ? priceArgValue("--price", priceArg, NaN) : hasFrom ? numArg("--from", FROM) : NaN;
+  const to = priceArg !== undefined ? from : hasTo ? numArg("--to", TO) : NaN;
 
   // Cancel mode: ignore step/qty/leverage/side and cancel orders by price range
   const cancelClose = process.argv.includes("--cancel-close");
@@ -455,6 +613,13 @@ async function main(): Promise<void> {
   if (cancelShort) cancelPosSide = "short";
   else if (cancelLong) cancelPosSide = "long";
   if (process.argv.includes("--cancel") || cancelClose || cancelOpen || cancelShort || cancelLong) {
+    // --cancel combined with --close-long/--close-short switches to the
+    // watch mode: cancel those close orders only after they have existed
+    // longer than --age seconds (tracked in a Map<orderID, firstSeen>).
+    if (watchCancel) {
+      await runWatchCloseCancelMode(symbol, closeMode, from, to, dryRun);
+      return;
+    }
     await runCancelMode(symbol, from, to, dryRun, cancelFilter, cancelPosSide);
     return;
   }
