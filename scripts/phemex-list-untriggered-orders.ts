@@ -127,7 +127,7 @@ async function fetchAndPrint(
     const action = classifyOrder(o.side, isReduceOnly(o));
     console.log(
       `${symbol.padEnd(symbolWidth)}  ${(o.orderID || "?").padEnd(36)}  ${(o.side || "?").padEnd(4)} qty ` +
-      `${(o.qty || "?").padStart(6)} limit @ ${(o.price || "?").padStart(5)}  →  ${action}`,
+      `${(o.qty || "?").padStart(6)} limit @ ${(o.price ? Number(o.price).toFixed(2) : "?").padStart(5)}  →  ${action}`,
     );
   }
   return collected.length;

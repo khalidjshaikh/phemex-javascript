@@ -61,7 +61,7 @@ const LONG_SPREAD_LAST = [
   "--cancel",
   "--sleep", "5",
   // "--takeProfit", "last+.1",
-  "--price", "last",
+  "--price", "mark",
 ];
 
 const SHORT_PRICE_MARK = [
@@ -282,7 +282,8 @@ async function main(): Promise<void> {
     // const qty = maxAbs > 0.1 ? "0.1" : "0.01";
     const qty: Number = 0.01
     // const cmdSpreadLastArgs = [...spreadLast, "--gap", desired === "long" ? (-1 * gapMag).toFixed(2) : (+1 * gapMag).toFixed(2), "--qty", qty];
-    const cmdSpreadLastArgs = [...spreadLast, "--gap", -0.70, "--qty", qty];
+    // const cmdSpreadLastArgs = [...spreadLast, "--gap", -0.70, "--qty", qty];
+    const cmdSpreadLastArgs = [...spreadLast, "--gap", +0.00, "--qty", qty];
     console.log(markLast)
 
     console.log(`${cycleTag(cycle)} markLast=${fmt(markLast)} indexLast=${fmt(indexLast)} → running ${basename(script)} ${priceMark.join(" ")} and ${basename(script)} ${cmdSpreadLastArgs.join(" ")} in parallel (awaiting) …`);
