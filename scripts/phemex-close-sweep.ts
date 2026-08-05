@@ -37,6 +37,9 @@
  *                         price moves, until the user exits (Ctrl+C).
  *   --close-short         Reduce-only Buy ladder closing an open short (default)
  *   --close-long          Reduce-only Sell ladder closing an open long
+ *   --ignore-exception    On place/cancel API errors, log and continue
+ *                         (loop keeps polling; sweep moves to the next
+ *                         rung) instead of exiting the process.
  *   --dry-run             Print the sweep without placing any orders
  *   --help, -h            Show this help message
  */
@@ -99,6 +102,8 @@ Options:
                         With --price last: loop period for re-reading last.txt.
   --close-short         Reduce-only Buy ladder closing an open short (default)
   --close-long          Reduce-only Sell ladder closing an open long
+  --ignore-exception    On place/cancel errors, log and continue instead of
+                        exiting (loop keeps polling; sweep next rung)
   --dry-run             Print the sweep without placing any orders
   --help, -h            Show this help message
 
@@ -211,11 +216,15 @@ async function cancelOrder(
     if (bizError === undefined || bizError === 0) return "cancelled";
   }
 
-  // 20001 / order not found → already filled
+  // Order not found (20001 / 60017 / "not found") → already filled
   const msg = String(resp.msg ?? "");
-  if (/not.?found/i.test(msg) || /20001/.test(msg)) return "filled";
+  const code = String(resp.code ?? "?");
+  const data = resp.data as { bizError?: number }[] | undefined;
+  const bizError = data?.[0]?.bizError;
+  if (/not.?found/i.test(msg) || /20001/.test(msg) || /60017/.test(msg) || bizError === 60017) return "filled";
 
-  return `error: ${msg}`;
+  const biz = bizError === undefined ? "" : ` bizError=${bizError}`;
+  return `error: code=${code} msg="${msg}"${biz}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -282,6 +291,7 @@ interface LastLoopOptions {
   qty: number;
   delay: number;
   dryRun: boolean;
+  ignore: boolean;
 }
 
 /**
@@ -296,13 +306,14 @@ async function runLastLoop(
   apiKey: string,
   secretRaw: Buffer,
 ): Promise<void> {
-  const { symbol, side, posSide, qty, delay, dryRun } = opts;
+  const { symbol, side, posSide, qty, delay, dryRun, ignore } = opts;
   const closeLabel = side === "Sell" ? "long" : "short";
 
   console.log(`[${fmtTime()}] ═ ${symbol} Close-${closeLabel} @ last.txt loop ══════════════`);
   console.log(`[${fmtTime()}]   Qty:     ${qty}   side: ${side} / ${posSide}  reduceOnly`);
   console.log(`[${fmtTime()}]   Poll:    ${delay}ms  re-read last.txt → cancel + re-place on change`);
   console.log(`[${fmtTime()}]   Mode:    ${dryRun ? "DRY-RUN" : "LIVE"}  (Ctrl+C to exit; order stays resting, cancel with --cancel)`);
+  if (ignore) console.log(`[${fmtTime()}]   Errors:  ignored (--ignore-exception) — loop keeps running on place/cancel errors`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════`);
 
   let orderID: string | null = null;
@@ -337,11 +348,17 @@ async function runLastLoop(
           return;
         } else {
           console.log(`✗  ${status}`);
-          return;
+          if (!ignore) return;
+          console.log(`[${fmtTime()}]     --ignore-exception: continuing (order may still be resting — will retry on next move)`);
+          await sleep(delay);
+          continue;
         }
       } catch (err: unknown) {
         console.log(`✗  ${err instanceof Error ? err.message : String(err)}`);
-        return;
+        if (!ignore) return;
+        console.log(`[${fmtTime()}]     --ignore-exception: continuing (order may still be resting — will retry on next move)`);
+        await sleep(delay);
+        continue;
       }
     }
 
@@ -375,7 +392,15 @@ async function runLastLoop(
     } catch (err: unknown) {
       const reason = err instanceof Error ? err.message : String(err);
       console.log(`✗  ${reason}`);
-      return;
+      if (!ignore) return;
+      // The previous order was already cancelled — nothing is resting now.
+      // Remember the attempted price so the loop idles instead of spinning;
+      // the next price move triggers a fresh placement.
+      orderID = null;
+      currentPrice = newPrice;
+      console.log(`[${fmtTime()}]     --ignore-exception: continuing (no order resting — will retry on next move)`);
+      await sleep(delay);
+      continue;
     }
 
     await sleep(delay);
@@ -405,6 +430,7 @@ async function main(): Promise<void> {
   const qty = numArg("--qty", QTY);
   const priceArg = getArgValue("--price");
   const cancel = process.argv.includes("--cancel");
+  const ignore = process.argv.includes("--ignore-exception");
   const delay = numArg("--delay", DELAY_MS);
 
   // Loop mode: --price last with an explicit --delay keeps re-reading
@@ -471,7 +497,7 @@ async function main(): Promise<void> {
   if (priceArg !== undefined) {
     // Loop mode: keep a close order at the current last.txt price.
     if (loopLast) {
-      await runLastLoop({ symbol, side, posSide, qty, delay, dryRun }, creds.PHEMEX_API_KEY, secretRaw);
+      await runLastLoop({ symbol, side, posSide, qty, delay, dryRun, ignore }, creds.PHEMEX_API_KEY, secretRaw);
       return;
     }
 
@@ -599,6 +625,10 @@ async function main(): Promise<void> {
       console.log(`✗  ${reason}`);
       clearRestingState(); // previous rung's order is gone — nothing resting
       swept++;
+      if (ignore) {
+        console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung`);
+        continue;
+      }
       aborted = reason;
       break;
     }
@@ -624,6 +654,10 @@ async function main(): Promise<void> {
       } else {
         console.log(`✗  ${status}`);
         swept++;
+        if (ignore) {
+          console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung (order may still be resting)`);
+          continue;
+        }
         aborted = status;
         break;
       }
@@ -631,6 +665,10 @@ async function main(): Promise<void> {
       const reason = err instanceof Error ? err.message : String(err);
       console.log(`✗  ${reason}`);
       swept++;
+      if (ignore) {
+        console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung (order may still be resting)`);
+        continue;
+      }
       aborted = reason;
       break;
     }
