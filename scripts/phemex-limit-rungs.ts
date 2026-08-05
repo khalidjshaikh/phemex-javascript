@@ -20,6 +20,8 @@
  * over-close; it errors out if no position of that side is open.
  *
  * Usage:
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --price 79.4 --cancel
+ *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --price last --close-long --qty 0.01
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --side short # OPEN SHORT # SELL
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-short --side short # CANCEL
  *   scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 61 --to 61 --close-short # CLOSE SHORT # BUY
@@ -31,6 +33,12 @@
  *
  * Options:
  *   --symbol <symbol>   Contract symbol (default: XBRUSDT)
+ *   --price <n|last|mark>  Single resting order at <n>, or at the price read
+ *                        from last.txt / mark.txt — shorthand for
+ *                        --from <p> --to <p>; composes with --cancel* flags.
+ *                        Cannot be combined with --from/--to.
+ *                        A price spec (--price, or both --from and --to) is
+ *                        required — the $50 → $70 defaults are never assumed.
  *   --from <price>      Ladder start price (default: 50)
  *   --to <price>        Ladder end price, inclusive (default: 70)
  *   --step <price>      Price step between rungs (default: 1)
@@ -48,6 +56,8 @@
  *   --help, -h          Show this help message
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { base64UrlDecode, request } from "../src/http-client.js";
 import { loadCredentialsPath } from "../src/credentials.js";
 import {
@@ -59,6 +69,9 @@ import { fetchPositions } from "../src/positions.js";
 import { uuid } from "../src/uuid.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
+const ROOT = resolve(import.meta.dirname, ".."); // project root
+const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
+const MARK_FILE = resolve(ROOT, "mark.txt"); // written by phemex-mark-price2.ts
 
 // Defaults
 const SYMBOL = "XBRUSDT";
@@ -80,6 +93,12 @@ from \$${FROM} to \$${TO} (inclusive), qty ${QTY} each, at ${LEVERAGE}x leverage
 
 Options:
   --symbol <symbol>   Contract symbol (default: ${SYMBOL})
+  --price <n|last|mark>  Single resting order at <n>, or at the price read
+                        from last.txt / mark.txt — shorthand for
+                        --from <p> --to <p>; composes with --cancel* flags.
+                        Cannot be combined with --from/--to.
+                        A price spec (--price, or both --from and --to) is
+                        required — the $50 → $70 defaults are never assumed.
   --from <price>      Ladder start price (default: ${FROM})
   --to <price>        Ladder end price, inclusive (default: ${TO})
   --step <price>      Price step between rungs (default: ${STEP})
@@ -97,6 +116,8 @@ Options:
      --help, -h          Show this help message
 
    Examples:
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --price 79.4 --cancel
+       scripts/phemex-limit-rungs.ts --symbol XBRUSDT --price 79.4 --close-long --qty 0.01
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --side short # OPEN SHORT # SELL
        scripts/phemex-limit-rungs.ts --symbol XBRUSDT --from 100 --to 100 --cancel-short --side short # CANCEL
 
@@ -127,6 +148,41 @@ function numArg(name: string, fallback: number): number {
   const v = parseFloat(raw);
   if (!Number.isFinite(v)) {
     console.error(`✗  Invalid value for ${name}: "${raw}"`);
+    process.exit(1);
+  }
+  return v;
+}
+
+/** Read a price file (last.txt / mark.txt, project root). Throws if unavailable. */
+function readPriceFile(file: string): number {
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8").trim();
+  } catch {
+    throw new Error(`Cannot read ${file} — run phemex-mark-price2.ts first, or pass a number`);
+  }
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v) || v <= 0) throw new Error(`Invalid price in ${file}: "${raw}"`);
+  return v;
+}
+
+/**
+ * Resolve a price arg that may be "last" (last.txt), "mark" (mark.txt), or
+ * a plain number; falls back to `fallback` when the arg is absent.
+ */
+function priceArgValue(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  if (raw === "last" || raw === "mark") {
+    try {
+      return readPriceFile(raw === "last" ? LAST_FILE : MARK_FILE);
+    } catch (err: unknown) {
+      console.error(`✗  ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) {
+    console.error(`✗  Invalid value for ${name}: "${raw}" — use a number, "last", or "mark"`);
     process.exit(1);
   }
   return v;
@@ -361,8 +417,23 @@ async function main(): Promise<void> {
   const closeLabel = closeMode === "none" ? "" : closeMode; // "short" | "long"
 
   const symbol = getArgValue("--symbol") ?? SYMBOL;
-  const from = numArg("--from", FROM);
-  const to = numArg("--to", TO);
+  const priceArg = getArgValue("--price");
+  if (priceArg !== undefined && (getArgValue("--from") !== undefined || getArgValue("--to") !== undefined)) {
+    console.error(`✗  Cannot combine --price with --from/--to`);
+    process.exit(1);
+  }
+  // Never assume the $50 → $70 defaults: without an explicit price spec
+  // (--price, or both --from and --to) show usage instead.
+  const hasFrom = getArgValue("--from") !== undefined;
+  const hasTo = getArgValue("--to") !== undefined;
+  if (priceArg === undefined && !(hasFrom && hasTo)) {
+    console.error(`✗  No price specified — pass --price <n|last|mark>, or both --from and --to.`);
+    usage();
+  }
+  // --price <n|last|mark> is shorthand for a single-rung ladder (--from p --to p),
+  // so it composes with the cancel modes (cancel orders at exactly that price).
+  const from = priceArg !== undefined ? priceArgValue("--price", priceArg, NaN) : numArg("--from", FROM);
+  const to = priceArg !== undefined ? from : numArg("--to", TO);
 
   // Cancel mode: ignore step/qty/leverage/side and cancel orders by price range
   const cancelClose = process.argv.includes("--cancel-close");
