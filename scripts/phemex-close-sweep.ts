@@ -698,6 +698,7 @@ async function main(): Promise<void> {
       swept++;
       if (ignore) {
         console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung`);
+        if (delay > 0) await sleep(delay);
         continue;
       }
       aborted = reason;
@@ -727,6 +728,7 @@ async function main(): Promise<void> {
         swept++;
         if (ignore) {
           console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung (order may still be resting)`);
+          if (delay > 0) await sleep(delay);
           continue;
         }
         aborted = status;
@@ -738,6 +740,7 @@ async function main(): Promise<void> {
       swept++;
       if (ignore) {
         console.log(`[${fmtTime()}]     --ignore-exception: continuing to next rung (order may still be resting)`);
+        if (delay > 0) await sleep(delay);
         continue;
       }
       aborted = reason;
