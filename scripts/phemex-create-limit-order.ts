@@ -11,15 +11,19 @@
  * Ladder mode (--from/--to): place a limit order at --from, wait --delay ms,
  * cancel it, then re-offer at --from+--step, sweeping up/down to --to
  * (inclusive).  Each rung is place → wait → cancel; stops early on fill.
- * With --loop the sweep repeats indefinitely — file-based endpoints
- * ("last"/"mark") are re-read each pass so the range tracks the market —
- * until a rung fills or an API error stops it (Ctrl+C to interrupt).
+ * --price <num> is shorthand for --from <num> --to <num>: a single-price
+ * sweep (place → wait → cancel at one price; with --loop, re-sweep until
+ * filled).
+ * File-based endpoints ("last"/"mark" and "last±δ"/"mark±δ") are re-read
+ * before every rung, so each order prices off the live last.txt / mark.txt
+ * value.  With --loop the sweep repeats indefinitely — each rung re-reads
+ * the file so the range tracks the market — until a rung fills or an API
+ * error stops it (Ctrl+C to interrupt).
  * Prices accept a number, "last"/"mark" (last.txt / mark.txt at project
  * root), or an offset like "last-0.10" / "mark+0.20" (file ± delta).
  *
  * Examples:
- *   ./phemex-create-limit-order.ts --account spot    --symbol BTCUSDT --side Buy  --price 60000 --qty 0.001
- *   ./phemex-create-limit-order.ts --account usdt-m  --symbol BTCUSDT --side Buy  --price 60000 --qty 0.01
+ *   ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Sell --price 80 --qty 0.01 --delay 2000 --loop
  *   ./phemex-create-limit-order.ts --account coin-m --symbol BTCUSD  --side Buy  --price 60000 --qty 1
  *
  * Flags:
@@ -34,7 +38,7 @@
  *                   Coin-M:  BTCUSD, ETHUSD, ...
  *
  *   --side          Order direction: Buy | Sell (required)
- *   --price         Limit price in quote currency (required)
+ *   --price         Limit price — shorthand for --from <num> --to <num> (required)
  *   --qty           Quantity  (required)
  *                   Spot:    base currency amount  (e.g. 0.001 BTC)
  *                   USDT-M:  contract qty          (e.g. 0.01)
@@ -77,7 +81,7 @@ interface CliArgs {
   takeProfit?: number;
   stopLoss?: number;
   jsonOutput: boolean;
-  /** Ladder mode (--from/--to) — sweep a limit order across a price range. */
+  /** Ladder mode (--price <num> ≡ --from <num> --to <num>) — sweep a limit order across a price range. */
   ladder: boolean;
   from?: number;
   to?: number;
@@ -161,11 +165,10 @@ Usage:
   ./phemex-create-limit-order.ts --account <type> --symbol <pair> --side <Buy|Sell> --price <num> --qty <num> [options]
 
 Examples:
-  spot    Buy   30 sats at $60k     ./phemex-create-limit-order.ts --account spot      --symbol BTCUSDT --side Buy   --price 60000 --qty 1
-  usdt-m  Buy   3000 sats 100x L    ./phemex-create-limit-order.ts --account usdt-m    --symbol BTCUSDT --side Buy   --price 60000 --qty 1  --leverage 100 --posSide Long
-  usdt-m  Sell  3000 sats 100x S    ./phemex-create-limit-order.ts --account usdt-m    --symbol BTCUSDT --side Sell  --price 63000 --qty 1  --leverage 100 --posSide Short
-  coin-m  Long   3000 sats 100x L   ./phemex-create-limit-order.ts --account coin-m    --symbol BTCUSD  --side Long  --price 6e4   --qty 1  --leverage 100
-  coin-m  Short  3000 sats 100x S   ./phemex-create-limit-order.ts --account coin-m    --symbol BTCUSD  --side Short --price 6.3e4 --qty 1  --leverage 100
+  usdt-m  Single-price sweep — Sell 0.01 XBRUSDT @ $80, 2s hold, re-sweep until filled
+            ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Sell --price 80 --qty 0.01 --posSide Short --leverage 100 --delay 2000 --loop
+  usdt-m  Sweep Buy @ $60k (100x long), once   ./phemex-create-limit-order.ts --account usdt-m --symbol BTCUSDT --side Buy --price 60000 --qty 1 --leverage 100 --posSide Long
+  coin-m  Sweep Long @ $60k (100x), once       ./phemex-create-limit-order.ts --account coin-m --symbol BTCUSD --side Long --price 6e4 --qty 1 --leverage 100
   usdt-m  Ladder open long 79.49→79.62 (step 0.01, 1s each)
             ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from 79.49 --to 79.62 --qty 0.01 --posSide Long --leverage 100 --step 0.01 --delay 1000
   usdt-m  Ladder from last-0.10 → last (file-based endpoints)
@@ -186,7 +189,9 @@ Required flags:
 
   --side       Order direction: Buy | Sell
   --price      Limit price in quote currency (e.g. 60000; also "last"/"mark"
-               or "last±delta" / "mark±delta" — omit with --from/--to ladder)
+               or "last±delta" / "mark±delta"). Shorthand for --from <num> --to
+               <num>: sweeps a single price — place, wait --delay ms, cancel;
+               add --loop to re-sweep until filled
   --qty        Quantity
                Spot:    base currency amount (e.g. 0.001 BTC)
                USDT-M:  contract quantity (e.g. 0.01)
@@ -216,7 +221,8 @@ Optional flags:
                   Example:  --stopLoss 76     set SL at $76.00
 
   --from <price>  Ladder start price — place a limit order at each rung from
-                  --from to --to (requires --to; --price is not needed).
+                  --from to --to (requires --to; --price <num> is shorthand for
+                  --from <num> --to <num>).
                   Prices accept a number, "last"/"mark" (last.txt / mark.txt),
                   or an offset like "last-0.10" / "mark+0.20" (file ± delta)
   --to <price>    Ladder end price, inclusive (same syntax as --from)
@@ -224,11 +230,13 @@ Optional flags:
                   direction follows --from → --to (downward allowed)
   --delay <ms>    Ladder: wait between place and cancel (default: 0)
 
-  --loop          Ladder: repeat the sweep indefinitely — re-reads
-                  last.txt / mark.txt each pass so the range tracks the
-                  market.  Stops on fill or API error; Ctrl+C to interrupt.
+  --loop          Ladder: repeat the sweep indefinitely.  last.txt /
+                  mark.txt are re-read before every rung so each order
+                  tracks the market.  Stops on fill or API error; Ctrl+C
+                  to interrupt.
 
-  --json          Print the order result as JSON instead of the human-readable summary
+  --json          Print the order result as JSON instead of the human-readable
+                  summary (cannot be combined with --price/--from/--to)
 `.trim();
   console.log(text);
   process.exit(0);
@@ -263,7 +271,8 @@ function parseArgs(): CliArgs {
   const toRaw = m("--to");
   const stepRaw = m("--step");
   const delayRaw = m("--delay");
-  const ladder = fromRaw !== undefined || toRaw !== undefined;
+  // --price <num> is shorthand for --from <num> --to <num> (single-price sweep)
+  const ladder = fromRaw !== undefined || toRaw !== undefined || price !== undefined;
   const loop = argv.includes("--loop");
   const jsonOutput = argv.includes("--json");
 
@@ -288,14 +297,16 @@ function parseArgs(): CliArgs {
   if (!sideNorm || !["Buy", "Sell"].includes(sideNorm)) {
     errors.push("--side     must be Buy or Sell (case-insensitive)");
   }
-  if (!ladder && price === undefined) {
-    errors.push("--price    is required (numeric) — or use --from/--to for a ladder");
+  if (price === undefined && fromRaw === undefined && toRaw === undefined) {
+    errors.push("--price    is required — shorthand for --from <num> --to <num>, or pass --from/--to for a range ladder");
   }
-  if (ladder && price !== undefined) {
-    errors.push("--price    cannot be combined with --from/--to (ladder mode)");
+  if (price !== undefined && (fromRaw !== undefined || toRaw !== undefined)) {
+    errors.push("--price    cannot be combined with --from/--to — it is shorthand for --from <num> --to <num>");
   }
   // "last"/"mark" (last.txt / mark.txt) and "last±delta" / "mark±delta" resolve here
-  const priceValue = !ladder && price !== undefined ? resolvePriceArg(price, errors, "--price") : undefined;
+  const priceValue = price !== undefined ? resolvePriceArg(price, errors, "--price") : undefined;
+  // File-based --price endpoints are re-resolved per rung so loop mode tracks the market
+  const priceFileBased = price !== undefined && (price === "last" || price === "mark" || PRICE_EXPR.test(price));
   if (!qty || isNaN(Number(qty))) {
     errors.push("--qty      is required (numeric)");
   }
@@ -334,7 +345,10 @@ function parseArgs(): CliArgs {
   let from: number | undefined;
   let to: number | undefined;
   if (ladder) {
-    if (fromRaw === undefined || toRaw === undefined) {
+    if (price !== undefined) {
+      from = priceValue;
+      to = priceValue;
+    } else if (fromRaw === undefined || toRaw === undefined) {
       errors.push("--from/--to  both required for ladder mode");
     } else {
       from = resolvePriceArg(fromRaw, errors, "--from");
@@ -347,10 +361,10 @@ function parseArgs(): CliArgs {
       errors.push("--delay    must be a non-negative number of ms (default: 0)");
     }
     if (jsonOutput) {
-      errors.push("--json     cannot be combined with --from/--to (ladder mode)");
+      errors.push("--json     cannot be combined with --price/--from/--to (ladder mode)");
     }
     if (account === "spot") {
-      errors.push("--from/--to ladder is not supported for spot (no spot cancel path)");
+      errors.push("--price / --from/--to (ladder sweep) is not supported for spot (no spot cancel path)");
     }
   }
   if (loop && !ladder) {
@@ -368,7 +382,7 @@ function parseArgs(): CliArgs {
     account: account as CliArgs["account"],
     symbol: symbol as string,
     side: sideNorm as CliArgs["side"],
-    price: ladder ? 0 : (priceValue ?? 0),
+    price: priceValue ?? 0,
     qty: Number(qty),
     posSide,
     timeInForce,
@@ -379,8 +393,8 @@ function parseArgs(): CliArgs {
     ladder,
     from,
     to,
-    fromSrc: fromRaw,
-    toSrc: toRaw,
+    fromSrc: price !== undefined ? (priceFileBased ? price : undefined) : fromRaw,
+    toSrc: price !== undefined ? (priceFileBased ? price : undefined) : toRaw,
     step,
     delay,
     loop,
@@ -519,9 +533,10 @@ async function placeLinear(args: CliArgs, apiKey: string, secretRaw: Buffer): Pr
     secretRaw,
     ""  // no body for PUT with query params
   )) as Record<string, unknown>;
-
+  // console.dir(query, { depth: null });
   if (resp.code !== 0) throw new Error(String(resp.msg ?? `API code ${resp.code}`));
   const data = resp.data as PlaceOrderResult | undefined;
+  // console.dir(data, { depth: null });
   if (!data) throw new Error("Empty response data");
   return data;
 }
@@ -630,9 +645,10 @@ async function cancelRung(
 type LadderOutcome = "filled" | "aborted" | "complete";
 
 /**
- * Resolve the ladder --from/--to endpoints for one pass.  File-based
- * endpoints ("last", "mark", "last±delta", …) are re-read so the range
- * tracks the current price on every pass (used by --loop).
+ * Resolve the ladder --from/--to endpoints.  File-based endpoints
+ * ("last", "mark", "last±delta", …) are re-read so the range tracks the
+ * current price; runLadder calls this before every rung placement, so each
+ * order prices off the live last.txt / mark.txt value.
  */
 function resolveLadderRange(args: CliArgs): { from: number; to: number } {
   const errors: string[] = [];
@@ -650,16 +666,17 @@ function resolveLadderRange(args: CliArgs): { from: number; to: number } {
  */
 async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from: number, to: number, pass: number): Promise<LadderOutcome> {
   const dir = to >= from ? 1 : -1;
-  const prices: number[] = [];
-  for (let p = from; dir > 0 ? p <= to + 1e-9 : p >= to - 1e-9; p += dir * Math.abs(args.step)) {
-    prices.push(Math.round(p * 10_000) / 10_000);
-  }
+  const initRungs = Math.floor(Math.abs(to - from) / Math.abs(args.step) + 1e-9) + 1;
 
   const passLabel = pass > 1 ? ` (pass ${pass})` : "";
   console.log(`═ ${args.symbol} Ladder: ${args.side} / ${args.posSide} — opening${passLabel} ══════════════════`);
   const fromSrc = args.fromSrc !== undefined ? ` (${args.fromSrc})` : "";
   const toSrc = args.toSrc !== undefined ? ` (${args.toSrc})` : "";
-  console.log(`   Range:     $${from}${fromSrc} → $${to}${toSrc} (inclusive)   step: $${Math.abs(args.step)}   rungs: ${prices.length}`);
+  if (from === to) {
+    console.log(`   Price:     $${from}${fromSrc}   step: $${Math.abs(args.step)}   rungs: ${initRungs}`);
+  } else {
+    console.log(`   Range:     $${from}${fromSrc} → $${to}${toSrc} (inclusive)   step: $${Math.abs(args.step)}   rungs: ${initRungs}`);
+  }
   console.log(`   Qty/order: ${args.qty}   delay: ${args.delay}ms  place → wait → cancel`);
   console.log(`   Leverage:  ${args.leverage ?? "cross-margin"}${args.takeProfit !== undefined ? `   TP: $${args.takeProfit}` : ""}${args.stopLoss !== undefined ? `   SL: $${args.stopLoss}` : ""}`);
   console.log(`══════════════════════════════════════════════════════`);
@@ -667,8 +684,24 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
   let filled = false;
   let aborted: string | null = null;
   let swept = 0;
+  let rungs = initRungs;
 
-  for (const price of prices) {
+  for (let i = 0; ; i++) {
+    // Re-resolve file-based endpoints before EVERY order, so each rung's
+    // price is computed from the live last.txt / mark.txt value rather
+    // than the pass-start price. Numeric endpoints stay fixed; "last"/"mark"
+    // and "last±δ"/"mark±δ" track the market between rungs.
+    let liveFrom: number;
+    let liveTo: number;
+    try {
+      ({ from: liveFrom, to: liveTo } = resolveLadderRange(args));
+    } catch (err: unknown) {
+      aborted = err instanceof Error ? err.message : String(err);
+      break;
+    }
+    rungs = Math.floor(Math.abs(liveTo - liveFrom) / Math.abs(args.step) + 1e-9) + 1;
+    if (i >= rungs) break; // swept past the live end of the range
+    const price = Math.round((liveFrom + i * dir * Math.abs(args.step)) * 10_000) / 10_000;
     // --- Place ---
     process.stdout.write(`   ${args.side} ${args.qty} ${args.symbol} @ $${price.toFixed(4)}  →  placing …  `);
     let orderId: string;
@@ -717,13 +750,13 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
 
   console.log(`══════════════════════════════════════════════════════`);
   if (filled) {
-    console.log(`✔  Ladder filled at rung ${swept + 1}/${prices.length} — position opened.`);
+    console.log(`✔  Ladder filled at rung ${swept + 1}/${rungs} — position opened.`);
     return "filled";
   } else if (aborted) {
-    console.log(`✗  Ladder aborted at rung ${swept + 1}/${prices.length} — ${aborted}`);
+    console.log(`✗  Ladder aborted at rung ${swept + 1}/${rungs} — ${aborted}`);
     return "aborted";
   }
-  console.log(`✔  Ladder complete — ${swept}/${prices.length} rung(s) swept, none filled.`);
+  console.log(`✔  Ladder complete — ${swept}/${rungs} rung(s) swept, none filled.`);
   return "complete";
 }
 
