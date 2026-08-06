@@ -14,6 +14,11 @@
  * --price <num> is shorthand for --from <num> --to <num>: a single-price
  * sweep (place → wait → cancel at one price; with --loop, re-sweep until
  * filled).
+ * --maxPosSize <num> (usdt-m only): position-size guard — before every order
+ * the open position size (contracts) for --symbol is read from
+ * /g-accounts/accountPositions; once it reaches <num>, no more orders are
+ * placed and the sweep exits.  Prevents the loop from stacking size until
+ * liquidation.
  * File-based endpoints ("last"/"mark" and "last±δ"/"mark±δ") are re-read
  * before every rung, so each order prices off the live last.txt / mark.txt
  * value.  With --loop the sweep repeats indefinitely — each rung re-reads
@@ -55,7 +60,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { request, base64UrlDecode } from "../src/http-client.js";
+import { request, base64UrlDecode, httpGet } from "../src/http-client.js";
 import { uuid } from "../src/uuid.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
@@ -91,6 +96,8 @@ interface CliArgs {
   delay: number;
   /** Infinite loop: repeat the ladder sweep until filled or interrupted. */
   loop: boolean;
+  /** Position-size guard (usdt-m only): skip placing any order once the open position size for --symbol reaches this cap (contracts). */
+  maxPosSize?: number;
 }
 
 interface ProductInfo {
@@ -175,6 +182,8 @@ Examples:
             ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from last-0.10 --to last --qty 0.01 --posSide Long --leverage 100 --delay 1000 --step 0.01
   usdt-m  Ladder loop — sweep last-0.10 → last-0.01 forever (until filled)
             ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from last-0.10 --to last-0.01 --qty 0.01 --posSide Long --leverage 100 --delay 1000 --step 0.01 --loop
+  usdt-m  Ladder loop with position cap — stop buying once size ≥ 0.04
+            ./phemex-create-limit-order.ts --account usdt-m --symbol XBRUSDT --side Buy --from last-0.10 --to last --qty 0.01 --posSide Long --leverage 100 --delay 1000 --step 0.01 --loop --maxPosSize 0.04
 
 Required flags:
   --account    Account type
@@ -230,6 +239,12 @@ Optional flags:
                   direction follows --from → --to (downward allowed)
   --delay <ms>    Ladder: wait between place and cancel (default: 0)
 
+  --maxPosSize <num>  Position-size guard (usdt-m only): before each limit
+                  order, read the open position size (contracts) for --symbol
+                  from /g-accounts/accountPositions; if it is ≥ <num>, place
+                  nothing and exit.  Stops the sweep/loop from stacking size
+                  until liquidation.
+
   --loop          Ladder: repeat the sweep indefinitely.  last.txt /
                   mark.txt are re-read before every rung so each order
                   tracks the market.  Stops on fill or API error; Ctrl+C
@@ -271,6 +286,7 @@ function parseArgs(): CliArgs {
   const toRaw = m("--to");
   const stepRaw = m("--step");
   const delayRaw = m("--delay");
+  const maxPosSizeRaw = m("--maxPosSize");
   // --price <num> is shorthand for --from <num> --to <num> (single-price sweep)
   const ladder = fromRaw !== undefined || toRaw !== undefined || price !== undefined;
   const loop = argv.includes("--loop");
@@ -339,6 +355,18 @@ function parseArgs(): CliArgs {
     }
   }
 
+  // Validate the position-size guard (usdt-m only — read via /g-accounts/accountPositions)
+  let maxPosSize: number | undefined;
+  if (maxPosSizeRaw !== undefined) {
+    maxPosSize = Number(maxPosSizeRaw);
+    if (isNaN(maxPosSize) || maxPosSize < 0) {
+      errors.push("--maxPosSize must be a non-negative number (contracts)");
+    }
+    if (account !== "usdt-m") {
+      errors.push("--maxPosSize is only supported for usdt-m (position size read from /g-accounts/accountPositions)");
+    }
+  }
+
   // Validate ladder mode (--from/--to)
   let step = stepRaw !== undefined ? Number(stepRaw) : 0.01;
   let delay = delayRaw !== undefined ? Number(delayRaw) : 0;
@@ -398,6 +426,7 @@ function parseArgs(): CliArgs {
     step,
     delay,
     loop,
+    maxPosSize,
   };
 }
 
@@ -641,6 +670,33 @@ async function cancelRung(
   return `error: code=${String(resp.code ?? "?")} msg="${msg}"${biz}`;
 }
 
+/**
+ * Read the current open position size (contracts) for the order's symbol.
+ * USDT-M only: GET /g-accounts/accountPositions?currency=USDT.
+ * Fail-closed — throws on any API error, so a position read failure stops
+ * the sweep instead of silently allowing more orders.
+ * With posSide Long/Short only that side's position counts; Merged counts
+ * either direction.  No open position → 0.
+ */
+async function currentPositionSize(args: CliArgs, apiKey: string, secretRaw: Buffer): Promise<number> {
+  const resp = (await httpGet(
+    "/g-accounts/accountPositions",
+    "currency=USDT",
+    apiKey,
+    secretRaw,
+  )) as Record<string, unknown>;
+  if (resp.code !== 0) {
+    throw new Error(`position fetch failed: ${String(resp.msg ?? resp.code)}`);
+  }
+  const data = resp.data as { positions?: { symbol: string; side: string; size: string }[] } | undefined;
+  const positions = data?.positions ?? [];
+  const wantSide = args.posSide === "Long" ? "Buy" : args.posSide === "Short" ? "Sell" : undefined;
+  const pos = positions.find(
+    (p) => p.symbol === args.symbol && (wantSide === undefined || p.side === wantSide),
+  );
+  return pos ? Math.abs(parseFloat(pos.size || "0")) : 0;
+}
+
 /** Outcome of a single ladder sweep. */
 type LadderOutcome = "filled" | "aborted" | "complete";
 
@@ -679,6 +735,9 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
   }
   console.log(`   Qty/order: ${args.qty}   delay: ${args.delay}ms  place → wait → cancel`);
   console.log(`   Leverage:  ${args.leverage ?? "cross-margin"}${args.takeProfit !== undefined ? `   TP: $${args.takeProfit}` : ""}${args.stopLoss !== undefined ? `   SL: $${args.stopLoss}` : ""}`);
+  if (args.maxPosSize !== undefined) {
+    console.log(`   Pos guard: stop placing once ${args.symbol} size ≥ ${args.maxPosSize} contracts`);
+  }
   console.log(`══════════════════════════════════════════════════════`);
 
   let filled = false;
@@ -702,6 +761,23 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
     rungs = Math.floor(Math.abs(liveTo - liveFrom) / Math.abs(args.step) + 1e-9) + 1;
     if (i >= rungs) break; // swept past the live end of the range
     const price = Math.round((liveFrom + i * dir * Math.abs(args.step)) * 10_000) / 10_000;
+    // --- Position-size guard: skip placing once the open size hits the cap ---
+    if (args.maxPosSize !== undefined) {
+      let size: number;
+      try {
+        size = await currentPositionSize(args, apiKey, secretRaw);
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.log(`   ✗  position check failed — ${reason}`);
+        aborted = reason;
+        break;
+      }
+      if (size >= args.maxPosSize) {
+        console.log(`   ✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
+        aborted = `${args.symbol} position size ${size} ≥ maxPosSize ${args.maxPosSize}`;
+        break;
+      }
+    }
     // --- Place ---
     process.stdout.write(`   ${args.side} ${args.qty} ${args.symbol} @ $${price.toFixed(4)}  →  placing …  `);
     let orderId: string;
@@ -798,6 +874,15 @@ async function main(): Promise<void> {
     const { from, to } = resolveLadderRange(args);
     await runLadder(args, creds.PHEMEX_API_KEY, secretRaw, from, to, 1);
     return;
+  }
+
+  // Position-size guard for single orders: exit instead of placing if already at the cap
+  if (args.maxPosSize !== undefined) {
+    const size = await currentPositionSize(args, creds.PHEMEX_API_KEY, secretRaw);
+    if (size >= args.maxPosSize) {
+      console.error(`✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
+      process.exit(1);
+    }
   }
 
   let result: PlaceOrderResult;
