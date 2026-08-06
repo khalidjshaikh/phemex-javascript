@@ -112,8 +112,8 @@ interface ProductInfo {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Offset form: "mark+0.20" / "last-0.05" / "mark+.1" — price file ± delta (US-ASCII +/-). */
-const PRICE_EXPR = /^(last|mark)([+-])(\d+(?:\.\d+)?|\.\d+)$/;
+/** Offset form: "mark+0.20" / "last-0.05" / "mark+.1" / "last-1e-1" — price file ± delta (US-ASCII +/-; exponent allowed). */
+const PRICE_EXPR = /^(last|mark)([+-])((?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)$/;
 
 /** Read the price stored in last.txt / mark.txt (project root). */
 function readPriceFile(file: string): number {
