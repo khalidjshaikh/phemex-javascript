@@ -242,7 +242,8 @@ async function main(): Promise<void> {
 
   for (let cycle = 1; !stopRequested; cycle++) {
     // console.log(`${cycleTag(cycle)} reading ${MARK_FILE} and ${INDEX_FILE} …`);
-    const markLast = Math.max(readLastValue(MARK_FILE), 0.01);
+    // const markLast = Math.max(readLastValue(MARK_FILE), 0.01);
+    const markLast = readLastValue(MARK_FILE);
     const indexLast = readLastValue(INDEX_FILE);
     const desired: Side | null = markLast > 0 ? "long" : markLast < 0 ? "short" : null;
 
@@ -256,7 +257,8 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // console.dir(SIDES)
+    // console.dir(SIDES
+    // console.log('*'.repeat(80));
     // console.log(desired)
     const { script, priceMark, spreadLast } = SIDES[desired];
     // const { script, priceMark, spreadLast } = SIDES["long"];

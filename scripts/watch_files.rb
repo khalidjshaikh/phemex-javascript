@@ -1,13 +1,14 @@
+#!/usr/bin/env ruby
 # Watch markLast.txt and indexLast.txt, print both values every second.
 # Track the running min/max of the indexLast.txt value within the current
 # segment; announce new segment highs/lows on screen + via /usr/bin/say.
 # Whenever the index value crosses zero, the min/max are reset to zero and
 # a fresh segment begins.
 files = [
-  "/Users/kshaikh/git/crypto/phemex-javascript/markLast.txt",
-  "/Users/kshaikh/git/crypto/phemex-javascript/indexLast.txt",
+  "./markLast.txt",
+  "./indexLast.txt",
 ]
-last_file = "/Users/kshaikh/git/crypto/phemex-javascript/last.txt"
+last_file = "./last.txt"
 
 running_min = nil
 running_max = nil
@@ -29,6 +30,15 @@ def speak(text)
   puts "[say] #{text}"
   $stdout.flush
   IO.popen("/usr/bin/say", "w") { |io| io.write(text) }
+end
+
+# Format a float for speech without a leading zero (0.15 -> ".15",
+# -0.15 -> "-.15"); values >= 1 keep their integer part. Negative
+# values get an explicit "minus" prefix because /usr/bin/say does not
+# pronounce a leading "-".
+def speak_number(n)
+  sign = n.negative? ? "minus " : ""
+  sign + format("%.2f", n.abs).sub(/\A0\./, '.')
 end
 
 loop do
@@ -94,7 +104,8 @@ loop do
     rescue ArgumentError, Errno::ENOENT, Errno::EACCES
       nil
     end
-    if last_val && prev_last && last_val != prev_last
+    last_changed = last_val != prev_last
+    if last_changed && last_val && prev_last
       running_min = 0.0
       running_max = 0.0
       puts "*** RESET min/max (last.txt changed: #{prev_last} -> #{last_val}) ***"
@@ -110,21 +121,24 @@ loop do
         running_max = index
         puts format("*** NEW MAX of index: %.2f ***", index)
         # Speak a new maximum only when the value is above zero.
-        speak("new maximum #{index}") if index > 0 && index.abs >= 0.10
+        speak("new maximum #{speak_number(index)}") if index > 0 && index.abs >= 0.10
       end
       if index < running_min
         running_min = index
         puts format("*** NEW MIN of index: %.2f ***", index)
         # Speak a new minimum only when the value is below zero.
-        speak("new minimum #{index}") if index < 0 && index.abs >= 0.10
+        speak("new minimum #{speak_number(index)}") if index < 0 && index.abs >= 0.10
       end
     end
 
-    last_str = last_val ? format("%8.2f", last_val) : "    n/a"
-    puts format("%s index: %6.2f mark: %6.2f min: %6.2f max: %6.2f last: %s",
-                Time.now.strftime('%H:%M:%S'),
-                index, mark, running_min, running_max, last_str)
-    $stdout.flush
+    if last_changed
+      last_str = last_val ? format("%6.2f", last_val) : "   n/a"
+      puts format("%s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s",
+                  Time.now.strftime('%H:%M:%S'),
+                  index, "index", mark, "mark", running_min, "min",
+                  running_max, "max", last_str, "last")
+      $stdout.flush
+    end
 
     prev_index = index
     prev_mark   = mark
