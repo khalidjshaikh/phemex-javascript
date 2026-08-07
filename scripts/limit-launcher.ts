@@ -258,8 +258,8 @@ async function main(): Promise<void> {
 
     // console.dir(SIDES)
     // console.log(desired)
-    // const { script, priceMark, spreadLast } = SIDES[desired];
-    const { script, priceMark, spreadLast } = SIDES["long"];
+    const { script, priceMark, spreadLast } = SIDES[desired];
+    // const { script, priceMark, spreadLast } = SIDES["long"];
   
     if (isSideDisabled(desired)) {
       console.log(`${cycleTag(cycle)} ${desired} side disabled (ENABLE_LONG=${ENABLE_LONG}, ENABLE_SHORT=${ENABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
