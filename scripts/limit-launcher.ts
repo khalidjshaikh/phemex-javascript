@@ -19,7 +19,7 @@
  * it is SIGINTed and the cycle moves on (guards against the child blocking
  * forever in its markLast gate or on a stalled price fetch).
  * indexLast.txt is read alongside markLast.txt and logged for context.
- * When the desired side is disabled (DISABLE_LONG/DISABLE_SHORT) no orders
+ * When the desired side is disabled (ENABLE_LONG/ENABLE_SHORT) no orders
  * run; the cycle logs once and sleeps DISABLED_POLL_MS (7s) before re-reading.
  * The --gap of the last-based one-shot is computed each cycle as
  * min(max(|indexLast|, |markLast|), 10) / 100, signed - for long, + for short.
@@ -61,9 +61,9 @@ const LONG_SPREAD_LAST = [
   "--dispersion", "1",
   "--cancel",
   "--sleep", "5",
-  "--gap", "0.00",
+  "--gap", "-.1",
   // "--takeProfit", "last+.1",
-  "--price", "mark",
+  "--price", "last",
 ];
 
 const SHORT_PRICE_MARK = [
@@ -99,8 +99,8 @@ const SIDES: Record<Side, { script: string; priceMark: string[]; spreadLast: str
 const POLL_MS = 1000;
 
 /**
- * Pause between cycles while the desired side is disabled (DISABLE_LONG /
- * DISABLE_SHORT). Longer than POLL_MS: a disabled side does no work, so this
+ * Pause between cycles while the desired side is disabled (ENABLE_LONG /
+ * ENABLE_SHORT). Longer than POLL_MS: a disabled side does no work, so this
  * poll only needs to catch a sign flip back to an enabled side.
  */
 const DISABLED_POLL_MS = 7_000;
@@ -113,15 +113,15 @@ const DISABLED_POLL_MS = 7_000;
  */
 const SPREAD_LAST_TIMEOUT_MS = 20_000;
 
-/** Kill-switches per side: when true, neither the mark-based spawn (priceMark)
+/** Per-side enable flags: when false, neither the mark-based spawn (priceMark)
  *  nor the last-based one-shot (spreadLast) is run for that side. */
-const DISABLE_LONG: boolean = true;
-const DISABLE_SHORT: boolean = false;
+const ENABLE_LONG: boolean = true;
+const ENABLE_SHORT: boolean = false;
 const ENABLE_MARK_FOLLOWER: boolean = false;
 
 
 function isSideDisabled(side: Side): boolean {
-  return side === "long" ? DISABLE_LONG : DISABLE_SHORT;
+  return side === "long" ? !ENABLE_LONG : !ENABLE_SHORT;
 }
 
 let child1: ChildProcess | null = null; // mark-based child (awaited)
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
     const { script, priceMark, spreadLast } = SIDES["long"];
   
     if (isSideDisabled(desired)) {
-      console.log(`${cycleTag(cycle)} ${desired} side disabled (DISABLE_LONG=${DISABLE_LONG}, DISABLE_SHORT=${DISABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
+      console.log(`${cycleTag(cycle)} ${desired} side disabled (ENABLE_LONG=${ENABLE_LONG}, ENABLE_SHORT=${ENABLE_SHORT}) — skipping both orders, retrying in ${DISABLED_POLL_MS / 1000}s …`);
       await sleep(DISABLED_POLL_MS);
       continue;
     }
