@@ -170,7 +170,7 @@ async function main(): Promise<void> {
       dispersion: dispersionRaw !== undefined ? parseFloat(dispersionRaw) : 1.0,
       gap: gapRaw !== undefined ? parseFloat(gapRaw) : 0.0,
       takeProfit,
-      // stopLossOffset: 0.01,
+      stopLossOffset: 0.01,
       leverage: LEVERAGE,
       referencePrice,
       pidFile: PID_FILE,

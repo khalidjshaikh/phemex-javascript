@@ -51,7 +51,7 @@ const LONG_PRICE_MARK = [
   "--cancel",
   "--sleep", "5",
   "--gap", "0.00",
-  // "--takeProfit", "mark+.1",
+  "--takeProfit", "mark+.1",
   "--price", "mark",
 ];
 
@@ -62,7 +62,7 @@ const LONG_SPREAD_LAST = [
   "--cancel",
   "--sleep", "5",
   "--gap", "-.1",
-  // "--takeProfit", "last+.1",
+  "--takeProfit", "last+.1",
   "--price", "last",
 ];
 
@@ -75,7 +75,7 @@ const SHORT_PRICE_MARK = [
   "--cancel",
   "--sleep", "5",
   "--gap", "0.00",
-  // "--takeProfit", "mark-.1",
+  "--takeProfit", "mark-.1",
   "--price", "mark",
 ];
 
@@ -86,7 +86,7 @@ const SHORT_SPREAD_LAST = [
   "--cancel",
   "--sleep", "5",
   "--gap", "0.00",
-  // "--takeProfit", "last-.1",
+  "--takeProfit", "last-.1",
   "--price", "last",
 ];
 
