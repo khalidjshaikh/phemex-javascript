@@ -131,14 +131,12 @@ loop do
       end
     end
 
-    if last_changed
-      last_str = last_val ? format("%6.2f", last_val) : "   n/a"
-      puts format("%s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s",
-                  Time.now.strftime('%H:%M:%S'),
-                  index, "index", mark, "mark", running_min, "min",
-                  running_max, "max", last_str, "last")
-      $stdout.flush
-    end
+    last_str = last_val ? format("%6.2f", last_val) : "   n/a"
+    puts format("%s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s",
+                Time.now.strftime('%H:%M:%S'),
+                index, "index", mark, "mark", running_min, "min",
+                running_max, "max", last_str, "last")
+    $stdout.flush
 
     prev_index = index
     prev_mark   = mark
