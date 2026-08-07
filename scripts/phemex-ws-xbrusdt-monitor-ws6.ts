@@ -65,6 +65,8 @@ const ENTRY_DELTA_MIN_SHORT = 0.20;   // $ move from streak start required to op
 const ALLOW_LONG_ENTRY = false;        // enable/disable the bot opening Long positions
 const ALLOW_SHORT_ENTRY = false;       // enable/disable the bot opening Short positions
 const ALLOW_FETCH_POSITION = false;
+const ALLOW_FLIP_CLOSE = false;        // master switch for the flip-exit close (market order)
+                                       // that dumps the whole position on a direction flip
 const OWN_FILL_WINDOW_MS = 10_000;    // window in which a fill from an order the bot just placed may arrive
 
 /* Parse CLI flags like --symbol XTIUSDT */
@@ -409,7 +411,8 @@ class TradeBatchProcessor {
       const symbol = SYMBOL;
 
       // ── Exit: direction flipped → the move is over, close the bot position ──
-      if (botPosition && this.directionChanged && ALLOW_FETCH_POSITION) {
+      // Gated by ALLOW_FLIP_CLOSE — when false, the flip never dumps the position.
+      if (botPosition && this.directionChanged && ALLOW_FETCH_POSITION && ALLOW_FLIP_CLOSE) {
         // allPositions is refreshed every POLL_INTERVAL_MS; fall back to a fresh
         // fetch so a just-opened position is found even if the cache is stale.
         const pos = allPositions.find((p) => p.symbol === symbol)
