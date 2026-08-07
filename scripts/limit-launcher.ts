@@ -66,6 +66,17 @@ const LONG_SPREAD_LAST = [
   "--price", "last",
 ];
 
+const SHORT_SPREAD_LAST = [
+  "--symbol", "XBRUSDT",
+  "--spread", "+24",
+  "--dispersion", "1",
+  "--cancel",
+  "--sleep", "5",
+  "--gap", "+.1",
+  "--takeProfit", "last-.1",
+  "--price", "last",
+];
+
 const SHORT_PRICE_MARK = [
   "--symbol", "XBRUSDT",
   "--spread", "+0",
@@ -79,16 +90,6 @@ const SHORT_PRICE_MARK = [
   "--price", "mark",
 ];
 
-const SHORT_SPREAD_LAST = [
-  "--symbol", "XBRUSDT",
-  "--spread", "+1",
-  "--dispersion", "1",
-  "--cancel",
-  "--sleep", "5",
-  "--gap", "0.00",
-  "--takeProfit", "last-.1",
-  "--price", "last",
-];
 
 const SIDES: Record<Side, { script: string; priceMark: string[]; spreadLast: string[] }> = {
   long: { script: LONG_SCRIPT, priceMark: LONG_PRICE_MARK, spreadLast: LONG_SPREAD_LAST },
@@ -103,7 +104,6 @@ const POLL_MS = 1000;
  * ENABLE_SHORT). Longer than POLL_MS: a disabled side does no work, so this
  * poll only needs to catch a sign flip back to an enabled side.
  */
-const DISABLED_POLL_MS = 7_000;
 
 /**
  * Watchdog for the awaited last-based one-shot: if the child has not exited
@@ -116,7 +116,7 @@ const SPREAD_LAST_TIMEOUT_MS = 20_000;
 /** Per-side enable flags: when false, neither the mark-based spawn (priceMark)
  *  nor the last-based one-shot (spreadLast) is run for that side. */
 const ENABLE_LONG: boolean = true;
-const ENABLE_SHORT: boolean = false;
+const ENABLE_SHORT: boolean = true;
 const ENABLE_MARK_FOLLOWER: boolean = false;
 
 
