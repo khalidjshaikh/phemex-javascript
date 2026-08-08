@@ -94,6 +94,8 @@ interface CliArgs {
   toSrc?: string;
   step: number;
   delay: number;
+  /** Delay (ms) to wait after the position-size guard passes, before placing the order. */
+  posDelay: number;
   /** Infinite loop: repeat the ladder sweep until filled or interrupted. */
   loop: boolean;
   /** Position-size guard (usdt-m only): skip placing any order once the open position size for --symbol reaches this cap (contracts). */
@@ -238,6 +240,8 @@ Optional flags:
   --step <price>  Ladder step between rungs, as a magnitude (default: 0.01);
                   direction follows --from → --to (downward allowed)
   --delay <ms>    Ladder: wait between place and cancel (default: 0)
+  --posDelay <ms> Wait this long after the position-size guard passes,
+                  before placing the order (default: 0)
 
   --maxPosSize <num>  Position-size guard (usdt-m only): before each limit
                   order, read the open position size (contracts) for --symbol
@@ -286,6 +290,7 @@ function parseArgs(): CliArgs {
   const toRaw = m("--to");
   const stepRaw = m("--step");
   const delayRaw = m("--delay");
+  const posDelayRaw = m("--posDelay");
   const maxPosSizeRaw = m("--maxPosSize");
   // --price <num> is shorthand for --from <num> --to <num> (single-price sweep)
   const ladder = fromRaw !== undefined || toRaw !== undefined || price !== undefined;
@@ -370,6 +375,7 @@ function parseArgs(): CliArgs {
   // Validate ladder mode (--from/--to)
   let step = stepRaw !== undefined ? Number(stepRaw) : 0.01;
   let delay = delayRaw !== undefined ? Number(delayRaw) : 0;
+  let posDelay = posDelayRaw !== undefined ? Number(posDelayRaw) : 0;
   let from: number | undefined;
   let to: number | undefined;
   if (ladder) {
@@ -394,6 +400,9 @@ function parseArgs(): CliArgs {
     if (account === "spot") {
       errors.push("--price / --from/--to (ladder sweep) is not supported for spot (no spot cancel path)");
     }
+  }
+  if (isNaN(posDelay) || posDelay < 0) {
+    errors.push("--posDelay must be a non-negative number of ms (default: 0)");
   }
   if (loop && !ladder) {
     errors.push("--loop     requires --from/--to ladder mode");
@@ -425,6 +434,7 @@ function parseArgs(): CliArgs {
     toSrc: price !== undefined ? (priceFileBased ? price : undefined) : toRaw,
     step,
     delay,
+    posDelay,
     loop,
     maxPosSize,
   };
@@ -736,7 +746,8 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
   console.log(`   Qty/order: ${args.qty}   delay: ${args.delay}ms  place → wait → cancel`);
   console.log(`   Leverage:  ${args.leverage ?? "cross-margin"}${args.takeProfit !== undefined ? `   TP: $${args.takeProfit}` : ""}${args.stopLoss !== undefined ? `   SL: $${args.stopLoss}` : ""}`);
   if (args.maxPosSize !== undefined) {
-    console.log(`   Pos guard: stop placing once ${args.symbol} size ≥ ${args.maxPosSize} contracts`);
+    const posDelayNote = args.posDelay > 0 ? `  wait ${args.posDelay}ms after check` : "";
+    console.log(`   Pos guard: stop placing once ${args.symbol} size ≥ ${args.maxPosSize} contracts${posDelayNote}`);
   }
   console.log(`══════════════════════════════════════════════════════`);
 
@@ -776,6 +787,11 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
         console.log(`   ✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
         aborted = `${args.symbol} position size ${size} ≥ maxPosSize ${args.maxPosSize}`;
         break;
+      }
+      if (args.posDelay > 0) {
+        process.stdout.write(`       pos check ok — waiting ${args.posDelay}ms …  `);
+        await sleep(args.posDelay);
+        console.log("✓");
       }
     }
     // --- Place ---
@@ -882,6 +898,11 @@ async function main(): Promise<void> {
     if (size >= args.maxPosSize) {
       console.error(`✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
       process.exit(1);
+    }
+    if (args.posDelay > 0) {
+      process.stdout.write(`   pos check ok — waiting ${args.posDelay}ms …  `);
+      await sleep(args.posDelay);
+      console.log("✓");
     }
   }
 
