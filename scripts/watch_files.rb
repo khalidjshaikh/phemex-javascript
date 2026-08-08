@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
-# Watch markLast.txt and indexLast.txt, print both values every second.
+# Watch markLast.txt and indexLast.txt, print values only when any of
+# markLast.txt / indexLast.txt / last.txt has changed.
 # Track the running min/max of the indexLast.txt value within the current
 # segment; announce new segment highs/lows on screen + via /usr/bin/say.
 # Whenever the index value crosses zero, the min/max are reset to zero and
@@ -105,6 +106,8 @@ loop do
       nil
     end
     last_changed = last_val != prev_last
+    # Only print a new status line when one of the watched values changed.
+    changed = (mark != prev_mark) || (index != prev_index) || last_changed
     if last_changed && last_val && prev_last
       running_min = 0.0
       running_max = 0.0
@@ -131,12 +134,14 @@ loop do
       end
     end
 
-    last_str = last_val ? format("%6.2f", last_val) : "   n/a"
-    puts format("%s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s",
-                Time.now.strftime('%H:%M:%S'),
-                index, "index", mark, "mark", running_min, "min",
-                running_max, "max", last_str, "last")
-    $stdout.flush
+    if changed
+      last_str = last_val ? format("%6.2f", last_val) : "   n/a"
+      puts format("%s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s  %6.2f %-5s",
+                  Time.now.strftime('%H:%M:%S'),
+                  index, "index", mark, "mark", running_min, "min",
+                  running_max, "max", last_str, "last")
+      $stdout.flush
+    end
 
     prev_index = index
     prev_mark   = mark
