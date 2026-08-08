@@ -4,7 +4,8 @@
   "scripts": {
     "gpu": "tsx scripts/gpu-app.ts",
     "npu": "tsx scripts/npu-app.ts",
-    "creds": "tsx scripts/select-credentials.ts"
+    "creds": "tsx scripts/select-credentials.ts",
+    "index-trader": "tsx scripts/phemex-index-trader.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",
