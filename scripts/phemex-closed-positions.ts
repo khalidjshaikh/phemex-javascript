@@ -64,7 +64,12 @@ function fmtQty(n: number): string {
 
 function fmtTime(ms: number): string {
   if (!ms) return "—";
-  return new Date(ms).toLocaleString();
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -83,9 +88,9 @@ function printTable(positions: ClosedPosition[]): void {
   console.log(
     `\n${"Closed At".padEnd(20)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
     `${"Qty".padStart(10)} ${"Entry".padStart(12)} ${"Exit".padStart(12)} ` +
-    `${"Realized".padStart(12)} ${"Net".padStart(12)}`
+    `${"Realized".padStart(12)} ${"Net".padStart(12)}  `
   );
-  console.log("─".repeat(110));
+  console.log("─".repeat(112));
 
   let gross = 0;
   let net = 0;
@@ -98,14 +103,15 @@ function printTable(positions: ClosedPosition[]): void {
     console.log(
       `${fmtTime(p.closedAt).padEnd(20)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
       `${fmtQty(p.qty).padStart(10)} ${p.avgEntryPrice.toFixed(4).padStart(12)} ` +
-      `${p.avgExitPrice.toFixed(4).padStart(12)} ${pnlFmt} ${netFmt}`
+      `${p.avgExitPrice.toFixed(4).padStart(12)} ${pnlFmt} ${netFmt} ` +
+      `${p.realizedPnl >= 0 ? "*" : ""} ${p.netPnl >= 0 ? "*" : ""}`
     );
     gross += realized;
     fees += p.entryFee + p.exitFee;
     net += p.netPnl;
   }
 
-  console.log("─".repeat(110));
+  console.log("─".repeat(112));
   console.log(
     `Positions: ${rows.length}   ` +
     `Σ Realized PnL: ${fmtUsd(gross)}   ` +
