@@ -329,7 +329,7 @@ async function main(): Promise<void> {
         if (flip && shortSize > 0) {
           console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} >= ${longThreshold} — closing Short ${fmt2(shortSize)} before opening Long`);
           await closePosition("Short", shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
-          await sleep(PAUSE_MS * 2); // let the close fill register before re-checking
+          await sleep(PAUSE_MS); // let the close fill register before re-checking
         }
         if (!hedge && shortSize > 0 && !flip) {
           if (changed) {
@@ -348,14 +348,14 @@ async function main(): Promise<void> {
         const orderQty = Math.round((qty - longSize) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} >= ${longThreshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
-        await sleep(PAUSE_MS * 2); // let the fill register before re-checking
+        await sleep(PAUSE_MS); // let the fill register before re-checking
       } else if (index <= -shortThreshold) {
         // Target: Short totalling qty. Default mode never flips an existing Long;
         // --flip closes the Long first.
         if (flip && longSize > 0) {
           console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} <= -${shortThreshold} — closing Long ${fmt2(longSize)} before opening Short`);
           await closePosition("Long", longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
-          await sleep(PAUSE_MS * 2); // let the close fill register before re-checking
+          await sleep(PAUSE_MS); // let the close fill register before re-checking
         }
         if (!hedge && longSize > 0 && !flip) {
           if (changed) {
@@ -374,7 +374,7 @@ async function main(): Promise<void> {
         const orderQty = Math.round((qty - shortSize) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} <= -${shortThreshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Sell", "Short", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
-        await sleep(PAUSE_MS * 2); // let the fill register before re-checking
+        await sleep(PAUSE_MS); // let the fill register before re-checking
       } else {
         if (changed) {
           console.log(`[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`);
