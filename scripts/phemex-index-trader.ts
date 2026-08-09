@@ -6,11 +6,15 @@
  * Loops forever:
  *   1. Read the open XBRUSDT position size and direction.
  *   2. If size >= qty: pause 1 second, do not trade, loop again.
- *   3. Otherwise read indexLast.txt and trade (level via --threshold,
- *      default 0.2), sizing the order so the TOTAL position ends up at qty:
+ *   3. Otherwise read the market snapshot (indexLast.txt, index.txt, bid.txt,
+ *      ask.txt, last.txt) and trade (level via --threshold, default 0.2),
+ *      sizing the order so the TOTAL position ends up at qty:
  *        value > 0.2  → Long  (qty − size) @ 100x (no stop loss, no take profit)
  *        value < 0.2  → Short (qty − size) @ 100x (no stop loss, no take profit)
  *        value == 0.2 → no trade
+ *
+ *   No trade is placed while the index price (index.txt) sits inside the
+ *   bid–ask spread (bid.txt / ask.txt).
  *
  * A position in the opposite direction of the signal is left as-is (skipped
  * with a warning) — the bot never flips a position automatically.
@@ -42,19 +46,27 @@ const QTY = 0.01;             // contract quantity per order
 const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
 const PAUSE_MS = 1_000;       // 1s pause while a position is already open
-const INDEX_FILE = path.resolve(__dirname, "..", "indexLast.txt");
+const INDEX_FILE = path.resolve(__dirname, "..", "indexLast.txt");      // signal: index − last
+const INDEX_PRICE_FILE = path.resolve(__dirname, "..", "index.txt");    // index price
+const ASK_FILE = path.resolve(__dirname, "..", "ask.txt");              // ask price (phemex-ticker-24hr.ts)
+const BID_FILE = path.resolve(__dirname, "..", "bid.txt");              // bid price (phemex-ticker-24hr.ts)
+const LAST_FILE = path.resolve(__dirname, "..", "last.txt");            // last trade price (phemex-mark-price2.ts)
 
 function usage(): never {
   console.log(`
 Usage: ./phemex-index-trader.ts [options]
 
 Loop on XBRUSDT: skip trading while the position is already >= the configured
-size (--size, default ${QTY}); otherwise read indexLast.txt and top up so the
-TOTAL position reaches exactly the configured size:
+size (--size, default ${QTY}); otherwise read indexLast.txt (signal) plus
+index.txt / bid.txt / ask.txt / last.txt and top up so the TOTAL position
+reaches exactly the configured size:
 
   index > ${DEFAULT_THRESHOLD}  → Long,  add (size − current) @ ${LEVERAGE}x (no TP/SL)
   index < ${DEFAULT_THRESHOLD}  → Short, add (size − current) @ ${LEVERAGE}x (no TP/SL)
   index = ${DEFAULT_THRESHOLD}  → no trade
+
+No trade while the index price (index.txt) sits inside the bid–ask spread
+(bid.txt / ask.txt).
 
 A position in the opposite direction of the signal is never flipped — it is
 left as-is and a warning is logged.
@@ -84,14 +96,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Read indexLast.txt from the project root; null when unreadable. */
-function readIndexLast(): number | null {
-  try {
-    const value = parseFloat(fs.readFileSync(INDEX_FILE, "utf8").trim());
-    return Number.isFinite(value) ? value : null;
-  } catch {
+/** Format a number with exactly 2 decimals for log output. */
+function fmt2(n: number): string {
+  return n.toFixed(2);
+}
+
+/** Market snapshot read from the project-root value files. */
+interface Snapshot {
+  signal: number; // indexLast.txt — index − last (the trade signal)
+  index: number;  // index.txt — index price
+  ask: number;    // ask.txt
+  bid: number;    // bid.txt
+  last: number;   // last.txt — last trade price
+}
+
+/** Read all five value files; null when any is missing or unreadable. */
+function readSnapshot(): Snapshot | null {
+  const read = (file: string): number | null => {
+    try {
+      const value = parseFloat(fs.readFileSync(file, "utf8").trim());
+      return Number.isFinite(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const signal = read(INDEX_FILE);
+  const index = read(INDEX_PRICE_FILE);
+  const ask = read(ASK_FILE);
+  const bid = read(BID_FILE);
+  const last = read(LAST_FILE);
+  if (signal === null || index === null || ask === null || bid === null || last === null) {
     return null;
   }
+  return { signal, index, ask, bid, last };
 }
 
 /** Open XBRUSDT position { size, side } — { size: 0, side: null } when flat. */
@@ -157,7 +195,7 @@ async function main(): Promise<void> {
 
   console.log(`[${fmtTime()}] ═ ${SYMBOL} Index Trader ${dryRun ? "(DRY RUN)" : ""} ═══════════════════════`);
   console.log(`[${fmtTime()}]   Threshold: index ${threshold}   qty: ${qty}   leverage: ${LEVERAGE}x   TP/SL: none`);
-  console.log(`[${fmtTime()}]   Watching indexLast.txt — Ctrl-C to stop`);
+  console.log(`[${fmtTime()}]   Watching indexLast.txt + bid/ask spread — Ctrl-C to stop`);
   console.log(`[${fmtTime()}] ═══════════════════════════════════════════════════════════════`);
 
   process.on("SIGINT", () => {
@@ -172,41 +210,51 @@ async function main(): Promise<void> {
 
       // 2. Already at or above the target size — pause, do not trade.
       if (size >= qty) {
-        console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} position ${side ?? "?"} ${size} >= ${qty} — waiting 1s, no trade`);
+        console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} position ${side ?? "?"} ${fmt2(size)} >= ${qty} — waiting 1s, no trade`);
         await sleep(PAUSE_MS);
         continue;
       }
 
-      // 3. Read the index signal.
-      const index = readIndexLast();
-      if (index === null) {
-        console.warn(`[${fmtTime()}]   ⚠  indexLast.txt unreadable — skipping this cycle`);
+      // 3. Read the index signal and the bid/ask/index/last snapshot.
+      const snap = readSnapshot();
+      if (snap === null) {
+        console.warn(`[${fmtTime()}]   ⚠  indexLast.txt / index.txt / bid.txt / ask.txt / last.txt unreadable — skipping this cycle`);
+        await sleep(PAUSE_MS);
+        continue;
+      }
+      const { signal: index, index: indexPrice, ask, bid, last } = snap;
+
+      // 3b. Index price inside the bid–ask spread — no trade.
+      const spreadLo = Math.min(ask, bid);
+      const spreadHi = Math.max(ask, bid);
+      if (indexPrice > spreadLo && indexPrice < spreadHi) {
+        console.log(`[${fmtTime()}]   –  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — no trade`);
         await sleep(PAUSE_MS);
         continue;
       }
 
-      console.log(`[${fmtTime()}]   size: ${size} (${side ?? "flat"})   index: ${index}`);
+      console.log(`[${fmtTime()}]   size: ${fmt2(size)} (${side ?? "flat"})   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
 
       if (index > threshold) {
         // Target: Long totalling qty. Never flip an existing Short.
         if (side === "Sell") {
-          console.log(`[${fmtTime()}]   ⚠  Short ${size} open but signal is Long — leaving position as-is (no auto-flip)`);
+          console.log(`[${fmtTime()}]   ⚠  Short ${fmt2(size)} open but signal is Long — leaving position as-is (no auto-flip)`);
           await sleep(PAUSE_MS);
           continue;
         }
         const orderQty = Math.round((qty - size) * 10000) / 10000; // top up to exactly qty
-        console.log(`[${fmtTime()}] ⟐  index ${index} > ${threshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
+        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} > ${threshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
       } else if (index < threshold) {
         // Target: Short totalling qty. Never flip an existing Long.
         if (side === "Buy") {
-          console.log(`[${fmtTime()}]   ⚠  Long ${size} open but signal is Short — leaving position as-is (no auto-flip)`);
+          console.log(`[${fmtTime()}]   ⚠  Long ${fmt2(size)} open but signal is Short — leaving position as-is (no auto-flip)`);
           await sleep(PAUSE_MS);
           continue;
         }
         const orderQty = Math.round((qty - size) * 10000) / 10000; // top up to exactly qty
-        console.log(`[${fmtTime()}] ⟐  index ${index} < ${threshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
+        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} < ${threshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Sell", "Short", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
       } else {
