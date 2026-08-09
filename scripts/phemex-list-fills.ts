@@ -182,7 +182,7 @@ async function main(): Promise<void> {
           f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
             ? (Number(f.execFeeRv) / Number(f.execQtyRq)).toFixed(8)
             : "-";
-        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleTimeString() : "?";
+        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleString() : "?";
         totalQty += Number(f.execQtyRq) || 0;
         totalFee += Number(f.execFeeRv) || 0;
 
