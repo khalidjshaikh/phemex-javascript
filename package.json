@@ -6,7 +6,8 @@
     "npu": "tsx scripts/npu-app.ts",
     "creds": "tsx scripts/select-credentials.ts",
     "index-trader": "tsx scripts/phemex-index-trader.ts",
-    "closed-positions": "tsx scripts/phemex-closed-positions.ts"
+    "closed-positions": "tsx scripts/phemex-closed-positions.ts",
+    "graph": "tsx scripts/graph-ticker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1085.0",

@@ -12,11 +12,17 @@
  * ask.txt and bid.txt in the project root (value only, no newline), so other
  * scripts can find them regardless of the launch directory.
  *
+ * With --csv <FILE> every tick is also appended to FILE as a CSV row
+ * (time,ask,bid,index,mark,last); the header line is written when the file
+ * is new, so a fresh log is self-describing and appending to an existing
+ * log only adds rows.
+ *
  * Usage:
  *   npx tsx phemex-ticker-24hr.ts                  # default symbol XBRUSDT
  *   npx tsx phemex-ticker-24hr.ts --symbol BTCUSDT
  *   npx tsx phemex-ticker-24hr.ts --interval 2000  # poll every 2s
  *   npx tsx phemex-ticker-24hr.ts --delta          # add Δask/Δbid/... = field − last
+ *   npx tsx phemex-ticker-24hr.ts --csv ticker.csv # append CSV rows
  */
 
 import fs from "node:fs";
@@ -38,6 +44,8 @@ Options:
                       symbol, turnover, volume columns
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
                       each field minus the last price
+  --csv <FILE>        Append a CSV row (time,ask,bid,index,mark,last) to
+                      FILE on every tick; writes the header when FILE is new
   --help              Show this help and exit
 `;
 
@@ -48,6 +56,8 @@ if (hasFlag("--help")) {
 
 const SYMBOL = getArg("--symbol") ?? "XBRUSDT";
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
+// --csv <FILE>: append a time,ask,bid,index,mark,last row to FILE every tick.
+const CSV_FILE = getArg("--csv");
 
 // Columns hidden in --concise mode (keyed by raw response field name).
 const CONCISE_HIDDEN = new Set([
@@ -75,6 +85,27 @@ const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 const ROOT = resolve(__dirname, "..");
 const ASK_FILE = resolve(ROOT, "ask.txt");
 const BID_FILE = resolve(ROOT, "bid.txt");
+
+/* ------------------------------------------------------------------ */
+/*  CSV logging (--csv <FILE>) — append one row per tick.              */
+/* ------------------------------------------------------------------ */
+
+// Columns appended to the CSV file, in order (time is prepended).
+const CSV_COLUMNS = ["askRp", "bidRp", "indexRp", "markRp", "lastRp"] as const;
+
+/**
+ * Append one CSV row (time,ask,bid,index,mark,last) to FILE. When FILE does
+ * not exist yet (or is empty) the header line is written first, so a fresh
+ * log is self-describing; appending to an existing log only adds rows.
+ */
+function appendCsvRow(file: string, data: Record<string, unknown>): void {
+  const header = "time,ask,bid,index,mark,last\n";
+  if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+    fs.appendFileSync(file, header, "utf8");
+  }
+  const row = [tsToHMS(Date.now()), ...CSV_COLUMNS.map((k) => fmt(data[k]))].join(",");
+  fs.appendFileSync(file, `${row}\n`, "utf8");
+}
 
 /* ------------------------------------------------------------------ */
 /*  Column definitions — abbreviation (printed in the header) and the  */
@@ -250,6 +281,9 @@ async function main(): Promise<void> {
       // this must happen even when nothing is printed.
       fs.writeFileSync(ASK_FILE, fmtExact(data.askRp), "utf8");
       fs.writeFileSync(BID_FILE, fmtExact(data.bidRp), "utf8");
+
+      // --csv: append a time-series row every tick (even when nothing changed).
+      if (CSV_FILE) appendCsvRow(CSV_FILE, data);
 
       // Only print when a field actually changed (timestamp excluded).
       const sig = keys
