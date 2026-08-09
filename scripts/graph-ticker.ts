@@ -16,6 +16,8 @@ const HTML_PATH = join(ROOT, 'ticker-graph.html');
 const PLOTLY_LOCAL = join(ROOT, 'vendor', 'plotly.min.js');
 // Date axis needs a full date; ticker.csv only carries HH:MM:SS, so pin a base date.
 const BASE_DATE = '2000-01-01';
+// Cap the number of plotted ticks to the most recent rows.
+const MAX_TICKS = 60;
 
 interface Tick {
   time: string; // full ISO datetime for Plotly's date axis
@@ -165,9 +167,12 @@ function main(): void {
     console.error(`Cannot find ${CSV_PATH} — run the recorder first or pass the file path.`);
     process.exit(1);
   }
-  const ticks = parseCsv(readFileSync(CSV_PATH, 'utf8')).slice(-600);
+  const all = parseCsv(readFileSync(CSV_PATH, 'utf8'));
+  const ticks = all.length > MAX_TICKS ? all.slice(-MAX_TICKS) : all;
   writeFileSync(HTML_PATH, buildHtml(ticks), 'utf8');
-  console.log(`Wrote ${HTML_PATH} (${ticks.length} ticks)`);
+  console.log(
+    `Wrote ${HTML_PATH} (${ticks.length} ticks${all.length > MAX_TICKS ? ` of ${all.length}, capped at ${MAX_TICKS}` : ''})`
+  );
 }
 
 main();
