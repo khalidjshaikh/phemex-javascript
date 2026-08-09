@@ -84,11 +84,11 @@ async function closeQualifying(
     const entry = entryPrice(pos);
 
     if (pos.side === "Buy" && bid !== null && bid >= entry) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid} >= entry=${entry} → close`);
+      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= entry=${entry.toFixed(2)} → close`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
     } else if (pos.side === "Sell" && ask !== null && ask <= entry) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask} <= entry=${entry} → close`);
+      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= entry=${entry.toFixed(2)} → close`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
     }
@@ -124,9 +124,11 @@ async function main(): Promise<void> {
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  console.log(`[${fmtTime()}] ═ Ask/Bid Close ═════════════════════════════════`);
-  console.log(`[${fmtTime()}]   Poll: every ${INTERVAL_MS}ms   target: ${SYMBOL ?? "all symbols"}   mode: ${DRY_RUN ? "DRY-RUN" : "LIVE"}`);
-  console.log(`[${fmtTime()}] ════════════════════════════════════════════════`);
+  const modeLabel = DRY_RUN ? "DRY-RUN" : "LIVE";
+  const detail = `  Poll: every ${INTERVAL_MS}ms   target: ${SYMBOL ?? "all symbols"}   mode: ${modeLabel}`;
+  console.log(`[${fmtTime()}] ═ Ask/Bid Close ${"═".repeat(Math.max(0, detail.length - 16))}`);
+  console.log(`[${fmtTime()}] ${detail}`);
+  console.log(`[${fmtTime()}] ${"═".repeat(detail.length)}`);
 
   process.on("SIGINT", () => {
     console.log(`\n[${fmtTime()}] ⏹  Stopped.`);

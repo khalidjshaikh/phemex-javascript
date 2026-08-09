@@ -15,6 +15,9 @@
  *   3. If the signaled side is already at or above qty: pause 1 second, do not
  *      trade, loop again.
  *
+ *   Identical consecutive cycles are logged only when a value changes —
+ *   repeats (same sizes, indexLast, index, bid/ask/last) are suppressed.
+ *
  *   No trade is placed while the index price (index.txt) sits inside the
  *   bid–ask spread (bid.txt / ask.txt) — unless --allow-inside-spread.
  *
@@ -79,6 +82,9 @@ By default a position in the opposite direction of the signal is never
 flipped — it is left as-is and a warning is logged. With --hedge, Long and
 Short are managed independently: each side is topped up to the configured
 size (--size) whenever its own signal fires, and both may be open at once.
+
+Identical consecutive cycles (same sizes, indexLast, index, bid/ask/last) are
+logged only when a value changes; trade actions are always logged.
 
 Options:
   --threshold <num>          Shared Long/Short trigger level for indexLast.txt (default: ${DEFAULT_THRESHOLD})
@@ -242,7 +248,7 @@ async function main(): Promise<void> {
     process.exit(0);
   });
 
-  let lastPause: string | null = null; // last logged paused-state; suppress identical repeats
+  let lastState: string | null = null; // last logged market state; suppress identical repeats
   while (true) {
     try {
       // 1. Read the open XBRUSDT positions (Long and Short sizes).
@@ -257,39 +263,47 @@ async function main(): Promise<void> {
       }
       const { signal: index, index: indexPrice, ask, bid, last } = snap;
 
+      // Log each cycle's numbers only when they change (2-decimal precision,
+      // matching the value files) — identical repeats are suppressed.
+      const stateKey = `${fmt2(longSize)}|${fmt2(shortSize)}|${fmt2(index)}|${fmt2(indexPrice)}|${fmt2(bid)}|${fmt2(ask)}|${fmt2(last)}`;
+      const changed = stateKey !== lastState;
+      lastState = stateKey;
+
       // 3b. Index price inside the bid–ask spread — no trade (unless flagged).
       const spreadLo = Math.min(ask, bid);
       const spreadHi = Math.max(ask, bid);
-      if (indexPrice > spreadLo && indexPrice < spreadHi) {
-        if (allowInsideSpread) {
-          console.log(`[${fmtTime()}]   ⚠  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — trading anyway (--allow-inside-spread)`);
-        } else {
+      const insideSpread = indexPrice > spreadLo && indexPrice < spreadHi;
+      if (insideSpread && !allowInsideSpread) {
+        if (changed) {
           console.log(`[${fmtTime()}]   –  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — no trade`);
-          await sleep(PAUSE_MS);
-          continue;
         }
+        await sleep(PAUSE_MS);
+        continue;
       }
 
-      console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)}   Short: ${fmt2(shortSize)}   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
+      if (changed) {
+        if (insideSpread) {
+          console.log(`[${fmtTime()}]   ⚠  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — trading anyway (--allow-inside-spread)`);
+        }
+        console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)}   Short: ${fmt2(shortSize)}   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
+      }
 
       if (index >= longThreshold) {
         // Target: Long totalling qty. Default mode never flips an existing Short.
         if (!hedge && shortSize > 0) {
-          console.log(`[${fmtTime()}]   ⚠  Short ${fmt2(shortSize)} open but signal is Long — leaving position as-is (no auto-flip)`);
-          lastPause = null;
-          await sleep(PAUSE_MS);
-          continue;
-        }
-        if (longSize >= qty) {
-          const state = `Long ${fmt2(longSize)}`;
-          if (lastPause !== state) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${state} >= ${qty} — waiting 1s, no trade`);
-            lastPause = state;
+          if (changed) {
+            console.log(`[${fmtTime()}]   ⚠  Short ${fmt2(shortSize)} open but signal is Long — leaving position as-is (no auto-flip)`);
           }
           await sleep(PAUSE_MS);
           continue;
         }
-        lastPause = null;
+        if (longSize >= qty) {
+          if (changed) {
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${fmt2(longSize)} >= ${qty} — waiting 1s, no trade`);
+          }
+          await sleep(PAUSE_MS);
+          continue;
+        }
         const orderQty = Math.round((qty - longSize) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} >= ${longThreshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
@@ -297,28 +311,27 @@ async function main(): Promise<void> {
       } else if (index <= -shortThreshold) {
         // Target: Short totalling qty. Default mode never flips an existing Long.
         if (!hedge && longSize > 0) {
-          console.log(`[${fmtTime()}]   ⚠  Long ${fmt2(longSize)} open but signal is Short — leaving position as-is (no auto-flip)`);
-          lastPause = null;
-          await sleep(PAUSE_MS);
-          continue;
-        }
-        if (shortSize >= qty) {
-          const state = `Short ${fmt2(shortSize)}`;
-          if (lastPause !== state) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${state} >= ${qty} — waiting 1s, no trade`);
-            lastPause = state;
+          if (changed) {
+            console.log(`[${fmtTime()}]   ⚠  Long ${fmt2(longSize)} open but signal is Short — leaving position as-is (no auto-flip)`);
           }
           await sleep(PAUSE_MS);
           continue;
         }
-        lastPause = null;
+        if (shortSize >= qty) {
+          if (changed) {
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${fmt2(shortSize)} >= ${qty} — waiting 1s, no trade`);
+          }
+          await sleep(PAUSE_MS);
+          continue;
+        }
         const orderQty = Math.round((qty - shortSize) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} <= -${shortThreshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Sell", "Short", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
       } else {
-        lastPause = null;
-        console.log(`[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`);
+        if (changed) {
+          console.log(`[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`);
+        }
         await sleep(PAUSE_MS);
       }
     } catch (err: unknown) {
