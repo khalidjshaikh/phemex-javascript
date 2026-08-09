@@ -25,7 +25,8 @@
  * Options:
  *   --symbol <symbol>    Trading pair (default: XBRUSDT)
  *   --qty <size>         TP quantity (default: full position size)
- *   --loop               Repeat forever, waiting 1 second between runs
+ *   --loop               Repeat forever, waiting 1 second between runs;
+ *                        identical no-op runs print nothing (only changes log)
  *   --dry-run            Log what would be sent without sending anything
  *   --help, -h           Show this help message
  */
@@ -64,7 +65,8 @@ orders are preserved. Trigger source: ByLastPrice.
 Options:
   --symbol <symbol>    Trading pair (default: ${DEFAULT_SYMBOL})
   --qty <size>         TP quantity (default: full position size)
-  --loop               Repeat forever, waiting ${LOOP_DELAY_MS / 1000} second between runs
+  --loop               Repeat forever, waiting ${LOOP_DELAY_MS / 1000} second between runs;
+                       identical no-op runs print nothing (only changes log)
   --dry-run            Log what would be sent without sending anything
   --help, -h           Show this help message
 
@@ -106,19 +108,30 @@ function readIndexPrice(): number | null {
 /*  One review-and-adjust pass                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * One review-and-adjust pass. Returns a summary of the run's outcome so the
+ * --loop caller can stay silent while nothing changes:
+ *   "flat" | "no-index" | "wrong-side:<price>" | "set:<price>"  → no-op; nothing
+ *   was sent. The caller may suppress the log when it matches the previous run.
+ *   null → the TP was (re)placed, or the placement failed; the run always logged.
+ */
 async function runOnce(
   symbol: string,
   qtyArg: string | undefined,
   dryRun: boolean,
   apiKey: string,
   secretRaw: Buffer,
-): Promise<void> {
+  prevState: string | null,
+): Promise<string | null> {
   /* -- Review the open position ----------------------------------- */
   const positions = await fetchPositions(apiKey, secretRaw);
   const pos = positions.find((p) => p.symbol === symbol);
   if (!pos) {
-    console.log(`[${fmtTime()}]   –  No open ${symbol} position — nothing to adjust.`);
-    return;
+    const state = "flat";
+    if (state !== prevState) {
+      console.log(`[${fmtTime()}]   –  No open ${symbol} position — nothing to adjust.`);
+    }
+    return state;
   }
 
   const posSide = pos.side === "Buy" ? "Long" : "Short";
@@ -126,59 +139,71 @@ async function runOnce(
   const entry = parseFloat(pos.avgEntryPriceRp || "0");
   const mark = parseFloat(pos.markPriceRp || "0");
   const pnlPct = calcPnlPct(pos);
-
-  console.log(`[${fmtTime()}]   Position: ${posSide}  size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%`);
+  const posLine = `Position: ${posSide}  size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%`;
+  const side: "Buy" | "Sell" = posSide === "Long" ? "Sell" : "Buy";
 
   /* -- Read the target take-profit price from index.txt ------------ */
   const indexPrice = readIndexPrice();
-  if (indexPrice === null) {
-    console.warn(`[${fmtTime()}]   ⚠  Could not read a valid index price from ${INDEX_FILE} — skipping this run`);
-    return;
-  }
-  console.log(`[${fmtTime()}]   index.txt → target take profit: $${fmtNum(indexPrice)}`);
 
   /* -- Sanity check: trigger must sit on the profitable side ------- */
   // Long:  TP Sell triggers as price rises → must be above mark.
   // Short: TP Buy triggers as price falls  → must be below mark.
-  const side: "Buy" | "Sell" = posSide === "Long" ? "Sell" : "Buy";
-  const invalid = posSide === "Long" ? indexPrice <= mark : indexPrice >= mark;
-  if (invalid) {
-    console.warn(
-      `[${fmtTime()}]   ⚠  Index price $${fmtNum(indexPrice)} is on the wrong side of mark $${fmtNum(mark)} for a ${posSide} TP — skipping (Phemex would reject the crossed trigger).`,
-    );
-    return;
-  }
+  const invalid = indexPrice !== null && (posSide === "Long" ? indexPrice <= mark : indexPrice >= mark);
 
+  /* -- TP quantity ------------------------------------------------- */
   const qty = qtyArg !== undefined ? parseFloat(qtyArg) : size;
   if (!Number.isFinite(qty) || qty <= 0) {
     console.error(`[${fmtTime()}] ✗  Invalid qty: ${qtyArg ?? "position size"} — must be a positive number`);
     process.exit(1);
   }
-  if (qty > size) {
-    console.warn(`[${fmtTime()}]   ⚠  TP qty ${fmtNum(qty, 4)} exceeds position size ${fmtNum(size, 4)}`);
-  }
 
-  /* -- Review existing TP-type orders (keep stop-losses) ----------- */
+  /* -- Decide the outcome: a no-op state, or a TP action ----------- */
+  let state: string | null = null; // null → the TP must be (re)placed
   let tpLike: UntriggeredOrder[] = [];
-  try {
-    const open = await fetchUntriggeredOrders(symbol, apiKey, secretRaw);
-    tpLike = open.filter((o) => (o.ordType === "LimitIfTouched" || o.ordType === "MarketIfTouched") && o.side === side);
-  } catch (err: unknown) {
-    console.warn(`[${fmtTime()}]   ⚠  Could not review existing TP orders: ${err instanceof Error ? err.message : String(err)}`);
+  if (indexPrice === null) {
+    state = "no-index";
+  } else if (invalid) {
+    state = `wrong-side:${fmtNum(indexPrice)}`;
+  } else {
+    try {
+      const open = await fetchUntriggeredOrders(symbol, apiKey, secretRaw);
+      tpLike = open.filter((o) => (o.ordType === "LimitIfTouched" || o.ordType === "MarketIfTouched") && o.side === side);
+    } catch (err: unknown) {
+      console.warn(`[${fmtTime()}]   ⚠  Could not review existing TP orders: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // A TP at the same price/side/qty already exists → nothing to adjust this run.
+    const alreadySet = tpLike.some(
+      (o) =>
+        Math.abs(parseFloat(o.stopPx || "0") - indexPrice) < 0.005 &&
+        Math.abs(parseFloat(o.qty || "0") - qty) < 0.0001,
+    );
+    if (alreadySet) state = `set:${fmtNum(indexPrice)}`;
   }
 
-  // A TP at the same price/side/qty already exists → nothing to adjust this run.
-  const alreadySet = tpLike.some(
-    (o) =>
-      Math.abs(parseFloat(o.stopPx || "0") - indexPrice) < 0.005 &&
-      Math.abs(parseFloat(o.qty || "0") - qty) < 0.0001,
-  );
-  if (alreadySet) {
-    console.log(`[${fmtTime()}]   –  TP already set at $${fmtNum(indexPrice)} — no change needed.`);
-    return;
+  /* -- No-op outcome: log only when it changed since the last run -- */
+  if (state !== null) {
+    if (state === prevState) return state; // identical no-op — stay silent
+    console.log(`[${fmtTime()}]   ${posLine}`);
+    if (indexPrice !== null) console.log(`[${fmtTime()}]   index.txt → target take profit: $${fmtNum(indexPrice)}`);
+    if (qty > size) console.warn(`[${fmtTime()}]   ⚠  TP qty ${fmtNum(qty, 4)} exceeds position size ${fmtNum(size, 4)}`);
+    if (state === "no-index") {
+      console.warn(`[${fmtTime()}]   ⚠  Could not read a valid index price from ${INDEX_FILE} — skipping this run`);
+    } else if (state.startsWith("wrong-side:")) {
+      console.warn(
+        `[${fmtTime()}]   ⚠  Index price $${fmtNum(indexPrice as number)} is on the wrong side of mark $${fmtNum(mark)} for a ${posSide} TP — skipping (Phemex would reject the crossed trigger).`,
+      );
+    } else {
+      console.log(`[${fmtTime()}]   –  TP already set at $${fmtNum(indexPrice as number)} — no change needed.`);
+    }
+    return state;
   }
 
-  /* -- Replace existing TP-type orders ----------------------------- */
+  /* -- Action: replace existing TP-type orders, then place --------- */
+  const target = indexPrice as number; // non-null here: state === null only when indexPrice was valid
+  console.log(`[${fmtTime()}]   ${posLine}`);
+  console.log(`[${fmtTime()}]   index.txt → target take profit: $${fmtNum(target)}`);
+  if (qty > size) console.warn(`[${fmtTime()}]   ⚠  TP qty ${fmtNum(qty, 4)} exceeds position size ${fmtNum(size, 4)}`);
+
   if (!dryRun) {
     for (const o of tpLike) {
       console.log(`[${fmtTime()}]   –  cancelling old TP order ${o.orderID} (${o.ordType} @ ${o.stopPx})`);
@@ -193,8 +218,8 @@ async function runOnce(
     `side=${side}`,
     `posSide=${posSide}`,
     `ordType=LimitIfTouched`,
-    `stopPxRp=${indexPrice}`,
-    `priceRp=${indexPrice}`,
+    `stopPxRp=${target}`,
+    `priceRp=${target}`,
     `orderQtyRq=${qty}`,
     `reduceOnly=true`,
     `closeOnTrigger=true`,
@@ -205,21 +230,22 @@ async function runOnce(
   ];
   const query = params.join("&");
 
-  console.log(`[${fmtTime()}] ⟐  Placing TP: ${side} ${fmtNum(qty, 4)} ${symbol} LimitIfTouched @ $${fmtNum(indexPrice)} (posSide ${posSide}, reduce-only)`);
+  console.log(`[${fmtTime()}] ⟐  Placing TP: ${side} ${fmtNum(qty, 4)} ${symbol} LimitIfTouched @ $${fmtNum(target)} (posSide ${posSide}, reduce-only)`);
 
   if (dryRun) {
     console.log(`[${fmtTime()}]   [DRY-RUN] PUT /g-orders/create?${query}`);
     console.log(`[${fmtTime()}]   DRY RUN — nothing sent.`);
-    return;
+    return `set:${fmtNum(target)}`; // pretend placed → stay quiet until the price moves
   }
 
   const resp = (await request("PUT", "/g-orders/create", query, apiKey, secretRaw, "")) as Record<string, unknown>;
   if (resp.code === 0) {
     const data = resp.data as Record<string, unknown> | undefined;
     console.log(`[${fmtTime()}]   ✓  TP order placed: orderID=${data?.orderID ?? "?"}  status=${data?.ordStatus ?? "?"}`);
-  } else {
-    console.error(`[${fmtTime()}]   ✗  API error: ${String(resp.msg ?? resp.code)}`);
+    return `set:${fmtNum(target)}`; // next run's "already set" check is then silent
   }
+  console.error(`[${fmtTime()}]   ✗  API error: ${String(resp.msg ?? resp.code)}`);
+  return null; // placement failed — retry (and print) on the next run
 }
 
 /* ------------------------------------------------------------------ */
@@ -243,17 +269,19 @@ async function main(): Promise<void> {
       console.log(`\n[${fmtTime()}] ⏹  Stopped. Position and TP left as-is.`);
       process.exit(0);
     });
+    let prevState: string | null = null; // last run's outcome; identical no-ops stay silent
     while (true) {
       try {
-        await runOnce(symbol, qtyArg, dryRun, creds.PHEMEX_API_KEY, secretRaw);
+        prevState = await runOnce(symbol, qtyArg, dryRun, creds.PHEMEX_API_KEY, secretRaw, prevState);
       } catch (err: unknown) {
         console.error(`[${fmtTime()}] ✗  Run error: ${err instanceof Error ? err.message : String(err)} — retrying in ${LOOP_DELAY_MS / 1000}s`);
+        prevState = null; // next successful run logs again
       }
       await sleep(LOOP_DELAY_MS);
     }
   }
 
-  await runOnce(symbol, qtyArg, dryRun, creds.PHEMEX_API_KEY, secretRaw);
+  await runOnce(symbol, qtyArg, dryRun, creds.PHEMEX_API_KEY, secretRaw, null);
 }
 
 main().catch((err) => {

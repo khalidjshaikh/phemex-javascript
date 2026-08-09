@@ -9,9 +9,9 @@
  *   3. Otherwise read the market snapshot (indexLast.txt, index.txt, bid.txt,
  *      ask.txt, last.txt) and trade (level via --threshold, default 0.2),
  *      sizing the order so the TOTAL position ends up at qty:
- *        value > 0.2  → Long  (qty − size) @ 100x (no stop loss, no take profit)
- *        value < 0.2  → Short (qty − size) @ 100x (no stop loss, no take profit)
- *        value == 0.2 → no trade
+ *        value >= 0.2  → Long  (qty − size) @ 100x (no stop loss, no take profit)
+ *        value <= −0.2 → Short (qty − size) @ 100x (no stop loss, no take profit)
+ *        −0.2 < value < 0.2 → no trade (dead band)
  *
  *   No trade is placed while the index price (index.txt) sits inside the
  *   bid–ask spread (bid.txt / ask.txt).
@@ -61,9 +61,9 @@ size (--size, default ${QTY}); otherwise read indexLast.txt (signal) plus
 index.txt / bid.txt / ask.txt / last.txt and top up so the TOTAL position
 reaches exactly the configured size:
 
-  index > ${DEFAULT_THRESHOLD}  → Long,  add (size − current) @ ${LEVERAGE}x (no TP/SL)
-  index < ${DEFAULT_THRESHOLD}  → Short, add (size − current) @ ${LEVERAGE}x (no TP/SL)
-  index = ${DEFAULT_THRESHOLD}  → no trade
+  index >= ${DEFAULT_THRESHOLD}  → Long,  add (size − current) @ ${LEVERAGE}x (no TP/SL)
+  index <= −${DEFAULT_THRESHOLD} → Short, add (size − current) @ ${LEVERAGE}x (no TP/SL)
+  |index| <  ${DEFAULT_THRESHOLD} → no trade (dead band)
 
 No trade while the index price (index.txt) sits inside the bid–ask spread
 (bid.txt / ask.txt).
@@ -72,7 +72,7 @@ A position in the opposite direction of the signal is never flipped — it is
 left as-is and a warning is logged.
 
 Options:
-  --threshold <num>   Trigger level for indexLast.txt (default: ${DEFAULT_THRESHOLD})
+  --threshold <num>   Trigger level for indexLast.txt — Long at/above +threshold, Short at/below −threshold (default: ${DEFAULT_THRESHOLD})
   --size <num>        Contract quantity per order (default: ${QTY})
   --dry-run           Log every decision but never send an order
   --help, -h          Show this help message
@@ -241,7 +241,7 @@ async function main(): Promise<void> {
 
       console.log(`[${fmtTime()}]   size: ${fmt2(size)} (${side ?? "flat"})   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
 
-      if (index > threshold) {
+      if (index >= threshold) {
         // Target: Long totalling qty. Never flip an existing Short.
         if (side === "Sell") {
           console.log(`[${fmtTime()}]   ⚠  Short ${fmt2(size)} open but signal is Long — leaving position as-is (no auto-flip)`);
@@ -249,10 +249,10 @@ async function main(): Promise<void> {
           continue;
         }
         const orderQty = Math.round((qty - size) * 10000) / 10000; // top up to exactly qty
-        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} > ${threshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
+        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} >= ${threshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
-      } else if (index < threshold) {
+      } else if (index <= -threshold) {
         // Target: Short totalling qty. Never flip an existing Long.
         if (side === "Buy") {
           console.log(`[${fmtTime()}]   ⚠  Long ${fmt2(size)} open but signal is Short — leaving position as-is (no auto-flip)`);
@@ -260,11 +260,11 @@ async function main(): Promise<void> {
           continue;
         }
         const orderQty = Math.round((qty - size) * 10000) / 10000; // top up to exactly qty
-        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} < ${threshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
+        console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} <= -${threshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Sell", "Short", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
       } else {
-        console.log(`[${fmtTime()}]   –  index == ${threshold} — no trade`);
+        console.log(`[${fmtTime()}]   –  |index| ${fmt2(Math.abs(index))} < ${threshold} — no trade (dead band)`);
         await sleep(PAUSE_MS);
       }
     } catch (err: unknown) {

@@ -6,9 +6,11 @@
  *
  * Public endpoint, no credentials needed.
  *
- * Each tick also writes the current ask and bid prices to ask.txt and
- * bid.txt in the project root (value only, no newline), so other scripts
- * can find them regardless of the launch directory.
+ * A line is printed only when a field actually changed (the ticker's own
+ * timestamp is excluded from the comparison — it advances even while prices
+ * are frozen). Each tick still writes the current ask and bid prices to
+ * ask.txt and bid.txt in the project root (value only, no newline), so other
+ * scripts can find them regardless of the launch directory.
  *
  * Usage:
  *   npx tsx phemex-ticker-24hr.ts                  # default symbol XBRUSDT
@@ -128,6 +130,10 @@ async function main(): Promise<void> {
   // Minimum spacing: each column is padded to exactly its widest content
   // (label or value seen so far) and columns are joined by a single space.
   const widths = new Map<string, number>();
+  // Signature of the last tick: every field except the ticker timestamp,
+  // which advances every ~second even while prices are frozen. Excluding it
+  // means a line is printed only when a real value changed.
+  let lastSig = "";
 
   for (;;) {
     const started = Date.now();
@@ -152,24 +158,35 @@ async function main(): Promise<void> {
         legendPrinted = true;
       }
 
-      if (rows % HEADER_EVERY === 0) {
-        const head = keys.map((k) => padRight(colLabel(k), widths.get(k)!)).join(" ");
-        console.log(`[${tsToHMS(Date.now())}] ${head}`);
-      }
-
       // Persist the current ask and bid prices to plain-text files at the
-      // project root each tick, so the monitor finds them from any cwd.
+      // project root each tick, so the monitor finds them from any cwd —
+      // this must happen even when nothing is printed.
       fs.writeFileSync(ASK_FILE, fmtExact(data.askRp), "utf8");
       fs.writeFileSync(BID_FILE, fmtExact(data.bidRp), "utf8");
 
-      // Render every variable on one horizontal line, timestamp as local time.
-      const line = keys
-        .map((k) =>
-          padRight(fmtField(k, data[k]), widths.get(k)!),
-        )
-        .join(" ");
-      console.log(`[${tsToHMS(Date.now())}] ${line}`);
-      rows++;
+      // Only print when a field actually changed (timestamp excluded).
+      const sig = keys
+        .filter((k) => k !== "timestamp")
+        .map((k) => `${k}=${data[k]}`)
+        .join("|");
+      const changed = sig !== lastSig;
+      lastSig = sig;
+
+      if (changed) {
+        if (rows % HEADER_EVERY === 0) {
+          const head = keys.map((k) => padRight(colLabel(k), widths.get(k)!)).join(" ");
+          console.log(`[${tsToHMS(Date.now())}] ${head}`);
+        }
+
+        // Render every variable on one horizontal line, timestamp as local time.
+        const line = keys
+          .map((k) =>
+            padRight(fmtField(k, data[k]), widths.get(k)!),
+          )
+          .join(" ");
+        console.log(`[${tsToHMS(Date.now())}] ${line}`);
+        rows++;
+      }
     } catch (e) {
       console.log(`[${tsToHMS(Date.now())}] error: ${(e as Error).message}`);
     }
