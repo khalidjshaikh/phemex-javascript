@@ -203,6 +203,7 @@ async function main(): Promise<void> {
     process.exit(0);
   });
 
+  let lastPause: string | null = null; // last logged paused-state; suppress identical repeats
   while (true) {
     try {
       // 1. Read the open XBRUSDT position (size + direction).
@@ -210,10 +211,15 @@ async function main(): Promise<void> {
 
       // 2. Already at or above the target size — pause, do not trade.
       if (size >= qty) {
-        console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} position ${side ?? "?"} ${fmt2(size)} >= ${qty} — waiting 1s, no trade`);
+        const state = `${side ?? "?"} ${fmt2(size)}`;
+        if (lastPause !== state) {
+          console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} position ${state} >= ${qty} — waiting 1s, no trade`);
+          lastPause = state;
+        }
         await sleep(PAUSE_MS);
         continue;
       }
+      lastPause = null; // leaving the paused state — next pause logs again
 
       // 3. Read the index signal and the bid/ask/index/last snapshot.
       const snap = readSnapshot();
