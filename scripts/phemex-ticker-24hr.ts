@@ -16,15 +16,59 @@
  *   npx tsx phemex-ticker-24hr.ts                  # default symbol XBRUSDT
  *   npx tsx phemex-ticker-24hr.ts --symbol BTCUSDT
  *   npx tsx phemex-ticker-24hr.ts --interval 2000  # poll every 2s
+ *   npx tsx phemex-ticker-24hr.ts --delta          # add Δask/Δbid/... = field − last
  */
 
 import fs from "node:fs";
 import { resolve } from "node:path";
 import { publicGet } from "../src/http-client.js";
-import { getArg } from "../src/cli-utils.js";
+import { getArg, hasFlag } from "../src/cli-utils.js";
+
+const USAGE = `Usage: npx tsx phemex-ticker-24hr.ts [options]
+
+Poll the Phemex v3 24h ticker every second and print every variable of
+the response horizontally on one line. Public endpoint, no credentials
+needed. A line is printed only when a field actually changed; ask.txt
+and bid.txt are still updated in the project root on every tick.
+
+Options:
+  --symbol <SYMBOL>   Symbol to poll (default: XBRUSDT)
+  --interval <MS>     Poll interval in milliseconds (default: 1000)
+  --concise           Hide fundRate, high, low, openInt, open, predFund,
+                      symbol, turnover, volume columns
+  --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
+                      each field minus the last price
+  --help              Show this help and exit
+`;
+
+if (hasFlag("--help")) {
+  console.log(USAGE);
+  process.exit(0);
+}
 
 const SYMBOL = getArg("--symbol") ?? "XBRUSDT";
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
+
+// Columns hidden in --concise mode (keyed by raw response field name).
+const CONCISE_HIDDEN = new Set([
+  "fundingRateRr", "highRp", "lowRp", "openInterestRv", "openRp",
+  "predFundingRateRr", "symbol", "turnoverRv", "volumeRq",
+]);
+
+// --delta: fields for which a Δ column (field value minus last price) is added.
+const DELTA = hasFlag("--delta");
+const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "lastRp", "markRp"] as const;
+
+// Display order of the columns: index, mark, last (and their Δ columns) are
+// listed in that order; anything not listed keeps its API order.
+const COLUMN_ORDER = [
+  "askRp", "bidRp", "fundingRateRr", "highRp",
+  "indexRp", "markRp", "lastRp",
+  "lowRp", "openInterestRv", "openRp", "predFundingRateRr", "symbol",
+  "timestamp", "turnoverRv", "volumeRq",
+  "askRpDelta", "bidRpDelta", "indexRpDelta", "markRpDelta", "lastRpDelta",
+];
+const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 
 // Value files live at the project root (like last.txt / mark.txt) so both
 // the ticker and the monitor see the same files from any launch directory.
@@ -53,6 +97,12 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   timestamp:         { label: "time",     full: "timestamp" },
   turnoverRv:        { label: "turnover", full: "turnover" },
   volumeRq:          { label: "volume",   full: "volume" },
+  // Delta columns (--delta): Δ<label> = field value minus the last price.
+  askRpDelta:        { label: "Δask",    full: "ask − last" },
+  bidRpDelta:        { label: "Δbid",    full: "bid − last" },
+  indexRpDelta:      { label: "Δindex",  full: "index − last" },
+  lastRpDelta:       { label: "Δlast",   full: "last − last" },
+  markRpDelta:       { label: "Δmark",   full: "mark − last" },
 };
 
 /** Header label for a response field (falls back to the raw field name). */
@@ -70,12 +120,29 @@ function padRight(s: string, w: number): string {
   return s.length >= w ? s : s + " ".repeat(w - s.length);
 }
 
+/** Left-pad a string to a fixed width (right-aligns numeric columns). */
+function padLeft(s: string, w: number): string {
+  return s.length >= w ? s : " ".repeat(w - s.length) + s;
+}
+
 /** Format a number with exactly 2 decimals; dash when absent/invalid. */
 function fmt(v: unknown): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
   return n.toFixed(2);
+}
+
+/**
+ * Format a delta value with a sign so columns align: "+0.05", "-0.02",
+ * " 0.00" (a space holds the sign position for zero).
+ */
+function fmtDelta(v: unknown): string {
+  if (v == null) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  const s = n.toFixed(2);
+  return n > 0 ? `+${s}` : n < 0 ? s : ` ${s}`;
 }
 
 /** Exact value (up to 8 decimals, trailing zeros stripped) — for file writes. */
@@ -103,7 +170,8 @@ function fmtTsLocal(v: unknown): string {
 
 /** Pick the formatter for a response field: timestamps as local time. */
 function fmtField(k: string, v: unknown): string {
-  return k === "timestamp" ? fmtTsLocal(v) : fmt(v);
+  if (k === "timestamp") return fmtTsLocal(v);
+  return k.endsWith("Delta") ? fmtDelta(v) : fmt(v);
 }
 
 async function fetchTicker(): Promise<Record<string, unknown>> {
@@ -139,7 +207,24 @@ async function main(): Promise<void> {
     const started = Date.now();
     try {
       const data = await fetchTicker();
-      const keys = Object.keys(data);
+
+      // --delta: append Δ columns, each field minus the last price.
+      if (DELTA) {
+        const last = Number(data.lastRp);
+        for (const f of DELTA_FIELDS) {
+          const v = Number(data[f]);
+          data[`${f}Delta`] =
+            Number.isFinite(v) && Number.isFinite(last) ? v - last : null;
+        }
+      }
+
+      const keys = Object.keys(data)
+        .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
+        .sort(
+          (a, b) =>
+            (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
+            (COLUMN_RANK.get(b) ?? COLUMN_ORDER.length),
+        );
 
       // Grow each column width to fit its label and current value.
       for (const k of keys) {
@@ -179,10 +264,15 @@ async function main(): Promise<void> {
         }
 
         // Render every variable on one horizontal line, timestamp as local time.
+        // Numeric columns are right-aligned so values line up vertically.
         const line = keys
-          .map((k) =>
-            padRight(fmtField(k, data[k]), widths.get(k)!),
-          )
+          .map((k) => {
+            const s = fmtField(k, data[k]);
+            const rightAlign = k !== "timestamp" && k !== "symbol";
+            return rightAlign
+              ? padLeft(s, widths.get(k)!)
+              : padRight(s, widths.get(k)!);
+          })
           .join(" ");
         console.log(`[${tsToHMS(Date.now())}] ${line}`);
         rows++;
