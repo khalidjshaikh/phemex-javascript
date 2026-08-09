@@ -165,7 +165,7 @@ function main(): void {
     console.error(`Cannot find ${CSV_PATH} — run the recorder first or pass the file path.`);
     process.exit(1);
   }
-  const ticks = parseCsv(readFileSync(CSV_PATH, 'utf8'));
+  const ticks = parseCsv(readFileSync(CSV_PATH, 'utf8')).slice(-600);
   writeFileSync(HTML_PATH, buildHtml(ticks), 'utf8');
   console.log(`Wrote ${HTML_PATH} (${ticks.length} ticks)`);
 }
