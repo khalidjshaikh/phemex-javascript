@@ -23,6 +23,8 @@
  *
  * By default a position in the opposite direction of the signal is left as-is
  * (skipped with a warning) — the bot never flips a position automatically.
+ * With --flip, the opposite side is closed first: a Long signal closes the
+ * Short, a Short signal closes the Long, so only the signaled side stays open.
  * With --hedge, Long and Short are managed independently: each side is topped
  * up to the configured size whenever its own signal fires, so a Long and a
  * Short may be open at the same time and never block each other.
@@ -79,9 +81,11 @@ No trade while the index price (index.txt) sits inside the bid–ask spread
 (bid.txt / ask.txt) — unless --allow-inside-spread.
 
 By default a position in the opposite direction of the signal is never
-flipped — it is left as-is and a warning is logged. With --hedge, Long and
-Short are managed independently: each side is topped up to the configured
-size (--size) whenever its own signal fires, and both may be open at once.
+flipped — it is left as-is and a warning is logged. With --flip, the opposite
+side is closed first: a Long signal closes the Short, a Short signal closes
+the Long. With --hedge, Long and Short are managed independently: each side
+is topped up to the configured size (--size) whenever its own signal fires,
+and both may be open at once.
 
 Identical consecutive cycles (same sizes, indexLast, index, bid/ask/last) are
 logged only when a value changes; trade actions are always logged.
@@ -92,6 +96,7 @@ Options:
   --short-threshold <num>    Short trigger level — defaults to --threshold value
   --size <num>        Contract quantity per order — per side with --hedge (default: ${QTY})
   --hedge             Manage Long and Short independently (both may be open at once)
+  --flip              Close the opposite side before entering: Long signal closes the Short, Short signal closes the Long
   --allow-inside-spread  Trade even when the index price is inside the bid–ask spread
   --dry-run           Log every decision but never send an order
   --help, -h          Show this help message
@@ -100,6 +105,7 @@ Examples:
   ./phemex-index-trader.ts --dry-run
   ./phemex-index-trader.ts --threshold 0.15
   ./phemex-index-trader.ts --hedge --size 0.01
+  ./phemex-index-trader.ts --flip
 `);
   process.exit(0);
 }
@@ -194,6 +200,31 @@ async function openPosition(
   );
 }
 
+/** Close an open position: opposite-side market order on the same posSide. */
+async function closePosition(
+  posSide: "Long" | "Short",
+  qty: number,
+  apiKey: string,
+  secretRaw: Buffer,
+  dryRun: boolean,
+): Promise<void> {
+  const side = posSide === "Long" ? "Sell" : "Buy"; // close Long = Sell, close Short = Buy
+  const closeQty = Math.round(qty * 10000) / 10000;
+  if (dryRun) {
+    console.log(`[${fmtTime()}]   [DRY-RUN] would market-${side} ${closeQty} ${SYMBOL} to CLOSE ${posSide}`);
+    return;
+  }
+
+  const result = await placeMarketOrder(
+    { account: "usdt-m", symbol: SYMBOL, side, price: 0, qty: closeQty, posSide },
+    apiKey,
+    secretRaw,
+  );
+  console.log(
+    `[${fmtTime()}]   ✓  ${posSide} closed — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`,
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
@@ -203,6 +234,7 @@ async function main(): Promise<void> {
   const dryRun = hasFlag("--dry-run");
   const allowInsideSpread = hasFlag("--allow-inside-spread");
   const hedge = hasFlag("--hedge");
+  const flip = hasFlag("--flip");
 
   const thresholdArg = getArg("--threshold");
   const threshold = thresholdArg !== undefined ? Number(thresholdArg) : DEFAULT_THRESHOLD;
@@ -239,6 +271,9 @@ async function main(): Promise<void> {
   console.log(`[${fmtTime()}]   Threshold: index >= ${longThreshold} (Long) / <= -${shortThreshold} (Short)   qty: ${qty}   leverage: ${LEVERAGE}x   TP/SL: none   inside spread: ${allowInsideSpread ? "allowed" : "blocked"}`);
   if (hedge) {
     console.log(`[${fmtTime()}]   Mode: HEDGE — Long and Short independent, each up to ${qty}`);
+  }
+  if (flip) {
+    console.log(`[${fmtTime()}]   Mode: FLIP — closing the opposite side before each entry`);
   }
   console.log(`[${fmtTime()}]   Watching indexLast.txt + bid/ask spread — Ctrl-C to stop`);
   console.log(`[${fmtTime()}] ═══════════════════════════════════════════════════════════════`);
@@ -289,8 +324,14 @@ async function main(): Promise<void> {
       }
 
       if (index >= longThreshold) {
-        // Target: Long totalling qty. Default mode never flips an existing Short.
-        if (!hedge && shortSize > 0) {
+        // Target: Long totalling qty. Default mode never flips an existing Short;
+        // --flip closes the Short first.
+        if (flip && shortSize > 0) {
+          console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} >= ${longThreshold} — closing Short ${fmt2(shortSize)} before opening Long`);
+          await closePosition("Short", shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+          await sleep(PAUSE_MS * 2); // let the close fill register before re-checking
+        }
+        if (!hedge && shortSize > 0 && !flip) {
           if (changed) {
             console.log(`[${fmtTime()}]   ⚠  Short ${fmt2(shortSize)} open but signal is Long — leaving position as-is (no auto-flip)`);
           }
@@ -309,8 +350,14 @@ async function main(): Promise<void> {
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
         await sleep(PAUSE_MS * 2); // let the fill register before re-checking
       } else if (index <= -shortThreshold) {
-        // Target: Short totalling qty. Default mode never flips an existing Long.
-        if (!hedge && longSize > 0) {
+        // Target: Short totalling qty. Default mode never flips an existing Long;
+        // --flip closes the Long first.
+        if (flip && longSize > 0) {
+          console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} <= -${shortThreshold} — closing Long ${fmt2(longSize)} before opening Short`);
+          await closePosition("Long", longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+          await sleep(PAUSE_MS * 2); // let the close fill register before re-checking
+        }
+        if (!hedge && longSize > 0 && !flip) {
           if (changed) {
             console.log(`[${fmtTime()}]   ⚠  Long ${fmt2(longSize)} open but signal is Short — leaving position as-is (no auto-flip)`);
           }

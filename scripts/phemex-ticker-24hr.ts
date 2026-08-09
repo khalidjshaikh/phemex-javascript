@@ -192,9 +192,11 @@ async function fetchTicker(): Promise<Record<string, unknown>> {
 }
 
 async function main(): Promise<void> {
-  const HEADER_EVERY = 25; // reprint column labels every N data rows
-  let rows = 0;
   let legendPrinted = false;
+  // The column header is reprinted once per minute, whenever the minute
+  // rolls over (the seconds are ignored), so the labels sit just ahead of
+  // the values for the minute they introduce.
+  let lastHeaderMinute = -1;
   // Minimum spacing: each column is padded to exactly its widest content
   // (label or value seen so far) and columns are joined by a single space.
   const widths = new Map<string, number>();
@@ -258,9 +260,14 @@ async function main(): Promise<void> {
       lastSig = sig;
 
       if (changed) {
-        if (rows % HEADER_EVERY === 0) {
+        // Reprint the header whenever the minute rolls over, ignoring the
+        // seconds: the first changed tick of a new minute carries the header.
+        const now = Date.now();
+        const minute = Math.floor(now / 60000);
+        if (minute !== lastHeaderMinute) {
+          lastHeaderMinute = minute;
           const head = keys.map((k) => padRight(colLabel(k), widths.get(k)!)).join(" ");
-          console.log(`[${tsToHMS(Date.now())}] ${head}`);
+          console.log(`[${tsToHMS(now)}] ${head}`);
         }
 
         // Render every variable on one horizontal line, timestamp as local time.
@@ -275,7 +282,6 @@ async function main(): Promise<void> {
           })
           .join(" ");
         console.log(`[${tsToHMS(Date.now())}] ${line}`);
-        rows++;
       }
     } catch (e) {
       console.log(`[${tsToHMS(Date.now())}] error: ${(e as Error).message}`);
