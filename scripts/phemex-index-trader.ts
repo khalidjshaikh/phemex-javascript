@@ -61,6 +61,8 @@ const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
 const PAUSE_MS = 500;        // 500ms pause between cycles
 const POSITIONS_TTL_MS = 2_000; // re-fetch open positions at most every 2s (cached between cycles)
+let pendingLong = 0;         // local tracker for unconfirmed Long orders
+let pendingShort = 0;        // local tracker for unconfirmed Short orders
 const INDEX_FILE = path.resolve(__dirname, "..", "indexLast.txt");      // signal: index − last
 const INDEX_PRICE_FILE = path.resolve(__dirname, "..", "index.txt");    // index price
 const ASK_FILE = path.resolve(__dirname, "..", "ask.txt");              // ask price (phemex-ticker-24hr.ts)
@@ -305,6 +307,10 @@ async function main(): Promise<void> {
       }
       const { longSize, shortSize } = positions;
 
+      // Reset pending trackers when confirmed position >= pending (order filled).
+      if (longSize >= pendingLong) pendingLong = 0;
+      if (shortSize >= pendingShort) pendingShort = 0;
+
       // 2. Read the index signal and the bid/ask/index/last snapshot.
       const snap = readSnapshot();
       if (snap === null) {
@@ -316,7 +322,7 @@ async function main(): Promise<void> {
 
       // Log each cycle's numbers only when they change (2-decimal precision,
       // matching the value files) — identical repeats are suppressed.
-      const stateKey = `${fmt2(longSize)}|${fmt2(shortSize)}|${fmt2(index)}|${fmt2(indexPrice)}|${fmt2(bid)}|${fmt2(ask)}|${fmt2(last)}`;
+      const stateKey = `${fmt2(longSize)}|${fmt2(shortSize)}|${fmt2(pendingLong)}|${fmt2(pendingShort)}|${fmt2(index)}|${fmt2(indexPrice)}|${fmt2(bid)}|${fmt2(ask)}|${fmt2(last)}`;
       const changed = stateKey !== lastState;
       lastState = stateKey;
 
@@ -336,7 +342,7 @@ async function main(): Promise<void> {
         if (insideSpread) {
           console.log(`[${fmtTime()}]   ⚠  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — trading anyway (--allow-inside-spread)`);
         }
-        console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)}   Short: ${fmt2(shortSize)}   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
+        console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)} (+${fmt2(pendingLong)} pending)   Short: ${fmt2(shortSize)} (+${fmt2(pendingShort)} pending)   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
       }
 
       if (index >= longThreshold) {
@@ -345,6 +351,7 @@ async function main(): Promise<void> {
         if (flip && shortSize > 0) {
           console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} >= ${longThreshold} — closing Short ${fmt2(shortSize)} before opening Long`);
           await closePosition("Short", shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+          pendingShort = 0;
           await sleep(PAUSE_MS); // let the close fill register before re-checking
         }
         if (!hedge && shortSize > 0 && !flip) {
@@ -354,16 +361,17 @@ async function main(): Promise<void> {
           await sleep(PAUSE_MS);
           continue;
         }
-        if (longSize >= qty) {
+        if (longSize + pendingLong >= qty) {
           if (changed) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${fmt2(longSize)} >= ${qty} — waiting 500ms, no trade`);
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${fmt2(longSize)} + pending ${fmt2(pendingLong)} >= ${qty} — waiting 500ms, no trade`);
           }
           await sleep(PAUSE_MS);
           continue;
         }
-        const orderQty = Math.round((qty - longSize) * 10000) / 10000; // top up to exactly qty
+        const orderQty = Math.round((qty - longSize - pendingLong) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} >= ${longThreshold} — Long to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Buy", "Long", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+        pendingLong += orderQty;
         await sleep(PAUSE_MS); // let the fill register before re-checking
       } else if (index <= -shortThreshold) {
         // Target: Short totalling qty. Default mode never flips an existing Long;
@@ -371,6 +379,7 @@ async function main(): Promise<void> {
         if (flip && longSize > 0) {
           console.log(`[${fmtTime()}] ⟲  index ${fmt2(index)} <= -${shortThreshold} — closing Long ${fmt2(longSize)} before opening Short`);
           await closePosition("Long", longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+          pendingLong = 0;
           await sleep(PAUSE_MS); // let the close fill register before re-checking
         }
         if (!hedge && longSize > 0 && !flip) {
@@ -380,16 +389,17 @@ async function main(): Promise<void> {
           await sleep(PAUSE_MS);
           continue;
         }
-        if (shortSize >= qty) {
+        if (shortSize + pendingShort >= qty) {
           if (changed) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${fmt2(shortSize)} >= ${qty} — waiting 500ms, no trade`);
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${fmt2(shortSize)} + pending ${fmt2(pendingShort)} >= ${qty} — waiting 500ms, no trade`);
           }
           await sleep(PAUSE_MS);
           continue;
         }
-        const orderQty = Math.round((qty - shortSize) * 10000) / 10000; // top up to exactly qty
+        const orderQty = Math.round((qty - shortSize - pendingShort) * 10000) / 10000; // top up to exactly qty
         console.log(`[${fmtTime()}] ⟐  index ${fmt2(index)} <= -${shortThreshold} — Short to ${qty} total (adding ${orderQty}) @ ${LEVERAGE}x`);
         await openPosition("Sell", "Short", orderQty, creds.PHEMEX_API_KEY, secretRaw, dryRun);
+        pendingShort += orderQty;
         await sleep(PAUSE_MS); // let the fill register before re-checking
       } else {
         if (changed) {
