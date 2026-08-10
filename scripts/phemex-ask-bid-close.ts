@@ -36,7 +36,7 @@ import { loadCredentials } from "../src/credentials.js";
 import { closePosition, fetchPositions, type Position } from "../src/positions.js";
 
 const DEFAULT_INTERVAL_MS = 1000;
-const DEFAULT_PROFIT = 0.1; // min profit per unit (USDT) before closing
+const DEFAULT_PROFIT = 0.0; // min profit per unit (USDT) before closing
 
 const rawInterval = Number(getArg("--interval") ?? DEFAULT_INTERVAL_MS);
 const INTERVAL_MS = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : DEFAULT_INTERVAL_MS;
@@ -93,10 +93,14 @@ async function closeQualifying(
 
     if (pos.side === "Buy" && bid !== null && bid >= entry + PROFIT) {
       console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= target=${(entry + PROFIT).toFixed(2)} → close (profit ${(bid - entry).toFixed(2)})`);
+      console.log(`[${fmtTime()}] bid >= entryPrice + profit  → close long   (side "Buy")`);
+      console.log(`[${fmtTime()}] ${bid.toFixed(2)} >= ${entry.toFixed(2)} + ${PROFIT.toFixed(2)}  → close long   (side "Buy")`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
     } else if (pos.side === "Sell" && ask !== null && ask <= entry - PROFIT) {
       console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= target=${(entry - PROFIT).toFixed(2)} → close (profit ${(entry - ask).toFixed(2)})`);
+      console.log(`[${fmtTime()}] ask <= entryPrice - profit  → close short  (side "Sell")`);
+      console.log(`[${fmtTime()}] ${ask.toFixed(2)} <= ${entry.toFixed(2)} - ${PROFIT.toFixed(2)}  → close short  (side "Sell")`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
     }

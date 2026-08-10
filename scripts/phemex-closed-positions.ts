@@ -86,22 +86,25 @@ function printTable(positions: ClosedPosition[]): void {
   const rows = [...positions].sort((a, b) => b.closedAt - a.closedAt);
 
   console.log(
-    `\n${"Closed At".padEnd(20)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
+    `\n${"#".padStart(5)} ${"Closed At".padEnd(20)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
     `${"Qty".padStart(10)} ${"Entry".padStart(12)} ${"Exit".padStart(12)} ` +
     `${"Realized".padStart(12)} ${"Net".padStart(12)}  `
   );
-  console.log("─".repeat(112));
+  console.log("─".repeat(118));
 
   let gross = 0;
   let net = 0;
   let fees = 0;
+  let winners = 0;
 
-  for (const p of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const p = rows[i];
     const realized = p.realizedPnl;
+    if (realized >= 0) winners++;
     const pnlFmt = fmtUsd(realized).padStart(12);
     const netFmt = fmtUsd(p.netPnl).padStart(12);
     console.log(
-      `${fmtTime(p.closedAt).padEnd(20)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
+      `${String(i + 1).padStart(5)} ${fmtTime(p.closedAt).padEnd(20)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
       `${fmtQty(p.qty).padStart(10)} ${p.avgEntryPrice.toFixed(4).padStart(12)} ` +
       `${p.avgExitPrice.toFixed(4).padStart(12)} ${pnlFmt} ${netFmt} ` +
       `${p.realizedPnl >= 0 ? "*" : ""} ${p.netPnl >= 0 ? "*" : ""}`
@@ -114,6 +117,7 @@ function printTable(positions: ClosedPosition[]): void {
   console.log("─".repeat(112));
   console.log(
     `Positions: ${rows.length}   ` +
+    `Winners: ${winners}   ` +
     `Σ Realized PnL: ${fmtUsd(gross)}   ` +
     `Σ Fees: ${fees.toFixed(4)}   ` +
     `Σ Net PnL: ${fmtUsd(net)}`
