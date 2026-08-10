@@ -80,6 +80,8 @@ function entryPrice(pos: Position): number {
  * Check the ask/bid levels against every open position and market-close the
  * ones that satisfy the exit condition.
  */
+const lastLogged = new Map<string, number>();
+
 async function closeQualifying(
   positions: Position[],
   ask: number | null,
@@ -93,7 +95,10 @@ async function closeQualifying(
 
     if (pos.side === "Buy" && bid !== null) {
       if (bid >= entry) {
-        console.log(`[${fmtTime()}] ${pos.symbol} long  bid=${bid.toFixed(2)} >= entryPrice=${entry.toFixed(2)}`);
+        if (lastLogged.get(pos.symbol) !== bid) {
+          console.log(`[${fmtTime()}] ${pos.symbol} long  bid=${bid.toFixed(2)} >= entryPrice=${entry.toFixed(2)}`);
+          lastLogged.set(pos.symbol, bid);
+        }
       }
       if (bid >= entry + PROFIT) {
         console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= target=${(entry + PROFIT).toFixed(2)} → close (profit ${(bid - entry).toFixed(2)})`);
@@ -104,7 +109,10 @@ async function closeQualifying(
       }
     } else if (pos.side === "Sell" && ask !== null) {
       if (ask <= entry) {
-        console.log(`[${fmtTime()}] ${pos.symbol} short  ask=${ask.toFixed(2)} <= entryPrice=${entry.toFixed(2)}`);
+        if (lastLogged.get(pos.symbol) !== ask) {
+          console.log(`[${fmtTime()}] ${pos.symbol} short  ask=${ask.toFixed(2)} <= entryPrice=${entry.toFixed(2)}`);
+          lastLogged.set(pos.symbol, ask);
+        }
       }
       if (ask <= entry - PROFIT) {
         console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= target=${(entry - PROFIT).toFixed(2)} → close (profit ${(entry - ask).toFixed(2)})`);
