@@ -13,12 +13,13 @@
  * ask.txt and bid.txt in the project root (value only, no newline), so other
  * scripts can find them regardless of the launch directory.
  *
- * A Δindex/Δt column shows the index rate of change (price per second)
- * between consecutive ticks, timed by the ticker's own timestamp; ΔidxTick
- * and Δt columns show the raw index change per tick and the elapsed seconds.
+ * With --index_rate a Δindex/Δt column shows the index rate of change
+ * (price per second) between consecutive ticks, timed by the ticker's own
+ * timestamp; ΔidxTick and Δt columns show the raw index change per tick and
+ * the elapsed seconds.
  *
- * At the end of every minute three summary lines print the average price of
- * each of the five columns over that minute (x̄ask … x̄last), the
+ * With --xbar and --sigma, the end of every minute prints the average price
+ * of each of the five columns over that minute (x̄ask … x̄last) and the
  * cumulative absolute movement — Σask, Σbid, Σindex, Σmark, Σlast — where Σ
  * (sigma) is the sum of |current − previous| between consecutive ticks
  * (oscillation counts as movement), plus the per-second rate of each
@@ -34,6 +35,9 @@
  *   npx tsx phemex-ticker-24hr.ts --symbol BTCUSDT
  *   npx tsx phemex-ticker-24hr.ts --interval 2000  # poll every 2s
  *   npx tsx phemex-ticker-24hr.ts --delta          # add Δask/Δbid/... = field − last
+ *   npx tsx phemex-ticker-24hr.ts --index_rate     # add Δindex/Δt, ΔidxTick, Δt columns
+ *   npx tsx phemex-ticker-24hr.ts --xbar           # per-minute average line (x̄ask … x̄last)
+ *   npx tsx phemex-ticker-24hr.ts --sigma          # per-minute Σ and Σ/Δt movement lines
  *   npx tsx phemex-ticker-24hr.ts --csv ticker.csv # append CSV rows
  */
 
@@ -47,13 +51,14 @@ const USAGE = `Usage: npx tsx phemex-ticker-24hr.ts [options]
 Poll the Phemex v3 24h ticker every second and print every variable of
 the response horizontally on one line. Public endpoint, no credentials
 needed. A line is printed only when ask, bid, index, mark or last changed;
-ask.txt and bid.txt are still updated in the project root on every tick. A
-Δindex/Δt column shows the index rate of change (price per second)
-between consecutive ticks, timed by the ticker's own timestamp, with
-ΔidxTick and Δt columns for the raw change and elapsed seconds. At the end
-of every minute three summary lines print the average price of the five
-columns (x̄ask … x̄last), the cumulative absolute movement
-(Σask … Σlast) and each one's per-second rate (Σask/Δt … Σlast/Δt).
+ask.txt and bid.txt are still updated in the project root on every tick.
+With --index_rate a Δindex/Δt column shows the index rate of change
+(price per second) between consecutive ticks, timed by the ticker's own
+timestamp, with ΔidxTick and Δt columns for the raw change and elapsed
+seconds. With --xbar and --sigma, the end of every minute prints the
+average price of the five columns (x̄ask … x̄last) and the cumulative
+absolute movement (Σask … Σlast) with each one's per-second rate
+(Σask/Δt … Σlast/Δt).
 
 Options:
   --symbol <SYMBOL>   Symbol to poll (default: XBRUSDT)
@@ -62,6 +67,11 @@ Options:
                       symbol, turnover, volume columns
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
                       each field minus the last price
+  --index_rate        Add the Δindex/Δt, ΔidxTick and Δt columns showing
+                      the index rate of change between consecutive ticks
+  --xbar              Print the per-minute average-price line (x̄ask … x̄last)
+  --sigma             Print the per-minute cumulative movement lines
+                      (Σask … Σlast and Σask/Δt … Σlast/Δt)
   --csv <FILE>        Append a CSV row (time,ask,bid,index,mark,last) to
                       FILE on every tick; writes the header when FILE is new
   --help              Show this help and exit
@@ -86,6 +96,14 @@ const CONCISE_HIDDEN = new Set([
 // --delta: fields for which a Δ column (field value minus last price) is added.
 const DELTA = hasFlag("--delta");
 const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "lastRp", "markRp"] as const;
+
+// --index_rate: show the Δindex/Δt, ΔidxTick and Δt columns (index rate of
+// change between consecutive ticks); hidden by default.
+const SHOW_INDEX_RATE = hasFlag("--index_rate");
+// --xbar / --sigma: per-minute summary lines — the average price line (x̄)
+// and the cumulative movement lines (Σ, Σ/Δt); hidden by default.
+const SHOW_XBAR = hasFlag("--xbar");
+const SHOW_SIGMA = hasFlag("--sigma");
 
 // Fields that trigger a printed line when they change — the five price
 // columns. Other fields (turnover, volume, Δindex/Δt, Δt, …) update
@@ -276,12 +294,13 @@ function fmtField(k: string, v: unknown): string {
 }
 
 /**
- * Print the per-minute summary right after the minute rolls over: the
- * average price of each of the five fields over the ticks of that minute,
- * the cumulative absolute movement Σ (sigma) — the sum of |current −
- * previous| between consecutive ticks, so oscillation counts as movement —
- * and the per-second rate Σ/60 (movement per full 60-second minute). All
- * three lines share one column grid, so their columns line up.
+ * Print the per-minute summary right after the minute rolls over — but only
+ * the lines enabled by --xbar and --sigma: the average price of each of the
+ * five fields over the ticks of that minute (x̄), the cumulative absolute
+ * movement Σ (sigma) — the sum of |current − previous| between consecutive
+ * ticks, so oscillation counts as movement — and the per-second rate Σ/60
+ * (movement per full 60-second minute). The enabled lines share one column
+ * grid, so their columns line up.
  */
 function printMinuteSummary(
   total: Map<string, number>,
@@ -290,7 +309,7 @@ function printMinuteSummary(
 ): void {
   const stamp = tsToHMS(Date.now());
   // One shared column width — the widest label and the widest value across
-  // all three lines — so the x̄, Σ and Σ/Δt columns line up: labels start
+  // the enabled lines — so the x̄, Σ and Σ/Δt columns line up: labels start
   // at the same position and values end at the same right edge.
   const cells = SIG_FIELDS.map((f) => {
     const t = total.get(f);
@@ -299,7 +318,7 @@ function printMinuteSummary(
       labelAvg: `x̄${colLabel(f)}`,
       labelMov: `Σ${colLabel(f)}`,
       labelRate: `Σ${colLabel(f)}/Δt`,
-      // All three lines share the same decimal count (5), so with the
+      // All lines share the same decimal count (5), so with the
       // right-aligned values below every decimal point lands in the same
       // column and the numbers line up vertically.
       avg: count > 0 && t != null ? fmt(t / count, 5) : "—",
@@ -308,17 +327,21 @@ function printMinuteSummary(
       rate: v != null ? fmt(v / 60, 5) : "—",
     };
   });
-  const wLabel = Math.max(...cells.map((c) => visWidth(c.labelRate)));
-  const wValue = Math.max(...cells.map((c) => Math.max(c.avg.length, c.mov.length, c.rate.length)));
-  console.log(
-    `[${stamp}] ${cells.map((c) => `${padRight(c.labelAvg, wLabel)} ${padLeft(c.avg, wValue)}`).join(" ")}`,
-  );
-  console.log(
-    `[${stamp}] ${cells.map((c) => `${padRight(c.labelMov, wLabel)} ${padLeft(c.mov, wValue)}`).join(" ")}`,
-  );
-  console.log(
-    `[${stamp}] ${cells.map((c) => `${padRight(c.labelRate, wLabel)} ${padLeft(c.rate, wValue)}`).join(" ")}`,
-  );
+  // Collect only the enabled summary lines.
+  const lines: Array<Array<{ label: string; value: string }>> = [];
+  if (SHOW_XBAR) lines.push(cells.map((c) => ({ label: c.labelAvg, value: c.avg })));
+  if (SHOW_SIGMA) {
+    lines.push(cells.map((c) => ({ label: c.labelMov, value: c.mov })));
+    lines.push(cells.map((c) => ({ label: c.labelRate, value: c.rate })));
+  }
+  if (lines.length === 0) return;
+  const wLabel = Math.max(...lines.flat().map((c) => visWidth(c.label)));
+  const wValue = Math.max(...lines.flat().map((c) => c.value.length));
+  for (const row of lines) {
+    console.log(
+      `[${stamp}] ${row.map((c) => `${padRight(c.label, wLabel)} ${padLeft(c.value, wValue)}`).join(" ")}`,
+    );
+  }
 }
 
 async function fetchTicker(): Promise<Record<string, unknown>> {
@@ -383,65 +406,72 @@ async function main(): Promise<void> {
         }
       }
 
-      // Δindex/Δt: rate of change of the index price between consecutive
-      // ticks, price per second ("—" on the first tick), with its two
-      // components exposed as columns: indexNow − prevIndex.v (ΔidxTick)
-      // and the elapsed ticker seconds (Δt). Elapsed time is taken strictly
-      // from the ticker's own timestamp — the time column (ns since epoch),
-      // never the local wall clock — so Δt mirrors the time column; a
-      // frozen timestamp means no movement.
-      const indexNow = Number(data.indexRp);
-      const tickerTs = Number(data.timestamp);
-      const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
-      if (Number.isFinite(indexNow) && tsValid && prevIndex) {
-        const tNow = tickerTs / 1e9;
-        const dt = tNow - prevIndex.t;
-        const dIndex = indexNow - prevIndex.v;
-        data.indexTickDelta = dIndex;
-        data.dt = dt > 0 ? dt : 0;
-        data.indexVelDelta = dt > 0 ? dIndex / dt : 0;
-      } else {
-        data.indexTickDelta = null;
-        data.dt = null;
-        data.indexVelDelta = null;
-      }
-      if (Number.isFinite(indexNow) && tsValid) {
-        prevIndex = { t: tickerTs / 1e9, v: indexNow };
+      // Δindex/Δt (--index_rate): rate of change of the index price between
+      // consecutive ticks, price per second ("—" on the first tick), with
+      // its two components exposed as columns: indexNow − prevIndex.v
+      // (ΔidxTick) and the elapsed ticker seconds (Δt). Elapsed time is
+      // taken strictly from the ticker's own timestamp — the time column
+      // (ns since epoch), never the local wall clock — so Δt mirrors the
+      // time column; a frozen timestamp means no movement. The columns are
+      // only computed (and thus shown) when the flag is present.
+      if (SHOW_INDEX_RATE) {
+        const indexNow = Number(data.indexRp);
+        const tickerTs = Number(data.timestamp);
+        const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
+        if (Number.isFinite(indexNow) && tsValid && prevIndex) {
+          const tNow = tickerTs / 1e9;
+          const dt = tNow - prevIndex.t;
+          const dIndex = indexNow - prevIndex.v;
+          data.indexTickDelta = dIndex;
+          data.dt = dt > 0 ? dt : 0;
+          data.indexVelDelta = dt > 0 ? dIndex / dt : 0;
+        } else {
+          data.indexTickDelta = null;
+          data.dt = null;
+          data.indexVelDelta = null;
+        }
+        if (Number.isFinite(indexNow) && tsValid) {
+          prevIndex = { t: tickerTs / 1e9, v: indexNow };
+        }
       }
 
-      // Σ (sigma): accumulate |current − previous| per price field since the
-      // start of the current minute. When the wall-clock minute rolls over,
-      // print the totals (and their per-second rates) for the minute that
-      // just ended, then start fresh. The first tick of a minute still takes
-      // the delta from the previous minute's last tick, so no movement is
-      // dropped at the boundary. Wall-clock time (not the ticker's) buckets
-      // the minute, matching the header reprint below.
+      // Σ (sigma) and x̄ (--xbar / --sigma): accumulate |current − previous|
+      // per price field, and each field's sum, since the start of the
+      // current minute. When the wall-clock minute rolls over, print the
+      // enabled summary lines for the minute that just ended, then start
+      // fresh. The first tick of a minute still takes the delta from the
+      // previous minute's last tick, so no movement is dropped at the
+      // boundary. Wall-clock time (not the ticker's) buckets the minute,
+      // matching the header reprint below. Skipped entirely when neither
+      // summary flag is present.
       const now = Date.now();
       const minute = Math.floor(now / 60000);
-      if (minute !== cumMinute) {
-        if (cumMinute >= 0) printMinuteSummary(cumTotal, cumCount, cumSum);
-        cumMinute = minute;
-        cumTotal.clear();
-        cumCount = 0;
-        cumSum.clear();
-      }
-      // Average prices: sum each field's value over the minute's ticks.
-      let sampled = false;
-      for (const f of SIG_FIELDS) {
-        const v = Number(data[f]);
-        if (Number.isFinite(v)) {
-          sampled = true;
-          cumTotal.set(f, (cumTotal.get(f) ?? 0) + v);
+      if (SHOW_XBAR || SHOW_SIGMA) {
+        if (minute !== cumMinute) {
+          if (cumMinute >= 0) printMinuteSummary(cumTotal, cumCount, cumSum);
+          cumMinute = minute;
+          cumTotal.clear();
+          cumCount = 0;
+          cumSum.clear();
         }
-        if (cumPrev.has(f) && Number.isFinite(v)) {
-          const pv = Number(cumPrev.get(f));
-          if (Number.isFinite(pv)) {
-            cumSum.set(f, (cumSum.get(f) ?? 0) + Math.abs(v - pv));
+        // Average prices: sum each field's value over the minute's ticks.
+        let sampled = false;
+        for (const f of SIG_FIELDS) {
+          const v = Number(data[f]);
+          if (Number.isFinite(v)) {
+            sampled = true;
+            cumTotal.set(f, (cumTotal.get(f) ?? 0) + v);
           }
+          if (cumPrev.has(f) && Number.isFinite(v)) {
+            const pv = Number(cumPrev.get(f));
+            if (Number.isFinite(pv)) {
+              cumSum.set(f, (cumSum.get(f) ?? 0) + Math.abs(v - pv));
+            }
+          }
+          cumPrev.set(f, v);
         }
-        cumPrev.set(f, v);
+        if (sampled) cumCount++;
       }
-      if (sampled) cumCount++;
 
       const keys = Object.keys(data)
         .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
