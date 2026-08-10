@@ -94,7 +94,7 @@ interface CliArgs {
   toSrc?: string;
   step: number;
   delay: number;
-  /** Delay (ms) to wait after the position-size guard passes, before placing the order. */
+  /** Delay (ms) to wait after the position-size guard check: on pass, before placing the order; on fail, before exiting. */
   posDelay: number;
   /** Infinite loop: repeat the ladder sweep until filled or interrupted. */
   loop: boolean;
@@ -240,8 +240,10 @@ Optional flags:
   --step <price>  Ladder step between rungs, as a magnitude (default: 0.01);
                   direction follows --from → --to (downward allowed)
   --delay <ms>    Ladder: wait between place and cancel (default: 0)
-  --posDelay <ms> Wait this long after the position-size guard passes,
-                  before placing the order (default: 0)
+  --posDelay <ms> Wait this long after the position-size guard check —
+                  when it passes, before placing the order; when it
+                  fails, before exiting, so re-runs don't loop too
+                  fast (default: 0)
 
   --maxPosSize <num>  Position-size guard (usdt-m only): before each limit
                   order, read the open position size (contracts) for --symbol
@@ -785,6 +787,11 @@ async function runLadder(args: CliArgs, apiKey: string, secretRaw: Buffer, from:
       }
       if (size >= args.maxPosSize) {
         console.log(`   ✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
+        if (args.posDelay > 0) {
+          process.stdout.write(`       guard failed — waiting ${args.posDelay}ms before exit …  `);
+          await sleep(args.posDelay);
+          console.log("✓");
+        }
         aborted = `${args.symbol} position size ${size} ≥ maxPosSize ${args.maxPosSize}`;
         break;
       }
@@ -897,6 +904,11 @@ async function main(): Promise<void> {
     const size = await currentPositionSize(args, creds.PHEMEX_API_KEY, secretRaw);
     if (size >= args.maxPosSize) {
       console.error(`✗  ${args.symbol} position size ${size} ≥ cap ${args.maxPosSize} — not placing order`);
+      if (args.posDelay > 0) {
+        process.stdout.write(`   guard failed — waiting ${args.posDelay}ms before exit …  `);
+        await sleep(args.posDelay);
+        console.log("✓");
+      }
       process.exit(1);
     }
     if (args.posDelay > 0) {
