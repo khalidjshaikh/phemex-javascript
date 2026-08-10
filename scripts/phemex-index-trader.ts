@@ -55,6 +55,7 @@ import { fetchPositions } from "../src/positions.js";
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_SYMBOL = "XBRUSDT";
+let SYMBOL = DEFAULT_SYMBOL;
 const QTY = 0.01;             // contract quantity per order
 const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
@@ -268,7 +269,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const SYMBOL = getArg("--symbol") ?? DEFAULT_SYMBOL;
+  SYMBOL = getArg("--symbol") ?? DEFAULT_SYMBOL;
 
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
