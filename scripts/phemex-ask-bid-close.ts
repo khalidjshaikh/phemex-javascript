@@ -5,21 +5,25 @@
  * close them based on the ask.txt / bid.txt values (written once per second
  * by phemex-ticker-24hr.ts):
  *
- *   bid >= entryPrice  → close long   (side "Buy")
- *   ask <= entryPrice  → close short  (side "Sell")
+ *   bid >= entryPrice + profit  → close long   (side "Buy")
+ *   ask <= entryPrice - profit  → close short  (side "Sell")
  *
- * The ask/bid files live at the project root (like last.txt / mark.txt), so
+ * profit is the minimum profit per unit before a position is closed
+ * (default: 0.10 USDT, configurable with --profit). The ask/bid files live
+ * at the project root (like last.txt / mark.txt), so
  * the script works no matter which directory it is launched from.
  *
  * Usage:
- *   npx tsx phemex-ask-bid-close.ts                  # every 1s
- *   npx tsx phemex-ask-bid-close.ts --interval 500   # every 500ms
- *   npx tsx phemex-ask-bid-close.ts --symbol XBRUSDT # only this symbol
- *   npx tsx phemex-ask-bid-close.ts --dry-run        # log only, no orders
+ *   npx tsx phemex-ask-bid-close.ts                      # every 1s
+ *   npx tsx phemex-ask-bid-close.ts --interval 500       # every 500ms
+ *   npx tsx phemex-ask-bid-close.ts --symbol XBRUSDT     # only this symbol
+ *   npx tsx phemex-ask-bid-close.ts --profit 0.25        # require 25c profit
+ *   npx tsx phemex-ask-bid-close.ts --dry-run            # log only, no orders
  *
  * Options:
  *   --interval <ms>   Polling interval in ms (default: 1000)
  *   --symbol <symbol> Only close positions for this symbol (default: all)
+ *   --profit <amt>    Min profit per unit before closing (default: 0.10)
  *   --dry-run         Print what would be closed without placing orders
  *   --help, -h        Show this help message
  */
@@ -32,11 +36,15 @@ import { loadCredentials } from "../src/credentials.js";
 import { closePosition, fetchPositions, type Position } from "../src/positions.js";
 
 const DEFAULT_INTERVAL_MS = 1000;
+const DEFAULT_PROFIT = 0.1; // min profit per unit (USDT) before closing
 
 const rawInterval = Number(getArg("--interval") ?? DEFAULT_INTERVAL_MS);
 const INTERVAL_MS = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : DEFAULT_INTERVAL_MS;
 const SYMBOL = getArg("--symbol"); // undefined = all symbols
 const DRY_RUN = hasFlag("--dry-run");
+
+const rawProfit = Number(getArg("--profit") ?? DEFAULT_PROFIT);
+const PROFIT = Number.isFinite(rawProfit) && rawProfit >= 0 ? rawProfit : DEFAULT_PROFIT;
 
 // Value files live at the project root (written by phemex-ticker-24hr.ts).
 const ROOT = resolve(__dirname, "..");
@@ -83,12 +91,12 @@ async function closeQualifying(
     if (SYMBOL && pos.symbol !== SYMBOL) continue;
     const entry = entryPrice(pos);
 
-    if (pos.side === "Buy" && bid !== null && bid >= entry) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= entry=${entry.toFixed(2)} → close`);
+    if (pos.side === "Buy" && bid !== null && bid >= entry + PROFIT) {
+      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= target=${(entry + PROFIT).toFixed(2)} → close (profit ${(bid - entry).toFixed(2)})`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
-    } else if (pos.side === "Sell" && ask !== null && ask <= entry) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= entry=${entry.toFixed(2)} → close`);
+    } else if (pos.side === "Sell" && ask !== null && ask <= entry - PROFIT) {
+      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= target=${(entry - PROFIT).toFixed(2)} → close (profit ${(entry - ask).toFixed(2)})`);
       if (DRY_RUN) continue;
       await closePosition(pos, apiKey, secretRaw);
     }
@@ -100,13 +108,15 @@ function usage(): never {
 Usage: scripts/phemex-ask-bid-close.ts [options]
 
 Every ${INTERVAL_MS}ms, fetch open USDT-M positions and close them when the
-ask/bid levels (ask.txt / bid.txt at the project root) cross the entry price:
-  bid >= entryPrice  → close long
-  ask <= entryPrice  → close short
+ask/bid levels (ask.txt / bid.txt at the project root) are at least PROFIT
+past the entry price:
+  bid >= entryPrice + profit  → close long
+  ask <= entryPrice - profit  → close short
 
 Options:
   --interval <ms>   Polling interval in ms (default: ${DEFAULT_INTERVAL_MS})
   --symbol <symbol> Only close positions for this symbol (default: all)
+  --profit <amt>    Min profit per unit before closing (default: ${DEFAULT_PROFIT.toFixed(2)})
   --dry-run         Print what would be closed without placing orders
   --help, -h        Show this help message
 
@@ -114,6 +124,7 @@ Examples:
   scripts/phemex-ask-bid-close.ts
   scripts/phemex-ask-bid-close.ts --interval 500
   scripts/phemex-ask-bid-close.ts --symbol XBRUSDT --dry-run
+  scripts/phemex-ask-bid-close.ts --profit 0.25
 `);
   process.exit(0);
 }
@@ -125,7 +136,7 @@ async function main(): Promise<void> {
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const modeLabel = DRY_RUN ? "DRY-RUN" : "LIVE";
-  const detail = `  Poll: every ${INTERVAL_MS}ms   target: ${SYMBOL ?? "all symbols"}   mode: ${modeLabel}`;
+  const detail = `  Poll: every ${INTERVAL_MS}ms   target: ${SYMBOL ?? "all symbols"}   profit: ${PROFIT.toFixed(2)}   mode: ${modeLabel}`;
   console.log(`[${fmtTime()}] ═ Ask/Bid Close ${"═".repeat(Math.max(0, detail.length - 16))}`);
   console.log(`[${fmtTime()}] ${detail}`);
   console.log(`[${fmtTime()}] ${"═".repeat(detail.length)}`);
