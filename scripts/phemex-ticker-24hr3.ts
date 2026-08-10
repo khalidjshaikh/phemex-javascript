@@ -205,13 +205,14 @@ function colFull(key: string): string {
 function colWidth(key: string): number {
   const label = visWidth(colLabel(key));
   if (key === "timestamp") return Math.max(label, 12); // HH:MM:SS.mmm
-  if (key === "dt")
-    return Math.max(label, 11); // sign + 8 decimals
+  if (key === "markRp") return Math.max(label, 6);
+  if (key === "markRpDelta") return Math.max(label, 6);
+  if (key === "dt") return Math.max(label, 12);
   // Cumulative counters can grow; everything else is a small price/delta.
   if (key === "volumeRq" || key === "turnoverRv" || key === "openInterestRv")
     return Math.max(label, 8);
-  // MA columns: signed 2-decimal values, may exceed 5 chars.
-  if (key.startsWith("ma")) return Math.max(label, 7);
+  // MA columns: signed 8-decimal values (e.g. +0.06000000 = 11 chars).
+  if (key.startsWith("ma")) return Math.max(label, 11);
   return Math.max(label, 5); // 2-decimal numbers: 84.00, +0.02
 }
 
@@ -586,7 +587,12 @@ async function main(): Promise<void> {
         if (minute !== lastHeaderMinute) {
           lastHeaderMinute = minute;
           const head = keys
-            .map((k) => padRight(colLabel(k), widths.get(k)!))
+            .map((k) => {
+              const rightAlign = k !== "timestamp" && k !== "symbol";
+              return rightAlign
+                ? padLeft(colLabel(k), widths.get(k)!)
+                : padRight(colLabel(k), widths.get(k)!);
+            })
             .join(" ");
           console.log(`[${tsToHMS(now)}] ${head}`);
         }
