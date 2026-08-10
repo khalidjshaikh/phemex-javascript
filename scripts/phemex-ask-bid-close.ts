@@ -91,18 +91,28 @@ async function closeQualifying(
     if (SYMBOL && pos.symbol !== SYMBOL) continue;
     const entry = entryPrice(pos);
 
-    if (pos.side === "Buy" && bid !== null && bid >= entry + PROFIT) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= target=${(entry + PROFIT).toFixed(2)} → close (profit ${(bid - entry).toFixed(2)})`);
-      console.log(`[${fmtTime()}] bid >= entryPrice + profit  → close long   (side "Buy")`);
-      console.log(`[${fmtTime()}] ${bid.toFixed(2)} >= ${entry.toFixed(2)} + ${PROFIT.toFixed(2)}  → close long   (side "Buy")`);
-      if (DRY_RUN) continue;
-      await closePosition(pos, apiKey, secretRaw);
-    } else if (pos.side === "Sell" && ask !== null && ask <= entry - PROFIT) {
-      console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= target=${(entry - PROFIT).toFixed(2)} → close (profit ${(entry - ask).toFixed(2)})`);
-      console.log(`[${fmtTime()}] ask <= entryPrice - profit  → close short  (side "Sell")`);
-      console.log(`[${fmtTime()}] ${ask.toFixed(2)} <= ${entry.toFixed(2)} - ${PROFIT.toFixed(2)}  → close short  (side "Sell")`);
-      if (DRY_RUN) continue;
-      await closePosition(pos, apiKey, secretRaw);
+    if (pos.side === "Buy" && bid !== null) {
+      if (bid >= entry) {
+        console.log(`[${fmtTime()}] ${pos.symbol} long  bid=${bid.toFixed(2)} >= entryPrice=${entry.toFixed(2)}`);
+      }
+      if (bid >= entry + PROFIT) {
+        console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} long  bid=${bid.toFixed(2)} >= target=${(entry + PROFIT).toFixed(2)} → close (profit ${(bid - entry).toFixed(2)})`);
+        console.log(`[${fmtTime()}] bid >= entryPrice + profit  → close long   (side "Buy")`);
+        console.log(`[${fmtTime()}] ${bid.toFixed(2)} >= ${entry.toFixed(2)} + ${PROFIT.toFixed(2)}  → close long   (side "Buy")`);
+        if (DRY_RUN) continue;
+        await closePosition(pos, apiKey, secretRaw);
+      }
+    } else if (pos.side === "Sell" && ask !== null) {
+      if (ask <= entry) {
+        console.log(`[${fmtTime()}] ${pos.symbol} short  ask=${ask.toFixed(2)} <= entryPrice=${entry.toFixed(2)}`);
+      }
+      if (ask <= entry - PROFIT) {
+        console.log(`[${fmtTime()}]  ⟐  ${pos.symbol} short  ask=${ask.toFixed(2)} <= target=${(entry - PROFIT).toFixed(2)} → close (profit ${(entry - ask).toFixed(2)})`);
+        console.log(`[${fmtTime()}] ask <= entryPrice - profit  → close short  (side "Sell")`);
+        console.log(`[${fmtTime()}] ${ask.toFixed(2)} <= ${entry.toFixed(2)} - ${PROFIT.toFixed(2)}  → close short  (side "Sell")`);
+        if (DRY_RUN) continue;
+        await closePosition(pos, apiKey, secretRaw);
+      }
     }
   }
 }
