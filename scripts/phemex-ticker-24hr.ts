@@ -85,6 +85,11 @@ const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 const ROOT = resolve(__dirname, "..");
 const ASK_FILE = resolve(ROOT, "ask.txt");
 const BID_FILE = resolve(ROOT, "bid.txt");
+const INDEX_FILE = resolve(ROOT, "index.txt");
+const INDEX_LAST_FILE = resolve(ROOT, "indexLast.txt");
+const LAST_FILE = resolve(ROOT, "last.txt");
+const MARK_FILE = resolve(ROOT, "mark.txt");
+const MARK_LAST_FILE = resolve(ROOT, "markLast.txt");
 
 /* ------------------------------------------------------------------ */
 /*  CSV logging (--csv <FILE>) — append one row per tick.              */
@@ -281,6 +286,15 @@ async function main(): Promise<void> {
       // this must happen even when nothing is printed.
       fs.writeFileSync(ASK_FILE, fmtExact(data.askRp), "utf8");
       fs.writeFileSync(BID_FILE, fmtExact(data.bidRp), "utf8");
+
+      const index = Number(data.indexRp);
+      const last = Number(data.lastRp);
+      const mark = Number(data.markRp);
+      fs.writeFileSync(INDEX_FILE, fmtExact(index), "utf8");
+      fs.writeFileSync(INDEX_LAST_FILE, fmtExact(Number.isFinite(index) && Number.isFinite(last) ? index - last : null), "utf8");
+      fs.writeFileSync(LAST_FILE, fmtExact(last), "utf8");
+      fs.writeFileSync(MARK_FILE, fmtExact(mark), "utf8");
+      fs.writeFileSync(MARK_LAST_FILE, fmtExact(Number.isFinite(mark) && Number.isFinite(last) ? mark - last : null), "utf8");
 
       // --csv: append a time-series row every tick (even when nothing changed).
       if (CSV_FILE) appendCsvRow(CSV_FILE, data);
