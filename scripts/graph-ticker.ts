@@ -17,7 +17,7 @@ const PLOTLY_LOCAL = join(ROOT, 'vendor', 'plotly.min.js');
 // Date axis needs a full date; ticker.csv only carries HH:MM:SS, so pin a base date.
 const BASE_DATE = '2000-01-01';
 // Cap the number of plotted ticks to the most recent rows.
-const MAX_TICKS = 60;
+const MAX_TICKS = 600;
 
 interface Tick {
   time: string; // full ISO datetime for Plotly's date axis
