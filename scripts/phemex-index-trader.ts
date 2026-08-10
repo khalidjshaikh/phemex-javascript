@@ -12,7 +12,7 @@
  *        value >= +longThreshold   → Long  (qty − longSize) @ 100x (no stop loss, no take profit)
  *        value <= −shortThreshold  → Short (qty − shortSize) @ 100x (no stop loss, no take profit)
  *        −shortThreshold < value < +longThreshold → no trade (dead band)
- *   3. If the signaled side is already at or above qty: pause 1 second, do not
+ *   3. If the signaled side is already at or above qty: pause 500ms, do not
  *      trade, loop again.
  *
  *   Identical consecutive cycles are logged only when a value changes —
@@ -57,7 +57,8 @@ const SYMBOL = "XBRUSDT";
 const QTY = 0.01;             // contract quantity per order
 const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
-const PAUSE_MS = 1_000;       // 1s pause while a position is already open
+const PAUSE_MS = 500;        // 500ms pause between cycles
+const POSITIONS_TTL_MS = 2_000; // re-fetch open positions at most every 2s (cached between cycles)
 const INDEX_FILE = path.resolve(__dirname, "..", "indexLast.txt");      // signal: index − last
 const INDEX_PRICE_FILE = path.resolve(__dirname, "..", "index.txt");    // index price
 const ASK_FILE = path.resolve(__dirname, "..", "ask.txt");              // ask price (phemex-ticker-24hr.ts)
@@ -284,10 +285,19 @@ async function main(): Promise<void> {
   });
 
   let lastState: string | null = null; // last logged market state; suppress identical repeats
+  let posCache: { longSize: number; shortSize: number } | null = null;
+  let posCacheAt = 0;
   while (true) {
     try {
-      // 1. Read the open XBRUSDT positions (Long and Short sizes).
-      const { longSize, shortSize } = await xbrPositions(creds.PHEMEX_API_KEY, secretRaw);
+      // 1. Read the open XBRUSDT positions (Long and Short sizes) — refetched
+      //    at most every POSITIONS_TTL_MS; cached value reused in between.
+      let positions = posCache;
+      if (positions === null || Date.now() - posCacheAt >= POSITIONS_TTL_MS) {
+        positions = await xbrPositions(creds.PHEMEX_API_KEY, secretRaw);
+        posCache = positions;
+        posCacheAt = Date.now();
+      }
+      const { longSize, shortSize } = positions;
 
       // 2. Read the index signal and the bid/ask/index/last snapshot.
       const snap = readSnapshot();
@@ -310,7 +320,7 @@ async function main(): Promise<void> {
       const insideSpread = indexPrice > spreadLo && indexPrice < spreadHi;
       if (insideSpread && !allowInsideSpread) {
         if (changed) {
-          console.log(`[${fmtTime()}]   –  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — no trade`);
+          console.log(`[${fmtTime()}]   –  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — indexLast ${fmt2(index)} — no trade`);
         }
         await sleep(PAUSE_MS);
         continue;
@@ -340,7 +350,7 @@ async function main(): Promise<void> {
         }
         if (longSize >= qty) {
           if (changed) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${fmt2(longSize)} >= ${qty} — waiting 1s, no trade`);
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Long position ${fmt2(longSize)} >= ${qty} — waiting 500ms, no trade`);
           }
           await sleep(PAUSE_MS);
           continue;
@@ -366,7 +376,7 @@ async function main(): Promise<void> {
         }
         if (shortSize >= qty) {
           if (changed) {
-            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${fmt2(shortSize)} >= ${qty} — waiting 1s, no trade`);
+            console.log(`[${fmtTime()}]   ⏸  ${SYMBOL} Short position ${fmt2(shortSize)} >= ${qty} — waiting 500ms, no trade`);
           }
           await sleep(PAUSE_MS);
           continue;
