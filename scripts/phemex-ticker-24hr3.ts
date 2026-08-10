@@ -13,11 +13,6 @@
  * ask.txt and bid.txt in the project root (value only, no newline), so other
  * scripts can find them regardless of the launch directory.
  *
- * With --index_rate a Δindex/Δt column shows the index rate of change
- * (price per second) between consecutive ticks, timed by the ticker's own
- * timestamp; ΔidxTick and Δt columns show the raw index change per tick and
- * the elapsed seconds.
- *
  * With --xbar and --sigma, the end of every minute prints the average price
  * of each of the five columns over that minute (x̄ask … x̄last) and the
  * cumulative absolute movement — Σask, Σbid, Σindex, Σmark, Σlast — where Σ
@@ -35,9 +30,9 @@
  *   npx tsx phemex-ticker-24hr.ts --symbol BTCUSDT
  *   npx tsx phemex-ticker-24hr.ts --interval 2000  # poll every 2s
  *   npx tsx phemex-ticker-24hr.ts --delta          # add Δask/Δbid/... = field − last
- *   npx tsx phemex-ticker-24hr.ts --index_rate     # add Δindex/Δt, ΔidxTick, Δt columns
  *   npx tsx phemex-ticker-24hr.ts --xbar           # per-minute average line (x̄ask … x̄last)
  *   npx tsx phemex-ticker-24hr.ts --sigma          # per-minute Σ and Σ/Δt movement lines
+ *   npx tsx phemex-ticker-24hr.ts --ma             # Δindex moving averages (1s,3s,5s,10s,15s,30s,60s)
  *   npx tsx phemex-ticker-24hr.ts --csv ticker.csv # append CSV rows
  */
 
@@ -52,13 +47,12 @@ Poll the Phemex v3 24h ticker every second and print every variable of
 the response horizontally on one line. Public endpoint, no credentials
 needed. A line is printed only when ask, bid, index, mark or last changed;
 ask.txt and bid.txt are still updated in the project root on every tick.
-With --index_rate a Δindex/Δt column shows the index rate of change
-(price per second) between consecutive ticks, timed by the ticker's own
-timestamp, with ΔidxTick and Δt columns for the raw change and elapsed
-seconds. With --xbar and --sigma, the end of every minute prints the
+Δt (elapsed seconds) is part of --delta. With --xbar and --sigma, the end of every minute prints the
 average price of the five columns (x̄ask … x̄last) and the cumulative
 absolute movement (Σask … Σlast) with each one's per-second rate
-(Σask/Δt … Σlast/Δt).
+(Σask/Δt … Σlast/Δt). With --ma, seven time-weighted moving-average
+columns (ma1s … ma60s) are added, each showing the recent Δindex averaged
+over its window using ticker-time seconds.
 
 Options:
   --symbol <SYMBOL>   Symbol to poll (default: XBRUSDT)
@@ -66,12 +60,14 @@ Options:
   --concise           Hide fundRate, high, low, openInt, open, predFund,
                       symbol, turnover, volume columns
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
-                      each field minus the last price
-  --index_rate        Add the Δindex/Δt, ΔidxTick and Δt columns showing
-                      the index rate of change between consecutive ticks
+                      each field minus the last price, plus Δt (elapsed
+                      seconds from ticker timestamp)
   --xbar              Print the per-minute average-price line (x̄ask … x̄last)
   --sigma             Print the per-minute cumulative movement lines
                       (Σask … Σlast and Σask/Δt … Σlast/Δt)
+  --ma                Add Δindex moving-average columns (ma1s, ma3s, ma5s,
+                      ma10s, ma15s, ma30s, ma60s) — time-weighted averages
+                      over each window in ticker-time seconds (implies --delta)
   --csv <FILE>        Append a CSV row (time,ask,bid,index,mark,last) to
                       FILE on every tick; writes the header when FILE is new
   --help              Show this help and exit
@@ -93,20 +89,22 @@ const CONCISE_HIDDEN = new Set([
   "predFundingRateRr", "symbol", "turnoverRv", "volumeRq",
 ]);
 
+// --ma: time-weighted moving average of Δindex over fixed windows.
+const SHOW_MA = hasFlag("--ma");
+const MA_WINDOWS = [1, 3, 5, 10, 15, 30, 60] as const;
+
 // --delta: fields for which a Δ column (field value minus last price) is added.
+// --ma computes delta internally but does not show the Δ columns unless --delta is also set.
 const DELTA = hasFlag("--delta");
 const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "lastRp", "markRp"] as const;
 
-// --index_rate: show the Δindex/Δt, ΔidxTick and Δt columns (index rate of
-// change between consecutive ticks); hidden by default.
-const SHOW_INDEX_RATE = hasFlag("--index_rate");
 // --xbar / --sigma: per-minute summary lines — the average price line (x̄)
 // and the cumulative movement lines (Σ, Σ/Δt); hidden by default.
 const SHOW_XBAR = hasFlag("--xbar");
 const SHOW_SIGMA = hasFlag("--sigma");
 
 // Fields that trigger a printed line when they change — the five price
-// columns. Other fields (turnover, volume, Δindex/Δt, Δt, …) update
+// columns. Other fields (turnover, volume, Δt, …) update
 // without printing, so a line appears only when a price moved.
 const SIG_FIELDS = ["askRp", "bidRp", "indexRp", "markRp", "lastRp"] as const;
 
@@ -117,8 +115,9 @@ const COLUMN_ORDER = [
   "indexRp", "markRp", "lastRp",
   "lowRp", "openInterestRv", "openRp", "predFundingRateRr", "symbol",
   "timestamp", "turnoverRv", "volumeRq",
-  "askRpDelta", "bidRpDelta", "indexRpDelta", "indexVelDelta",
-  "indexTickDelta", "dt", "markRpDelta", "lastRpDelta",
+  "askRpDelta", "bidRpDelta", "indexRpDelta",
+  "dt", "markRpDelta", "lastRpDelta",
+  "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
 ];
 const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 
@@ -174,13 +173,18 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   askRpDelta:        { label: "Δask",    full: "ask − last" },
   bidRpDelta:        { label: "Δbid",    full: "bid − last" },
   indexRpDelta:      { label: "Δindex",  full: "index − last" },
-  // Δindex/Δt (always shown): index rate of change, price per second.
-  indexVelDelta:     { label: "Δindex/Δt", full: "index Δ per second" },
-  // Δindex/Δt components (always shown): index Δ per tick and elapsed seconds.
-  indexTickDelta:     { label: "ΔidxTick", full: "index Δ per tick" },
+  // Δt (shown with --delta): elapsed seconds from ticker timestamp.
   dt:                 { label: "Δt",       full: "elapsed seconds (ticker ts)" },
   lastRpDelta:       { label: "Δlast",   full: "last − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
+  // Moving average columns (--ma): time-weighted avg of Δindex over N seconds.
+  ma1s:              { label: "ma1s",    full: "Δindex MA 1s" },
+  ma3s:              { label: "ma3s",    full: "Δindex MA 3s" },
+  ma5s:              { label: "ma5s",    full: "Δindex MA 5s" },
+  ma10s:             { label: "ma10s",   full: "Δindex MA 10s" },
+  ma15s:             { label: "ma15s",   full: "Δindex MA 15s" },
+  ma30s:             { label: "ma30s",   full: "Δindex MA 30s" },
+  ma60s:             { label: "ma60s",   full: "Δindex MA 60s" },
 };
 
 /** Header label for a response field (falls back to the raw field name). */
@@ -201,11 +205,13 @@ function colFull(key: string): string {
 function colWidth(key: string): number {
   const label = visWidth(colLabel(key));
   if (key === "timestamp") return Math.max(label, 12); // HH:MM:SS.mmm
-  if (key === "indexVelDelta" || key === "indexTickDelta" || key === "dt")
+  if (key === "dt")
     return Math.max(label, 11); // sign + 8 decimals
   // Cumulative counters can grow; everything else is a small price/delta.
   if (key === "volumeRq" || key === "turnoverRv" || key === "openInterestRv")
     return Math.max(label, 8);
+  // MA columns: signed 2-decimal values, may exceed 5 chars.
+  if (key.startsWith("ma")) return Math.max(label, 7);
   return Math.max(label, 5); // 2-decimal numbers: 84.00, +0.02
 }
 
@@ -284,13 +290,51 @@ function fmtTsLocal(v: unknown): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
-/** Pick the formatter for a response field: timestamps as local time,
- * Δindex/Δt and its ΔidxTick/Δt components with 8 decimals. */
-function fmtField(k: string, v: unknown): string {
-  if (k === "timestamp") return fmtTsLocal(v);
-  if (k === "indexVelDelta" || k === "indexTickDelta") return fmtDelta(v, 8);
-  if (k === "dt") return fmt(v, 8);
-  return k.endsWith("Delta") ? fmtDelta(v) : fmt(v);
+/**
+ * Time-weighted moving average of Δindex over a given window (seconds).
+ * Each sample's weight is the duration it was "active" (time until the next
+ * sample, or until now for the most recent). Returns null when fewer than
+ * 2 samples fall inside the window.
+ */
+function weightedMa(
+  samples: Array<{ t: number; v: number }>,
+  nowSec: number,
+  windowSec: number,
+): number | null {
+  const cutoff = nowSec - windowSec;
+  // Collect samples inside the window, including one just before the cutoff
+  // so the first interval spans back to the boundary.
+  const inside: Array<{ t: number; v: number }> = [];
+  let before: { t: number; v: number } | null = null;
+  for (const s of samples) {
+    if (s.t >= cutoff) inside.push(s);
+    else before = s; // last sample before the window
+  }
+  if (inside.length === 0) return null;
+  // Need at least the boundary sample to form a weighted interval.
+  if (inside.length === 1 && !before) return null;
+  // Build intervals: first interval starts at max(cutoff, before.t).
+  let sumW = 0;
+  let sumWV = 0;
+  for (let i = 0; i < inside.length; i++) {
+    const start = i === 0
+      ? (before ? Math.max(cutoff, before.t) : cutoff)
+      : inside[i - 1].t;
+    const end = inside[i].t;
+    const dt = end - start;
+    if (dt > 0) {
+      sumW += dt;
+      sumWV += inside[i].v * dt;
+    }
+  }
+  // Final interval: from last sample to now.
+  const lastT = inside[inside.length - 1].t;
+  const tailDt = nowSec - lastT;
+  if (tailDt > 0) {
+    sumW += tailDt;
+    sumWV += inside[inside.length - 1].v * tailDt;
+  }
+  return sumW > 0 ? sumWV / sumW : null;
 }
 
 /**
@@ -344,6 +388,15 @@ function printMinuteSummary(
   }
 }
 
+/** Pick the formatter for a response field: timestamps as local time,
+ *  delta and MA columns with a sign prefix, Δt with 8 decimals. */
+function fmtField(k: string, v: unknown): string {
+  if (k === "timestamp") return fmtTsLocal(v);
+  if (k === "dt") return fmtDelta(v, 8);
+  if (k.endsWith("Delta") || k.startsWith("ma")) return fmtDelta(v);
+  return fmt(v);
+}
+
 async function fetchTicker(): Promise<Record<string, unknown>> {
   const resp = (await publicGet(
     "/md/v3/ticker/24hr",
@@ -376,9 +429,12 @@ async function main(): Promise<void> {
   // mark, last) only. Derived columns like Δt change every tick even while
   // prices are frozen, so they must not trigger a printed line.
   let lastSig = "";
-  // Previous (ticker-time seconds, index) sample for the Δindex/Δt column —
-  // the index rate of change (price per second) between consecutive ticks.
-  let prevIndex: { t: number; v: number } | null = null;
+  // Previous (ticker-time seconds) sample for the Δt column —
+  // elapsed seconds between consecutive ticks.
+  let prevTs: number | null = null;
+
+  // Sample history for --ma: ring buffer of (ticker-time seconds, Δindex).
+  const maSamples: Array<{ t: number; v: number }> = [];
 
   // Per-minute summary state, flushed when the wall-clock minute rolls over:
   // cumTotal/cumCount give the average price of each field, cumSum holds the
@@ -396,42 +452,51 @@ async function main(): Promise<void> {
     try {
       const data = await fetchTicker();
 
-      // --delta: append Δ columns, each field minus the last price.
+      // Compute Δindex and Δt internally always (needed by --ma).
+      // Only add them to `data` for display when --delta is set.
+      const last = Number(data.lastRp);
+      const indexRp = Number(data.indexRp);
+      const idxDelta = Number.isFinite(indexRp) && Number.isFinite(last)
+        ? indexRp - last : NaN;
+
+      const tickerTs = Number(data.timestamp);
+      const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
+      let dtSec: number | null = null;
+      if (tsValid && prevTs != null) {
+        const tNow = tickerTs / 1e9;
+        const dt = tNow - prevTs;
+        dtSec = dt > 0 ? dt : 0;
+      }
+      if (tsValid) {
+        prevTs = tickerTs / 1e9;
+      }
+
+      // --delta: append Δ columns for display.
       if (DELTA) {
-        const last = Number(data.lastRp);
         for (const f of DELTA_FIELDS) {
           const v = Number(data[f]);
           data[`${f}Delta`] =
             Number.isFinite(v) && Number.isFinite(last) ? v - last : null;
         }
+        data.dt = dtSec;
       }
 
-      // Δindex/Δt (--index_rate): rate of change of the index price between
-      // consecutive ticks, price per second ("—" on the first tick), with
-      // its two components exposed as columns: indexNow − prevIndex.v
-      // (ΔidxTick) and the elapsed ticker seconds (Δt). Elapsed time is
-      // taken strictly from the ticker's own timestamp — the time column
-      // (ns since epoch), never the local wall clock — so Δt mirrors the
-      // time column; a frozen timestamp means no movement. The columns are
-      // only computed (and thus shown) when the flag is present.
-      if (SHOW_INDEX_RATE) {
-        const indexNow = Number(data.indexRp);
-        const tickerTs = Number(data.timestamp);
-        const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
-        if (Number.isFinite(indexNow) && tsValid && prevIndex) {
-          const tNow = tickerTs / 1e9;
-          const dt = tNow - prevIndex.t;
-          const dIndex = indexNow - prevIndex.v;
-          data.indexTickDelta = dIndex;
-          data.dt = dt > 0 ? dt : 0;
-          data.indexVelDelta = dt > 0 ? dIndex / dt : 0;
-        } else {
-          data.indexTickDelta = null;
-          data.dt = null;
-          data.indexVelDelta = null;
-        }
-        if (Number.isFinite(indexNow) && tsValid) {
-          prevIndex = { t: tickerTs / 1e9, v: indexNow };
+      // --ma: time-weighted moving average of Δindex over each window.
+      // Samples are keyed by ticker-time seconds so the weighting uses the
+      // exchange clock, not wall-clock latency.
+      if (SHOW_MA) {
+        if (tsValid && Number.isFinite(idxDelta)) {
+          const tSec = tickerTs / 1e9;
+          maSamples.push({ t: tSec, v: idxDelta });
+          // Drop samples older than the largest window + a small buffer.
+          const maxWindow = MA_WINDOWS[MA_WINDOWS.length - 1];
+          while (maSamples.length > 0 && maSamples[0].t < tSec - maxWindow - 1) {
+            maSamples.shift();
+          }
+          // Compute each window's weighted MA and attach to the data row.
+          for (const w of MA_WINDOWS) {
+            data[`ma${w}s`] = weightedMa(maSamples, tSec, w);
+          }
         }
       }
 
@@ -507,7 +572,7 @@ async function main(): Promise<void> {
       if (CSV_FILE) appendCsvRow(CSV_FILE, data);
 
       // Only print when a price actually changed — one of the five price
-      // columns. Everything else (turnover, volume, Δindex/Δt, Δt, …) can
+      // columns. Everything else (turnover, volume, Δt, …) can
       // change without printing a line.
       const sig = SIG_FIELDS.map((k) => `${k}=${data[k]}`).join("|");
       const changed = sig !== lastSig;
@@ -518,14 +583,8 @@ async function main(): Promise<void> {
         // the labels sit just ahead of the values for that minute.
         if (minute !== lastHeaderMinute) {
           lastHeaderMinute = minute;
-          // ΔidxTick and Δindex/Δt labels are right-aligned so they sit
-          // directly above their right-aligned 8-decimal values.
           const head = keys
-            .map((k) =>
-              k === "indexTickDelta" || k === "indexVelDelta"
-                ? padLeft(colLabel(k), widths.get(k)!)
-                : padRight(colLabel(k), widths.get(k)!),
-            )
+            .map((k) => padRight(colLabel(k), widths.get(k)!))
             .join(" ");
           console.log(`[${tsToHMS(now)}] ${head}`);
         }
