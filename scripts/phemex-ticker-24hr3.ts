@@ -393,7 +393,9 @@ function printMinuteSummary(
 function fmtField(k: string, v: unknown): string {
   if (k === "timestamp") return fmtTsLocal(v);
   if (k === "dt") return fmtDelta(v, 8);
-  if (k.endsWith("Delta") || k.startsWith("ma")) return fmtDelta(v);
+  if (k === "markRp") return fmt(v, 2);
+  if (k.endsWith("Delta")) return fmtDelta(v, 2);
+  if (k.startsWith("ma")) return fmtDelta(v, 8);
   return fmt(v);
 }
 
