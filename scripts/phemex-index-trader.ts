@@ -38,6 +38,7 @@
  *   ./phemex-index-trader.ts --threshold 0.15
  *   ./phemex-index-trader.ts --long-threshold 0.15 --short-threshold 0.3
  *   ./phemex-index-trader.ts --size 0.05
+ *   ./phemex-index-trader.ts --symbol ETHUSDT
  *   ./phemex-index-trader.ts --help, -h
  */
 
@@ -53,7 +54,7 @@ import { fetchPositions } from "../src/positions.js";
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
 
-const SYMBOL = "XBRUSDT";
+const DEFAULT_SYMBOL = "XBRUSDT";
 const QTY = 0.01;             // contract quantity per order
 const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
@@ -96,6 +97,7 @@ Options:
   --long-threshold <num>     Long trigger level — defaults to --threshold value
   --short-threshold <num>    Short trigger level — defaults to --threshold value
   --size <num>        Contract quantity per order — per side with --hedge (default: ${QTY})
+  --symbol <symbol>   Trading symbol (default: ${DEFAULT_SYMBOL})
   --hedge             Manage Long and Short independently (both may be open at once)
   --flip              Close the opposite side before entering: Long signal closes the Short, Short signal closes the Long
   --allow-inside-spread  Trade even when the index price is inside the bid–ask spread
@@ -107,6 +109,7 @@ Examples:
   ./phemex-index-trader.ts --threshold 0.15
   ./phemex-index-trader.ts --hedge --size 0.01
   ./phemex-index-trader.ts --flip
+  ./phemex-index-trader.ts --symbol ETHUSDT
 `);
   process.exit(0);
 }
@@ -264,6 +267,8 @@ async function main(): Promise<void> {
     console.error(`✗  --size must be a positive number, got "${sizeArg}"`);
     process.exit(1);
   }
+
+  const SYMBOL = getArg("--symbol") ?? DEFAULT_SYMBOL;
 
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
