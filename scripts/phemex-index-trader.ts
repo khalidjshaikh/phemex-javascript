@@ -294,6 +294,7 @@ async function main(): Promise<void> {
 
   let lastState: string | null = null; // last logged market state; suppress identical repeats
   let lastInDeadBand = false;          // track dead-band transitions to suppress repeated messages
+  let lastDeadBandLines = 0;           // how many stdout lines are currently showing (for in-place overwrite)
   let posCache: { longSize: number; shortSize: number } | null = null;
   let posCacheAt = 0;
   while (true) {
@@ -341,7 +342,19 @@ async function main(): Promise<void> {
 
       const inDeadBand = index > -shortThreshold && index < longThreshold;
 
-      if (changed && !inDeadBand) {
+      // Exiting dead band: clear the two in-place lines before printing new state
+      if (!inDeadBand && lastDeadBandLines > 0) {
+        for (let i = 0; i < lastDeadBandLines; i++) {
+          process.stdout.write(`\r\x1B[K\x1B[1A`);
+        }
+        process.stdout.write(`\r\x1B[K`);
+        lastDeadBandLines = 0;
+      }
+
+      // Entering dead band: suppress the normal state line (we'll print it below via in-place overwrite)
+      if (inDeadBand && !lastInDeadBand) {
+        // will print below via dead-band branch
+      } else if (changed && !inDeadBand) {
         if (insideSpread) {
           console.log(`[${fmtTime()}]   ⚠  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — trading anyway (--allow-inside-spread)`);
         }
@@ -407,13 +420,22 @@ async function main(): Promise<void> {
         pendingShort += orderQty;
         await sleep(PAUSE_MS); // let the fill register before re-checking
       } else {
-        // Dead band — only log on transition into/out of it
-        if (inDeadBand && !lastInDeadBand) {
-          console.log(`[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`);
-        } else if (!inDeadBand && lastInDeadBand) {
-          console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)} (+${fmt2(pendingLong)} pending)   Short: ${fmt2(shortSize)} (+${fmt2(pendingShort)} pending)   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
+        // Dead band — update two lines in place
+        const stateLine = `[${fmtTime()}]   Long: ${fmt2(longSize)} (+${fmt2(pendingLong)} pending)   Short: ${fmt2(shortSize)} (+${fmt2(pendingShort)} pending)   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`;
+        const deadBandLine = `[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`;
+
+        if (lastDeadBandLines > 0) {
+          // Overwrite previous lines in place
+          for (let i = 0; i < lastDeadBandLines; i++) {
+            process.stdout.write(`\r\x1B[K\x1B[1A`);
+          }
+          process.stdout.write(`\r\x1B[K`);
         }
-        lastInDeadBand = inDeadBand;
+
+        process.stdout.write(stateLine + "\n");
+        process.stdout.write(deadBandLine + "\n");
+        lastDeadBandLines = 2;
+        lastInDeadBand = true;
         await sleep(PAUSE_MS);
       }
     } catch (err: unknown) {
