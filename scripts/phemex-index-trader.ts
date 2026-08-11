@@ -293,6 +293,7 @@ async function main(): Promise<void> {
   });
 
   let lastState: string | null = null; // last logged market state; suppress identical repeats
+  let lastInDeadBand = false;          // track dead-band transitions to suppress repeated messages
   let posCache: { longSize: number; shortSize: number } | null = null;
   let posCacheAt = 0;
   while (true) {
@@ -338,7 +339,9 @@ async function main(): Promise<void> {
         continue;
       }
 
-      if (changed) {
+      const inDeadBand = index > -shortThreshold && index < longThreshold;
+
+      if (changed && !inDeadBand) {
         if (insideSpread) {
           console.log(`[${fmtTime()}]   ⚠  index ${fmt2(indexPrice)} inside spread (bid ${fmt2(bid)} / ask ${fmt2(ask)}) — trading anyway (--allow-inside-spread)`);
         }
@@ -346,6 +349,7 @@ async function main(): Promise<void> {
       }
 
       if (index >= longThreshold) {
+        lastInDeadBand = false;
         // Target: Long totalling qty. Default mode never flips an existing Short;
         // --flip closes the Short first.
         if (flip && shortSize > 0) {
@@ -374,6 +378,7 @@ async function main(): Promise<void> {
         pendingLong += orderQty;
         await sleep(PAUSE_MS); // let the fill register before re-checking
       } else if (index <= -shortThreshold) {
+        lastInDeadBand = false;
         // Target: Short totalling qty. Default mode never flips an existing Long;
         // --flip closes the Long first.
         if (flip && longSize > 0) {
@@ -402,9 +407,13 @@ async function main(): Promise<void> {
         pendingShort += orderQty;
         await sleep(PAUSE_MS); // let the fill register before re-checking
       } else {
-        if (changed) {
+        // Dead band — only log on transition into/out of it
+        if (inDeadBand && !lastInDeadBand) {
           console.log(`[${fmtTime()}]   –  -${shortThreshold} < index ${fmt2(index)} < ${longThreshold} — no trade (dead band)`);
+        } else if (!inDeadBand && lastInDeadBand) {
+          console.log(`[${fmtTime()}]   Long: ${fmt2(longSize)} (+${fmt2(pendingLong)} pending)   Short: ${fmt2(shortSize)} (+${fmt2(pendingShort)} pending)   indexLast: ${fmt2(index)}   index: ${fmt2(indexPrice)}   bid: ${fmt2(bid)}   ask: ${fmt2(ask)}   last: ${fmt2(last)}`);
         }
+        lastInDeadBand = inDeadBand;
         await sleep(PAUSE_MS);
       }
     } catch (err: unknown) {
