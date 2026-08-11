@@ -554,9 +554,12 @@ async function main(): Promise<void> {
             (COLUMN_RANK.get(b) ?? COLUMN_ORDER.length),
         );
 
-      // Fixed column widths (colWidth) — the same on every line.
-      for (const k of keys) {
-        widths.set(k, colWidth(k));
+      // Initialise column widths once from colWidth() minimums; they grow
+      // dynamically below when a formatted value is wider than the minimum.
+      if (widths.size === 0) {
+        for (const k of keys) {
+          widths.set(k, colWidth(k));
+        }
       }
 
       // Print the abbreviation → full-name legend once at startup.
@@ -596,6 +599,14 @@ async function main(): Promise<void> {
       lastSig = sig;
 
       if (changed) {
+        // Grow column widths to fit the widest value seen so far, so columns
+        // stay aligned across symbols with different price magnitudes.
+        for (const k of keys) {
+          const valStr = fmtField(k, data[k]);
+          const cur = widths.get(k) ?? colWidth(k);
+          widths.set(k, Math.max(cur, visWidth(valStr), visWidth(colLabel(k))));
+        }
+
         // Reprint the header on the first changed tick of a new minute so
         // the labels sit just ahead of the values for that minute.
         if (minute !== lastHeaderMinute) {
