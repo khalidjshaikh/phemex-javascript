@@ -17,7 +17,7 @@ import path from "node:path";
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// __dirname is available in CommonJS
 
 function fmtTime(): string {
   return new Date().toLocaleString();

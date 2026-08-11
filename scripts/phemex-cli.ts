@@ -9,7 +9,7 @@
  */
 
 import { publicGet, request, httpGet, base64UrlDecode } from "../src/http-client.js";
-import { getArg, hasFlag, apiPath } from "../src/cli-utils.js";
+import { hasFlag, apiPath } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
 
 /* ------------------------------------------------------------------ */

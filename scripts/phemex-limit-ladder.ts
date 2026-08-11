@@ -40,7 +40,7 @@ import { loadCredentialsPath } from "../src/credentials.js";
 import { placeLinear, setLeverageUsdtM } from "../src/place-limit-order.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
-const ROOT = resolve(import.meta.dirname, ".."); // project root
+const ROOT = resolve(__dirname, ".."); // project root
 const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
 const MARK_FILE = resolve(ROOT, "mark.txt"); // written by phemex-mark-price2.ts
 

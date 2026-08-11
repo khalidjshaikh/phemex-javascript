@@ -7,12 +7,14 @@ calculatePnL({
   price: 83.57,
   qty: 4,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 calculatePnL({
   side: "Buy",
   price: 83.57,
   qty: 10,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 // $130
 calculatePnL({
@@ -20,6 +22,7 @@ calculatePnL({
   price: 83.57,
   qty: 40,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 // $1,300
 calculatePnL({
@@ -27,6 +30,7 @@ calculatePnL({
   price: 83.57,
   qty: 400,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 // $13,000
 calculatePnL({
@@ -34,6 +38,7 @@ calculatePnL({
   price: 83.57,
   qty: 4000,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 // $130,000
 calculatePnL({
@@ -41,6 +46,7 @@ calculatePnL({
   price: 83.57,
   qty: 40000,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });
 // $1,300,000
 calculatePnL({
@@ -48,4 +54,5 @@ calculatePnL({
   price: 83.57,
   qty: 400000,
   takeProfit: 93.0,
+  stopLoss: 80.0,
 });

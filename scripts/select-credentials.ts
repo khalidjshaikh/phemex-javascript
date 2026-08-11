@@ -37,7 +37,7 @@ type Vault = Record<string, CredentialSet>;
 /*  Paths                                                              */
 /* ------------------------------------------------------------------ */
 
-const PROJECT_ROOT = path.resolve(import.meta.dirname, "..");
+const PROJECT_ROOT = path.resolve(__dirname, "..");
 const VAULT_PATH = path.join(PROJECT_ROOT, ".credentials.json");
 const ACTIVE_PATH = path.join(PROJECT_ROOT, ".phemex-credentials.json");
 

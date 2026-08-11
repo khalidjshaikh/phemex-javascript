@@ -69,7 +69,6 @@ function fetchTicker(): TickerResult {
  */
 function sendAlert(markPrice: string, direction: "above" | "below"): Promise<void> {
   return new Promise((resolve, reject) => {
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const script = path.join(__dirname, "test-email.ts");
 
     const price = fmtPrice(markPrice);

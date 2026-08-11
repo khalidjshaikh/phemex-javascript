@@ -43,7 +43,7 @@ async function place(side: "Buy" | "Sell", posSide: string): Promise<void> {
   console.log(`⟐  PLACING ${side === "Buy" ? "LONG" : "SHORT"} market order  qty ${QTY}  ${LEVERAGE}x`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, posSide, creds.PHEMEX_API_KEY, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: side, qty: QTY, posSide },
+    { account: "usdt-m", symbol: SYMBOL, side: side, price: 0, qty: QTY, posSide },
     creds.PHEMEX_API_KEY,
     secretRaw,
   );

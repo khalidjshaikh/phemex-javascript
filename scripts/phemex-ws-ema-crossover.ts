@@ -42,8 +42,8 @@ const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "BTCUSD";
 const PRICE_SCALE = 10_000;
 const DISPLAY_INTERVAL = 1_000;    // 1s
-const PERSIST_PATH = path.resolve(import.meta.dirname, ".phemex-ws-ema-prices.json");
-const POSITION_PATH = path.resolve(import.meta.dirname, ".phemex-ws-ema-position.json");
+const PERSIST_PATH = path.resolve(__dirname, ".phemex-ws-ema-prices.json");
+const POSITION_PATH = path.resolve(__dirname, ".phemex-ws-ema-position.json");
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */

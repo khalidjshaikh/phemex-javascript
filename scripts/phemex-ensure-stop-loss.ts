@@ -35,7 +35,7 @@ import { calcPnlPct, fetchPositions, setStopLoss } from "../src/positions.js";
 import { fetchUntriggeredOrders } from "../src/untriggered-orders.js";
 
 const CREDS_FILE = ".phemex-credentials.json";
-const LAST_FILE = resolve(import.meta.dirname, "..", "last.txt");
+const LAST_FILE = resolve(__dirname, "..", "last.txt");
 
 const CENT = 0.01;
 const DEFAULT_POLL_MS = 30_000;   // check every 30 seconds (override with --poll)

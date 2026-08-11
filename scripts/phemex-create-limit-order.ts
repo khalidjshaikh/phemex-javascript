@@ -66,7 +66,7 @@ import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
 import { setLeverageCoinM, setLeverageUsdtM } from "../src/place-limit-order.js";
 
-const ROOT = resolve(import.meta.dirname, ".."); // project root
+const ROOT = resolve(__dirname, ".."); // project root
 const LAST_FILE = resolve(ROOT, "last.txt"); // written by phemex-mark-price2.ts
 const MARK_FILE = resolve(ROOT, "mark.txt");
 

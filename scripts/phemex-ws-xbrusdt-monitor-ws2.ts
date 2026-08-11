@@ -72,11 +72,9 @@ function fmtNum(n: number, d: number = 2): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
-//homelastTickerPrice ??= 0
-//lastTradePrice ??= 0
-// streak ??= 0
-// streakStartPrice ??= 0
-
+let lastTickerPrice = 0;
+let streak = 0;
+let streakStartPrice = 0;
 let direction: "↑" | "↓" = "↑";
 /** All open positions across all symbols, refreshed every POLL_INTERVAL_MS */
 let allPositions: Position[] = [];

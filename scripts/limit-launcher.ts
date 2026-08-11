@@ -98,6 +98,7 @@ const SIDES: Record<Side, { script: string; priceMark: string[]; spreadLast: str
 
 /** Pause between cycles (also the retry interval when no action applies). */
 const POLL_MS = 1000;
+const DISABLED_POLL_MS = 7_000;
 
 /**
  * Pause between cycles while the desired side is disabled (ENABLE_LONG /
@@ -273,7 +274,7 @@ async function main(): Promise<void> {
     let priceMarkPromise: () => Promise<void> = async () => {};
 
     if(ENABLE_MARK_FOLLOWER) {
-      priceMarkPromise = runPriceMarkCommand(script, priceMark);
+      priceMarkPromise = runPriceMarkCommand(script, priceMark) as () => Promise<void>;
 
       if (Number.isNaN(indexLast)) {
         console.log(`${cycleTag(cycle)} indexLast=${fmt(indexLast)} is not a number — skipping last-based placement (cannot compute --gap)`);
