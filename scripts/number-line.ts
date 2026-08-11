@@ -112,7 +112,7 @@ function legend(values: Record<string, number | null>): string {
 
 function render(values: Record<string, number | null>): void {
   process.stdout.write("\x1b[2J\x1b[H");
-  console.log("ETH Price Number Line\n");
+  console.log("Price Number Line\n");
   console.log(buildLine(values));
   console.log();
   console.log(legend(values));
