@@ -116,7 +116,8 @@ const COLUMN_ORDER = [
   "lowRp", "openInterestRv", "openRp", "predFundingRateRr", "symbol",
   "timestamp", "turnoverRv", "volumeRq",
   "askRpDelta", "bidRpDelta", "indexRpDelta",
-  "dt", "markRpDelta", "lastRpDelta",
+  "markRpDelta", "lastRpDelta",
+  "dt",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
 ];
 const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
