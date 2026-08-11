@@ -1,3 +1,4 @@
+#!/usr/bin/env npx tsx
 import { readFileSync } from "fs";
 
 const FILES = {
