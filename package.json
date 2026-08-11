@@ -7,7 +7,8 @@
     "creds": "tsx scripts/select-credentials.ts",
     "index-trader": "tsx scripts/phemex-index-trader.ts",
     "closed-positions": "tsx scripts/phemex-closed-positions.ts",
-    "graph": "tsx scripts/graph-ticker.ts"
+    "graph": "tsx scripts/graph-ticker.ts",
+    "number-line": "tsx scripts/number-line.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1107.0",
