@@ -62,7 +62,6 @@ if (symbols.length === 0) {
 
 const creds = loadCredentials();
 const secretRaw = Buffer.from(creds.PHEMEX_API_SECRET, "base64");
-const leverageSet = new Set<string>();
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                          */
@@ -259,8 +258,6 @@ async function openOrder(
   symbol: string,
   qty: number,
 ): Promise<void> {
-  const s = cfg(symbol);
-  await setLeverageUsdtM(symbol, s.leverage, posSide, creds.PHEMEX_API_KEY, secretRaw);
   const result = await placeMarketOrder(
     { account: "usdt-m", symbol, side, price: 0, qty, posSide },
     creds.PHEMEX_API_KEY,
@@ -296,10 +293,6 @@ async function indexTrade(
   shortSize: number,
 ): Promise<void> {
   const s = cfg(symbol);
-  if (!leverageSet.has(symbol)) {
-    await setLeverageUsdtM(symbol, s.leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
-    leverageSet.add(symbol);
-  }
 
   let signal: number;
   try {
@@ -365,6 +358,12 @@ async function main(): Promise<void> {
   console.log(`[${new Date().toLocaleTimeString()}] ═ Trader — ${symbols.join(", ")} ══════════════════`);
 
   startWebSocket();
+
+  for (const symbol of symbols) {
+    const s = cfg(symbol);
+    await setLeverageUsdtM(symbol, s.leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
+    console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} leverage set to ${s.leverage}x`);
+  }
 
   process.on("SIGINT", () => {
     console.log(`\n[${new Date().toLocaleTimeString()}] ⏹  Stopped.`);
