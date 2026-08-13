@@ -41,6 +41,7 @@ const DEFAULT_PROFIT = 0.0; // min profit per unit (USDT) before closing
 const rawInterval = Number(getArg("--interval") ?? DEFAULT_INTERVAL_MS);
 const INTERVAL_MS = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : DEFAULT_INTERVAL_MS;
 const SYMBOL = getArg("--symbol"); // undefined = all symbols
+const symbolFile = (name: string) => SYMBOL ? `${SYMBOL}-${name}` : name;
 const DRY_RUN = hasFlag("--dry-run");
 
 const rawProfit = Number(getArg("--profit") ?? DEFAULT_PROFIT);
@@ -48,8 +49,10 @@ const PROFIT = Number.isFinite(rawProfit) && rawProfit >= 0 ? rawProfit : DEFAUL
 
 // Value files live at the project root (written by phemex-ticker-24hr.ts).
 const ROOT = resolve(__dirname, "..");
-const ASK_FILE = resolve(ROOT, "ask.txt");
-const BID_FILE = resolve(ROOT, "bid.txt");
+const DATA_DIR = resolve(ROOT, "data");
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const ASK_FILE = resolve(DATA_DIR, symbolFile("ask.txt"));
+const BID_FILE = resolve(DATA_DIR, symbolFile("bid.txt"));
 
 function fmtTime(): string {
   return new Date().toLocaleTimeString();

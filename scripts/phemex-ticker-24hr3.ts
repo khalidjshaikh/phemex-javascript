@@ -79,6 +79,7 @@ if (hasFlag("--help")) {
 }
 
 const SYMBOL = getArg("--symbol") ?? "XBRUSDT";
+const symbolFile = (name: string) => `${SYMBOL}-${name}`;
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
 // --csv <FILE>: append a time,ask,bid,index,mark,last row to FILE every tick.
 const CSV_FILE = getArg("--csv");
@@ -125,13 +126,15 @@ const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 // Value files live at the project root (like last.txt / mark.txt) so both
 // the ticker and the monitor see the same files from any launch directory.
 const ROOT = resolve(__dirname, "..");
-const ASK_FILE = resolve(ROOT, "ask.txt");
-const BID_FILE = resolve(ROOT, "bid.txt");
-const INDEX_FILE = resolve(ROOT, "index.txt");
-const INDEX_LAST_FILE = resolve(ROOT, "indexLast.txt");
-const LAST_FILE = resolve(ROOT, "last.txt");
-const MARK_FILE = resolve(ROOT, "mark.txt");
-const MARK_LAST_FILE = resolve(ROOT, "markLast.txt");
+const DATA_DIR = resolve(ROOT, "data");
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const ASK_FILE = resolve(DATA_DIR, symbolFile("ask.txt"));
+const BID_FILE = resolve(DATA_DIR, symbolFile("bid.txt"));
+const INDEX_FILE = resolve(DATA_DIR, symbolFile("index.txt"));
+const INDEX_LAST_FILE = resolve(DATA_DIR, symbolFile("indexLast.txt"));
+const LAST_FILE = resolve(DATA_DIR, symbolFile("last.txt"));
+const MARK_FILE = resolve(DATA_DIR, symbolFile("mark.txt"));
+const MARK_LAST_FILE = resolve(DATA_DIR, symbolFile("markLast.txt"));
 
 /* ------------------------------------------------------------------ */
 /*  CSV logging (--csv <FILE>) — append one row per tick.              */

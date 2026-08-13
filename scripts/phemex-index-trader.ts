@@ -56,6 +56,7 @@ import { fetchPositions } from "../src/positions.js";
 
 const DEFAULT_SYMBOL = "XBRUSDT";
 let SYMBOL = DEFAULT_SYMBOL;
+const symbolFile = (name: string) => `${SYMBOL}-${name}`;
 const QTY = 0.01;             // contract quantity per order
 const LEVERAGE = 100;         // 100x as requested
 const DEFAULT_THRESHOLD = 0.2; // indexLast.txt trigger level (default; --threshold overrides)
@@ -63,11 +64,10 @@ const PAUSE_MS = 500;        // 500ms pause between cycles
 const POSITIONS_TTL_MS = 2_000; // re-fetch open positions at most every 2s (cached between cycles)
 let pendingLong = 0;         // local tracker for unconfirmed Long orders
 let pendingShort = 0;        // local tracker for unconfirmed Short orders
-const INDEX_FILE = path.resolve(__dirname, "..", "indexLast.txt");      // signal: index − last
-const INDEX_PRICE_FILE = path.resolve(__dirname, "..", "index.txt");    // index price
-const ASK_FILE = path.resolve(__dirname, "..", "ask.txt");              // ask price (phemex-ticker-24hr.ts)
-const BID_FILE = path.resolve(__dirname, "..", "bid.txt");              // bid price (phemex-ticker-24hr.ts)
-const LAST_FILE = path.resolve(__dirname, "..", "last.txt");            // last trade price (phemex-mark-price2.ts)
+
+function symbolPath(name: string): string {
+  return path.resolve(__dirname, "..", "data", symbolFile(name));
+}
 
 function usage(): never {
   console.log(`
@@ -144,7 +144,7 @@ interface Snapshot {
 }
 
 /** Read all five value files; null when any is missing or unreadable. */
-function readSnapshot(): Snapshot | null {
+function readSnapshot(files: { index: string; indexPrice: string; ask: string; bid: string; last: string }): Snapshot | null {
   const read = (file: string): number | null => {
     try {
       const value = parseFloat(fs.readFileSync(file, "utf8").trim());
@@ -154,11 +154,11 @@ function readSnapshot(): Snapshot | null {
     }
   };
 
-  const signal = read(INDEX_FILE);
-  const index = read(INDEX_PRICE_FILE);
-  const ask = read(ASK_FILE);
-  const bid = read(BID_FILE);
-  const last = read(LAST_FILE);
+  const signal = read(files.index);
+  const index = read(files.indexPrice);
+  const ask = read(files.ask);
+  const bid = read(files.bid);
+  const last = read(files.last);
   if (signal === null || index === null || ask === null || bid === null || last === null) {
     return null;
   }
@@ -273,6 +273,14 @@ async function main(): Promise<void> {
 
   SYMBOL = getArg("--symbol") ?? DEFAULT_SYMBOL;
 
+  const snapFiles = {
+    index: symbolPath("indexLast.txt"),
+    indexPrice: symbolPath("index.txt"),
+    ask: symbolPath("ask.txt"),
+    bid: symbolPath("bid.txt"),
+    last: symbolPath("last.txt"),
+  };
+
   const creds = loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
@@ -314,7 +322,7 @@ async function main(): Promise<void> {
       if (shortSize >= pendingShort) pendingShort = 0;
 
       // 2. Read the index signal and the bid/ask/index/last snapshot.
-      const snap = readSnapshot();
+      const snap = readSnapshot(snapFiles);
       if (snap === null) {
         console.warn(`[${fmtTime()}]   ⚠  indexLast.txt / index.txt / bid.txt / ask.txt / last.txt unreadable — skipping this cycle`);
         await sleep(PAUSE_MS);
