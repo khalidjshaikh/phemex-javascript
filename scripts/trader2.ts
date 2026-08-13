@@ -343,8 +343,10 @@ async function askBidClose(
     const entry = parseFloat(pos.avgEntryPriceRp || "0");
 
     if (pos.side === "Buy" && bid !== null && bid >= entry + s.profit) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — bid ${bid} >= entry ${entry} + ${s.profit}`);
       await closePos(pos);
     } else if (pos.side === "Sell" && ask !== null && ask <= entry - s.profit) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — ask ${ask} <= entry ${entry} - ${s.profit}`);
       await closePos(pos);
     }
   }
