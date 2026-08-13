@@ -72,6 +72,19 @@ function fmtTime(ms: number): string {
   );
 }
 
+function fmtDuration(ms: number): string {
+  if (!ms || ms < 0) return "—";
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Table output                                                       */
 /* ------------------------------------------------------------------ */
@@ -86,11 +99,11 @@ function printTable(positions: ClosedPosition[]): void {
   const rows = [...positions].sort((a, b) => b.closedAt - a.closedAt);
 
   console.log(
-    `\n${"#".padStart(5)} ${"Closed At".padEnd(20)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
+    `\n${"#".padStart(5)} ${"Opened At".padEnd(20)} ${"Closed At".padEnd(20)} ${"Duration".padEnd(12)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
     `${"Qty".padStart(10)} ${"Entry".padStart(12)} ${"Exit".padStart(12)} ` +
     `${"Realized".padStart(12)} ${"Net".padStart(12)}  `
   );
-  console.log("─".repeat(118));
+  console.log("─".repeat(150));
 
   let gross = 0;
   let net = 0;
@@ -104,7 +117,7 @@ function printTable(positions: ClosedPosition[]): void {
     const pnlFmt = fmtUsd(realized).padStart(12);
     const netFmt = fmtUsd(p.netPnl).padStart(12);
     console.log(
-      `${String(i + 1).padStart(5)} ${fmtTime(p.closedAt).padEnd(20)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
+      `${String(i + 1).padStart(5)} ${fmtTime(p.openedAt).padEnd(20)} ${fmtTime(p.closedAt).padEnd(20)} ${fmtDuration(p.closedAt - p.openedAt).padEnd(12)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
       `${fmtQty(p.qty).padStart(10)} ${p.avgEntryPrice.toFixed(4).padStart(12)} ` +
       `${p.avgExitPrice.toFixed(4).padStart(12)} ${pnlFmt} ${netFmt} ` +
       `${p.realizedPnl >= 0 ? "*" : ""} ${p.netPnl >= 0 ? "*" : ""}`
@@ -114,7 +127,7 @@ function printTable(positions: ClosedPosition[]): void {
     net += p.netPnl;
   }
 
-  console.log("─".repeat(112));
+  console.log("─".repeat(144));
   console.log(
     `Positions: ${rows.length}   ` +
     `Winners: ${winners}   ` +
