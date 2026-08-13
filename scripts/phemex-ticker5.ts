@@ -63,10 +63,10 @@ Options:
                       symbol, e.g. data/BTCUSDT-ask.txt)
   --concise           Hide all columns except ask, bid, index, mark, last
   --addSymbol         Add symbol column as the 1st column
-  --maxIndex          Track and store largest Δindex per symbol to
-                      data/<SYMBOL>-maxIndex.txt
-  --minIndex          Track and store smallest Δindex per symbol to
-                      data/<SYMBOL>-minIndex.txt
+  --maxDelta          Track and store largest Δask, Δbid, Δindex, Δmark per
+                      symbol to data/<SYMBOL>-max{Ask,Bid,Index,Mark}.txt
+  --minDelta          Track and store smallest Δask, Δbid, Δindex, Δmark per
+                      symbol to data/<SYMBOL>-min{Ask,Bid,Index,Mark}.txt
   --removeTickerOutput  Suppress ticker console output (for file-only mode)
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
                       each field minus the last price, plus Δt (elapsed
@@ -89,8 +89,8 @@ if (hasFlag("--help")) {
 
 const SYMBOLS = (getArg("--symbol") ?? "XBRUSDT").split(",").filter(Boolean);
 const STORE = hasFlag("--store");
-const MAX_INDEX = hasFlag("--maxIndex");
-const MIN_INDEX = hasFlag("--minIndex");
+const MAX_DELTA = hasFlag("--maxDelta");
+const MIN_DELTA = hasFlag("--minDelta");
 const ADD_SYMBOL = hasFlag("--addSymbol");
 const REMOVE_TICKER_OUTPUT = hasFlag("--removeTickerOutput");
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
@@ -150,8 +150,11 @@ const DATA_DIR = resolve(ROOT, "data");
 // Per-symbol file paths — created lazily when --store is set.
 const symbolFiles = new Map<string, {
   ask: string; bid: string; index: string; indexLast: string;
-  last: string; mark: string; markLast: string; maxIndex: string;
-  minIndex: string;
+  last: string; mark: string; markLast: string;
+  maxAsk: string; minAsk: string;
+  maxBid: string; minBid: string;
+  maxIndex: string; minIndex: string;
+  maxMark: string; minMark: string;
 }>();
 
 function getSymbolFiles(sym: string) {
@@ -166,8 +169,14 @@ function getSymbolFiles(sym: string) {
       last:     resolve(DATA_DIR, prefix("last.txt")),
       mark:     resolve(DATA_DIR, prefix("mark.txt")),
       markLast: resolve(DATA_DIR, prefix("markLast.txt")),
+      maxAsk:   resolve(DATA_DIR, prefix("maxAsk.txt")),
+      minAsk:   resolve(DATA_DIR, prefix("minAsk.txt")),
+      maxBid:   resolve(DATA_DIR, prefix("maxBid.txt")),
+      minBid:   resolve(DATA_DIR, prefix("minBid.txt")),
       maxIndex: resolve(DATA_DIR, prefix("maxIndex.txt")),
       minIndex: resolve(DATA_DIR, prefix("minIndex.txt")),
+      maxMark:  resolve(DATA_DIR, prefix("maxMark.txt")),
+      minMark:  resolve(DATA_DIR, prefix("minMark.txt")),
     };
     symbolFiles.set(sym, f);
   }
@@ -508,8 +517,14 @@ const symbolState = new Map<string, {
   cumSum: Map<string, number>;
   cumPrev: Map<string, number>;
   cumMinute: number;
+  maxDeltaAsk: number | null;
+  minDeltaAsk: number | null;
+  maxDeltaBid: number | null;
+  minDeltaBid: number | null;
   maxDeltaIndex: number | null;
   minDeltaIndex: number | null;
+  maxDeltaMark: number | null;
+  minDeltaMark: number | null;
 }>();
 
 function getSymbolState(sym: string) {
@@ -523,26 +538,38 @@ function getSymbolState(sym: string) {
       cumSum: new Map(),
       cumPrev: new Map(),
       cumMinute: -1,
+      maxDeltaAsk: null,
+      minDeltaAsk: null,
+      maxDeltaBid: null,
+      minDeltaBid: null,
       maxDeltaIndex: null,
       minDeltaIndex: null,
+      maxDeltaMark: null,
+      minDeltaMark: null,
     };
-    // Initialize maxDeltaIndex from stored file if it exists.
-    if (MAX_INDEX) {
+    // Initialize maxDelta from stored files if they exist.
+    if (MAX_DELTA) {
       const files = getSymbolFiles(sym);
-      if (fs.existsSync(files.maxIndex)) {
-        const stored = Number(fs.readFileSync(files.maxIndex, "utf8"));
-        if (Number.isFinite(stored)) {
-          s.maxDeltaIndex = stored;
+      for (const [key, field] of [
+        ["maxAsk", "maxDeltaAsk"], ["maxBid", "maxDeltaBid"],
+        ["maxIndex", "maxDeltaIndex"], ["maxMark", "maxDeltaMark"],
+      ] as const) {
+        if (fs.existsSync(files[key])) {
+          const stored = Number(fs.readFileSync(files[key], "utf8"));
+          if (Number.isFinite(stored)) (s as any)[field] = stored;
         }
       }
     }
-    // Initialize minDeltaIndex from stored file if it exists.
-    if (MIN_INDEX) {
+    // Initialize minDelta from stored files if they exist.
+    if (MIN_DELTA) {
       const files = getSymbolFiles(sym);
-      if (fs.existsSync(files.minIndex)) {
-        const stored = Number(fs.readFileSync(files.minIndex, "utf8"));
-        if (Number.isFinite(stored)) {
-          s.minDeltaIndex = stored;
+      for (const [key, field] of [
+        ["minAsk", "minDeltaAsk"], ["minBid", "minDeltaBid"],
+        ["minIndex", "minDeltaIndex"], ["minMark", "minDeltaMark"],
+      ] as const) {
+        if (fs.existsSync(files[key])) {
+          const stored = Number(fs.readFileSync(files[key], "utf8"));
+          if (Number.isFinite(stored)) (s as any)[field] = stored;
         }
       }
     }
@@ -593,35 +620,55 @@ function processTicker(data: Record<string, unknown>): void {
     }
   }
 
-  // --maxIndex: track largest Δindex for this symbol, comparing with stored file.
-  if (MAX_INDEX && Number.isFinite(idxDelta)) {
-    let storedMax = state.maxDeltaIndex;
-    // Also check stored file on first tick for each symbol.
-    if (storedMax === null) {
-      const files = getSymbolFiles(sym);
-      if (fs.existsSync(files.maxIndex)) {
-        const val = Number(fs.readFileSync(files.maxIndex, "utf8"));
-        if (Number.isFinite(val)) storedMax = val;
+  // --maxDelta: track largest Δask, Δbid, Δindex, Δmark for this symbol.
+  const deltas: Array<{ field: string; stateKey: string; fileKey: string }> = [
+    { field: "askRp",  stateKey: "maxDeltaAsk",  fileKey: "maxAsk" },
+    { field: "bidRp",  stateKey: "maxDeltaBid",  fileKey: "maxBid" },
+    { field: "indexRp", stateKey: "maxDeltaIndex", fileKey: "maxIndex" },
+    { field: "markRp", stateKey: "maxDeltaMark", fileKey: "maxMark" },
+  ];
+  if (MAX_DELTA) {
+    for (const { field, stateKey, fileKey } of deltas) {
+      const v = Number(data[field]);
+      if (!Number.isFinite(v) || !Number.isFinite(last)) continue;
+      const delta = v - last;
+      let storedMax = (state as any)[stateKey] as number | null;
+      if (storedMax === null) {
+        const files = getSymbolFiles(sym);
+        if (fs.existsSync(files[fileKey])) {
+          const val = Number(fs.readFileSync(files[fileKey], "utf8"));
+          if (Number.isFinite(val)) storedMax = val;
+        }
       }
-    }
-    if (storedMax === null || idxDelta > storedMax) {
-      state.maxDeltaIndex = idxDelta;
+      if (storedMax === null || delta > storedMax) {
+        (state as any)[stateKey] = delta;
+      }
     }
   }
 
-  // --minIndex: track smallest Δindex for this symbol, comparing with stored file.
-  if (MIN_INDEX && Number.isFinite(idxDelta)) {
-    let storedMin = state.minDeltaIndex;
-    // Also check stored file on first tick for each symbol.
-    if (storedMin === null) {
-      const files = getSymbolFiles(sym);
-      if (fs.existsSync(files.minIndex)) {
-        const val = Number(fs.readFileSync(files.minIndex, "utf8"));
-        if (Number.isFinite(val)) storedMin = val;
+  // --minDelta: track smallest Δask, Δbid, Δindex, Δmark for this symbol.
+  const minDeltas: Array<{ field: string; stateKey: string; fileKey: string }> = [
+    { field: "askRp",  stateKey: "minDeltaAsk",  fileKey: "minAsk" },
+    { field: "bidRp",  stateKey: "minDeltaBid",  fileKey: "minBid" },
+    { field: "indexRp", stateKey: "minDeltaIndex", fileKey: "minIndex" },
+    { field: "markRp", stateKey: "minDeltaMark", fileKey: "minMark" },
+  ];
+  if (MIN_DELTA) {
+    for (const { field, stateKey, fileKey } of minDeltas) {
+      const v = Number(data[field]);
+      if (!Number.isFinite(v) || !Number.isFinite(last)) continue;
+      const delta = v - last;
+      let storedMin = (state as any)[stateKey] as number | null;
+      if (storedMin === null) {
+        const files = getSymbolFiles(sym);
+        if (fs.existsSync(files[fileKey])) {
+          const val = Number(fs.readFileSync(files[fileKey], "utf8"));
+          if (Number.isFinite(val)) storedMin = val;
+        }
       }
-    }
-    if (storedMin === null || idxDelta < storedMin) {
-      state.minDeltaIndex = idxDelta;
+      if (storedMin === null || delta < storedMin) {
+        (state as any)[stateKey] = delta;
+      }
     }
   }
 
@@ -694,32 +741,38 @@ function processTicker(data: Record<string, unknown>): void {
     fs.writeFileSync(files.markLast, fmtExact(Number.isFinite(mkr) && Number.isFinite(ltp) ? mkr - ltp : null), "utf8");
   }
 
-  if (MAX_INDEX && state.maxDeltaIndex !== null) {
+  if (MAX_DELTA) {
     const files = getSymbolFiles(sym);
-    // Read stored value again to ensure we keep the greater one.
-    let finalMax = state.maxDeltaIndex;
-    if (fs.existsSync(files.maxIndex)) {
-      const stored = Number(fs.readFileSync(files.maxIndex, "utf8"));
-      if (Number.isFinite(stored) && stored > finalMax) {
-        finalMax = stored;
-      }
-    }
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(files.maxIndex, fmtExact(finalMax), "utf8");
+    for (const { stateKey, fileKey } of deltas) {
+      const val = (state as any)[stateKey] as number | null;
+      if (val === null) continue;
+      let finalMax = val;
+      if (fs.existsSync(files[fileKey])) {
+        const stored = Number(fs.readFileSync(files[fileKey], "utf8"));
+        if (Number.isFinite(stored) && stored > finalMax) {
+          finalMax = stored;
+        }
+      }
+      fs.writeFileSync(files[fileKey], fmtExact(finalMax), "utf8");
+    }
   }
 
-  if (MIN_INDEX && state.minDeltaIndex !== null) {
+  if (MIN_DELTA) {
     const files = getSymbolFiles(sym);
-    // Read stored value again to ensure we keep the lesser one.
-    let finalMin = state.minDeltaIndex;
-    if (fs.existsSync(files.minIndex)) {
-      const stored = Number(fs.readFileSync(files.minIndex, "utf8"));
-      if (Number.isFinite(stored) && stored < finalMin) {
-        finalMin = stored;
-      }
-    }
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(files.minIndex, fmtExact(finalMin), "utf8");
+    for (const { stateKey, fileKey } of minDeltas) {
+      const val = (state as any)[stateKey] as number | null;
+      if (val === null) continue;
+      let finalMin = val;
+      if (fs.existsSync(files[fileKey])) {
+        const stored = Number(fs.readFileSync(files[fileKey], "utf8"));
+        if (Number.isFinite(stored) && stored < finalMin) {
+          finalMin = stored;
+        }
+      }
+      fs.writeFileSync(files[fileKey], fmtExact(finalMin), "utf8");
+    }
   }
 
   if (CSV_FILE) appendCsvRow(CSV_FILE, data);
