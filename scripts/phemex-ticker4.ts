@@ -57,7 +57,10 @@ each showing the recent Δindex averaged over its window using
 ticker-time seconds.
 
 Options:
-  --symbol <SYMBOL>   Symbol to track (default: XBRUSDT)
+  --symbol <SYMBOLS>  Comma-separated symbols to track (default: XBRUSDT)
+                      e.g. --symbol BTCUSDT,ETHUSDT,SOLUSDT
+  --store             Write price files to data/ subdirectory (one file per
+                      symbol, e.g. data/BTCUSDT-ask.txt)
   --concise           Hide fundRate, high, low, openInt, open, predFund,
                       symbol, turnover, volume columns
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
@@ -79,13 +82,13 @@ if (hasFlag("--help")) {
   process.exit(0);
 }
 
-const SYMBOL = getArg("--symbol") ?? "XBRUSDT";
-const symbolFile = (name: string) => `${SYMBOL}-${name}`;
+const SYMBOLS = (getArg("--symbol") ?? "XBRUSDT").split(",").filter(Boolean);
+const STORE = hasFlag("--store");
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
 // --csv <FILE>: append a time,ask,bid,index,mark,last row to FILE every tick.
 const CSV_FILE = getArg("--csv");
 const WS_URL = "wss://ws.phemex.com";
-const IS_USDT_M = SYMBOL.endsWith("USDT");
+const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
 // Columns hidden in --concise mode (keyed by raw response field name).
 const CONCISE_HIDDEN = new Set([
@@ -130,14 +133,30 @@ const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 // the ticker and the monitor see the same files from any launch directory.
 const ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(ROOT, "data");
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const ASK_FILE = resolve(DATA_DIR, symbolFile("ask.txt"));
-const BID_FILE = resolve(DATA_DIR, symbolFile("bid.txt"));
-const INDEX_FILE = resolve(DATA_DIR, symbolFile("index.txt"));
-const INDEX_LAST_FILE = resolve(DATA_DIR, symbolFile("indexLast.txt"));
-const LAST_FILE = resolve(DATA_DIR, symbolFile("last.txt"));
-const MARK_FILE = resolve(DATA_DIR, symbolFile("mark.txt"));
-const MARK_LAST_FILE = resolve(DATA_DIR, symbolFile("markLast.txt"));
+
+// Per-symbol file paths — created lazily when --store is set.
+const symbolFiles = new Map<string, {
+  ask: string; bid: string; index: string; indexLast: string;
+  last: string; mark: string; markLast: string;
+}>();
+
+function getSymbolFiles(sym: string) {
+  let f = symbolFiles.get(sym);
+  if (!f) {
+    const prefix = (name: string) => `${sym}-${name}`;
+    f = {
+      ask:      resolve(DATA_DIR, prefix("ask.txt")),
+      bid:      resolve(DATA_DIR, prefix("bid.txt")),
+      index:    resolve(DATA_DIR, prefix("index.txt")),
+      indexLast: resolve(DATA_DIR, prefix("indexLast.txt")),
+      last:     resolve(DATA_DIR, prefix("last.txt")),
+      mark:     resolve(DATA_DIR, prefix("mark.txt")),
+      markLast: resolve(DATA_DIR, prefix("markLast.txt")),
+    };
+    symbolFiles.set(sym, f);
+  }
+  return f;
+}
 
 /* ------------------------------------------------------------------ */
 /*  CSV logging (--csv <FILE>) — append one row per tick.              */
@@ -418,42 +437,44 @@ function fmtField(k: string, v: unknown): string {
 
 let cachedFields: string[] | null = null;
 
-function extractTicker(data: Record<string, unknown>): Record<string, unknown> | null {
+function extractTickers(data: Record<string, unknown>): Record<string, unknown>[] {
   if (IS_USDT_M) {
-    if (data.symbol !== undefined && data.symbol !== SYMBOL) return null;
-    return data;
+    if (data.symbol !== undefined && !SYMBOLS.includes(data.symbol as string)) return [];
+    return [data];
   }
   // Coin-M: msg.market24h is the ticker object.
   const ticker = data as Record<string, unknown>;
   const sym = String(ticker.symbol ?? "");
-  if (sym !== SYMBOL) return null;
-  return ticker;
+  if (!SYMBOLS.includes(sym)) return [];
+  return [ticker];
 }
 
-function handleMessage(msg: Record<string, unknown>): Record<string, unknown> | null {
+function handleMessage(msg: Record<string, unknown>): Record<string, unknown>[] {
   // USDT-M: single-symbol push.
   if (msg.method === "market24h_p.update" && msg.data) {
-    return extractTicker(msg.data as Record<string, unknown>);
+    return extractTickers(msg.data as Record<string, unknown>);
   }
-  // USDT-M: pack update (batch) — filter to our symbol.
+  // USDT-M: pack update (batch) — filter to our symbols.
   if (msg.method === "perp_market24h_pack_p.update" && Array.isArray(msg.data)) {
     if (Array.isArray(msg.fields)) {
       cachedFields = msg.fields as string[];
     }
-    if (!cachedFields) return null;
+    if (!cachedFields) return [];
+    const result: Record<string, unknown>[] = [];
     for (const row of msg.data as unknown[][]) {
       if (row.length < 1) continue;
       const sym = String(row[0]);
-      if (sym !== SYMBOL) continue;
-      return findSymbolRow([row], cachedFields, sym);
+      if (!SYMBOLS.includes(sym)) continue;
+      const ticker = findSymbolRow([row], cachedFields, sym);
+      if (ticker) result.push(ticker);
     }
-    return null;
+    return result;
   }
   // Coin-M: market24h push.
   if (msg.market24h) {
-    return extractTicker(msg);
+    return extractTickers(msg);
   }
-  return null;
+  return [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -463,16 +484,40 @@ function handleMessage(msg: Record<string, unknown>): Record<string, unknown> | 
 let legendPrinted = false;
 let lastHeaderMinute = -1;
 const widths = new Map<string, number>();
-let lastSig = "";
-let prevTs: number | null = null;
-const maSamples: Array<{ t: number; v: number }> = [];
-const cumTotal = new Map<string, number>();
-let cumCount = 0;
-const cumSum = new Map<string, number>();
-const cumPrev = new Map<string, number>();
-let cumMinute = -1;
+
+// Per-symbol state for MA, sigma/xbar, and Δt tracking.
+const symbolState = new Map<string, {
+  lastSig: string;
+  prevTs: number | null;
+  maSamples: Array<{ t: number; v: number }>;
+  cumTotal: Map<string, number>;
+  cumCount: number;
+  cumSum: Map<string, number>;
+  cumPrev: Map<string, number>;
+  cumMinute: number;
+}>();
+
+function getSymbolState(sym: string) {
+  let s = symbolState.get(sym);
+  if (!s) {
+    s = {
+      lastSig: "",
+      prevTs: null,
+      maSamples: [],
+      cumTotal: new Map(),
+      cumCount: 0,
+      cumSum: new Map(),
+      cumPrev: new Map(),
+      cumMinute: -1,
+    };
+    symbolState.set(sym, s);
+  }
+  return s;
+}
 
 function processTicker(data: Record<string, unknown>): void {
+  const sym = data.symbol as string;
+  const state = getSymbolState(sym);
   // Compute Δindex and Δt internally always (needed by --ma).
   const last = Number(data.lastRp);
   const indexRp = Number(data.indexRp);
@@ -482,13 +527,13 @@ function processTicker(data: Record<string, unknown>): void {
   const tickerTs = Number(data.timestamp);
   const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
   let dtSec: number | null = null;
-  if (tsValid && prevTs != null) {
+  if (tsValid && state.prevTs != null) {
     const tNow = tickerTs / 1e9;
-    const dt = tNow - prevTs;
+    const dt = tNow - state.prevTs;
     dtSec = dt > 0 ? dt : 0;
   }
   if (tsValid) {
-    prevTs = tickerTs / 1e9;
+    state.prevTs = tickerTs / 1e9;
   }
 
   // --delta: append Δ columns for display.
@@ -505,13 +550,13 @@ function processTicker(data: Record<string, unknown>): void {
   if (SHOW_MA) {
     if (tsValid && Number.isFinite(idxDelta)) {
       const tSec = tickerTs / 1e9;
-      maSamples.push({ t: tSec, v: idxDelta });
+      state.maSamples.push({ t: tSec, v: idxDelta });
       const maxWindow = MA_WINDOWS[MA_WINDOWS.length - 1];
-      while (maSamples.length > 0 && maSamples[0].t < tSec - maxWindow - 1) {
-        maSamples.shift();
+      while (state.maSamples.length > 0 && state.maSamples[0].t < tSec - maxWindow - 1) {
+        state.maSamples.shift();
       }
       for (const w of MA_WINDOWS) {
-        data[`ma${w}s`] = weightedMa(maSamples, tSec, w);
+        data[`ma${w}s`] = weightedMa(state.maSamples, tSec, w);
       }
     }
   }
@@ -520,29 +565,29 @@ function processTicker(data: Record<string, unknown>): void {
   const now = Date.now();
   const minute = Math.floor(now / 60000);
   if (SHOW_XBAR || SHOW_SIGMA) {
-    if (minute !== cumMinute) {
-      if (cumMinute >= 0) printMinuteSummary(cumTotal, cumCount, cumSum);
-      cumMinute = minute;
-      cumTotal.clear();
-      cumCount = 0;
-      cumSum.clear();
+    if (minute !== state.cumMinute) {
+      if (state.cumMinute >= 0) printMinuteSummary(state.cumTotal, state.cumCount, state.cumSum);
+      state.cumMinute = minute;
+      state.cumTotal.clear();
+      state.cumCount = 0;
+      state.cumSum.clear();
     }
     let sampled = false;
     for (const f of SIG_FIELDS) {
       const v = Number(data[f]);
       if (Number.isFinite(v)) {
         sampled = true;
-        cumTotal.set(f, (cumTotal.get(f) ?? 0) + v);
+        state.cumTotal.set(f, (state.cumTotal.get(f) ?? 0) + v);
       }
-      if (cumPrev.has(f) && Number.isFinite(v)) {
-        const pv = Number(cumPrev.get(f));
+      if (state.cumPrev.has(f) && Number.isFinite(v)) {
+        const pv = Number(state.cumPrev.get(f));
         if (Number.isFinite(pv)) {
-          cumSum.set(f, (cumSum.get(f) ?? 0) + Math.abs(v - pv));
+          state.cumSum.set(f, (state.cumSum.get(f) ?? 0) + Math.abs(v - pv));
         }
       }
-      cumPrev.set(f, v);
+      state.cumPrev.set(f, v);
     }
-    if (sampled) cumCount++;
+    if (sampled) state.cumCount++;
   }
 
   const keys = Object.keys(data)
@@ -569,23 +614,27 @@ function processTicker(data: Record<string, unknown>): void {
     legendPrinted = true;
   }
 
-  fs.writeFileSync(ASK_FILE, fmtExact(data.askRp), "utf8");
-  fs.writeFileSync(BID_FILE, fmtExact(data.bidRp), "utf8");
+  if (STORE) {
+    const files = getSymbolFiles(sym);
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(files.ask, fmtExact(data.askRp), "utf8");
+    fs.writeFileSync(files.bid, fmtExact(data.bidRp), "utf8");
 
-  const idx = Number(data.indexRp);
-  const ltp = Number(data.lastRp);
-  const mkr = Number(data.markRp);
-  fs.writeFileSync(INDEX_FILE, fmtExact(idx), "utf8");
-  fs.writeFileSync(INDEX_LAST_FILE, fmtExact(Number.isFinite(idx) && Number.isFinite(ltp) ? idx - ltp : null), "utf8");
-  fs.writeFileSync(LAST_FILE, fmtExact(ltp), "utf8");
-  fs.writeFileSync(MARK_FILE, fmtExact(mkr), "utf8");
-  fs.writeFileSync(MARK_LAST_FILE, fmtExact(Number.isFinite(mkr) && Number.isFinite(ltp) ? mkr - ltp : null), "utf8");
+    const idx = Number(data.indexRp);
+    const ltp = Number(data.lastRp);
+    const mkr = Number(data.markRp);
+    fs.writeFileSync(files.index, fmtExact(idx), "utf8");
+    fs.writeFileSync(files.indexLast, fmtExact(Number.isFinite(idx) && Number.isFinite(ltp) ? idx - ltp : null), "utf8");
+    fs.writeFileSync(files.last, fmtExact(ltp), "utf8");
+    fs.writeFileSync(files.mark, fmtExact(mkr), "utf8");
+    fs.writeFileSync(files.markLast, fmtExact(Number.isFinite(mkr) && Number.isFinite(ltp) ? mkr - ltp : null), "utf8");
+  }
 
   if (CSV_FILE) appendCsvRow(CSV_FILE, data);
 
   const sig = SIG_FIELDS.map((k) => `${k}=${data[k]}`).join("|");
-  const changed = sig !== lastSig;
-  lastSig = sig;
+  const changed = sig !== state.lastSig;
+  state.lastSig = sig;
 
   if (changed) {
     for (const k of keys) {
@@ -621,24 +670,28 @@ function processTicker(data: Record<string, unknown>): void {
 }
 
 const type = IS_USDT_M ? "USDT-M" : "Coin-M";
-console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOL} …`);
+console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(", ")} …`);
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
     if (IS_USDT_M) {
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
     } else {
-      ws.send({ method: "market24h.subscribe", params: [SYMBOL], id: 1 });
+      ws.send({ method: "market24h.subscribe", params: SYMBOLS, id: 1 });
     }
   },
   onMessage: (msg) => {
-    const data = handleMessage(msg);
-    if (data) processTicker(data);
+    const tickers = handleMessage(msg);
+    for (const data of tickers) {
+      processTicker(data);
+    }
   },
   onReconnect: (delayMs) => {
     process.stdout.write("\n");
     console.log(`⟐  Reconnecting in ${delayMs / 1000}s …`);
-    lastSig = "";
+    for (const s of symbolState.values()) {
+      s.lastSig = "";
+    }
     cachedFields = null;
   },
 });

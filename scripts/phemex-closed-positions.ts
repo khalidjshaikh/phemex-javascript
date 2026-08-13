@@ -42,6 +42,7 @@ Options:
   --days <n>          Look-back window in days (default 7)
   --limit <n>         Max fills to fetch (default 200; pages of 200)
   --json              Output raw JSON instead of the table
+  --color             Color rows red when net PnL is negative
   --help, -h          Show this help message
 
 Examples:
@@ -59,7 +60,7 @@ function fmtUsd(n: number): string {
 }
 
 function fmtQty(n: number): string {
-  return n.toFixed(4).replace(/\.?0+$/, "");
+  return n.toFixed(3);
 }
 
 function fmtTime(ms: number): string {
@@ -89,7 +90,7 @@ function fmtDuration(ms: number): string {
 /*  Table output                                                       */
 /* ------------------------------------------------------------------ */
 
-function printTable(positions: ClosedPosition[]): void {
+function printTable(positions: ClosedPosition[], color = false): void {
   if (positions.length === 0) {
     console.log("\nNo closed positions found in the requested window.");
     return;
@@ -99,11 +100,10 @@ function printTable(positions: ClosedPosition[]): void {
   const rows = [...positions].sort((a, b) => b.closedAt - a.closedAt);
 
   console.log(
-    `\n${"#".padStart(5)} ${"Opened At".padEnd(20)} ${"Closed At".padEnd(20)} ${"Duration".padEnd(12)} ${"Symbol".padEnd(10)} ${"Side".padEnd(6)} ` +
-    `${"Qty".padStart(10)} ${"Entry".padStart(12)} ${"Exit".padStart(12)} ` +
-    `${"Realized".padStart(12)} ${"Net".padStart(12)}  `
+    `\n${"#".padStart(3)} ${"Opened At".padEnd(19)} ${"Closed At".padEnd(19)} ${"Duration".padEnd(8)} ${"Symbol".padEnd(7)} ${"Side".padEnd(5)}` +
+    `${"Qty".padStart(6)} ${"Entry".padStart(8)} ${"Exit".padStart(8)}${"Spread".padStart(7)}${"Realized".padStart(10)}${"Net".padStart(10)}${"Fee".padStart(10)}`
   );
-  console.log("─".repeat(150));
+  console.log("─".repeat(136));
 
   let gross = 0;
   let net = 0;
@@ -114,20 +114,23 @@ function printTable(positions: ClosedPosition[]): void {
     const p = rows[i];
     const realized = p.realizedPnl;
     if (realized >= 0) winners++;
-    const pnlFmt = fmtUsd(realized).padStart(12);
-    const netFmt = fmtUsd(p.netPnl).padStart(12);
+    const pnlFmt = fmtUsd(realized).padStart(10);
+    const netFmt = fmtUsd(p.netPnl).padStart(10);
+    const feeFmt = fmtUsd(-(p.entryFee + p.exitFee)).padStart(10);
+    const spread = Math.abs(p.avgExitPrice - p.avgEntryPrice).toFixed(2).padStart(7);
+    const red = color && realized < 0 ? "\x1b[31m" : "";
+    const reset = red ? "\x1b[0m" : "";
     console.log(
-      `${String(i + 1).padStart(5)} ${fmtTime(p.openedAt).padEnd(20)} ${fmtTime(p.closedAt).padEnd(20)} ${fmtDuration(p.closedAt - p.openedAt).padEnd(12)} ${p.symbol.padEnd(10)} ${p.posSide.padEnd(6)} ` +
-      `${fmtQty(p.qty).padStart(10)} ${p.avgEntryPrice.toFixed(4).padStart(12)} ` +
-      `${p.avgExitPrice.toFixed(4).padStart(12)} ${pnlFmt} ${netFmt} ` +
-      `${p.realizedPnl >= 0 ? "*" : ""} ${p.netPnl >= 0 ? "*" : ""}`
+      `${red}${String(i + 1).padStart(3)} ${fmtTime(p.openedAt).padEnd(19)} ${fmtTime(p.closedAt).padEnd(19)} ${fmtDuration(p.closedAt - p.openedAt).padEnd(8)} ${p.symbol.padEnd(7)} ${p.posSide.padEnd(5)}` +
+      `${fmtQty(p.qty).padStart(6)} ${p.avgEntryPrice.toFixed(2).padStart(8)} ${p.avgExitPrice.toFixed(2).padStart(8)}${spread}${pnlFmt}${netFmt}${feeFmt}` +
+      `${p.realizedPnl >= 0 ? " *" : "  "}${p.netPnl >= 0 ? " *" : "  "}${reset}`
     );
     gross += realized;
     fees += p.entryFee + p.exitFee;
     net += p.netPnl;
   }
 
-  console.log("─".repeat(144));
+  console.log("─".repeat(136));
   console.log(
     `Positions: ${rows.length}   ` +
     `Winners: ${winners}   ` +
@@ -148,6 +151,7 @@ async function main(): Promise<void> {
   const days = Math.max(parseInt(getArg("--days") || "7", 10) || 7, 1);
   const limit = Math.max(parseInt(getArg("--limit") || "200", 10) || 200, 1);
   const asJson = hasFlag("--json");
+  const useColor = hasFlag("--color");
 
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -168,7 +172,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(positions, null, 2));
     return;
   }
-  printTable(positions);
+  printTable(positions, useColor);
 }
 
 main().catch((err) => {

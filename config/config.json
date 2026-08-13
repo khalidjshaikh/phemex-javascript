@@ -11,15 +11,21 @@
     "hedge": true,
     "profit": 35
   },
+  "XBRUSDT": {
+    "threshold": 0.5,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
   "XTIUSDT": {
     "threshold": 0.3,
     "size": 0.01,
     "hedge": true,
     "profit": 0
   },
-  "XBRUSDT": {
-    "threshold": 0.5,
-    "size": 0.01,
+  "XAUUSDT": {
+    "threshold": 8,
+    "size": 0.001,
     "hedge": true,
     "profit": 0
   }
