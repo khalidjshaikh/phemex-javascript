@@ -22,19 +22,21 @@ import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 /*  CLI                                                                */
 /* ------------------------------------------------------------------ */
 
-const USAGE = `Usage: npx tsx phemex-ws-ticker-data.ts [options]
-
-Subscribe to one or more Phemex symbols' tickers via a single WebSocket
-and stream ask, bid, index, mark, and last prices.
-
-Options:
-  --symbols <A,B,C>   Comma-separated symbols to track (default: XBRUSDT)
-  --symbol <SYMBOL>   Single symbol shorthand (alias for --symbols)
-  --csv <FILE>        Append a CSV row per symbol per tick to FILE
-  --json              Output one JSON line per symbol per update
-  --debug             Print raw WebSocket messages for debugging
-  --help              Show this help and exit
-`;
+const USAGE = [
+  "Usage: npx tsx phemex-ws-ticker-data.ts [options]",
+  "",
+  "Subscribe to one or more Phemex symbols' tickers via a single WebSocket",
+  "and stream ask, bid, index, mark, and last prices.",
+  "",
+  "Options:",
+  "  --symbols <A,B,C>   Comma-separated symbols to track (default: XBRUSDT)",
+  "  --symbol <SYMBOL>   Single symbol shorthand (alias for --symbols)",
+  "  --csv <FILE>        Append a CSV row per symbol per tick to FILE",
+  "  --json              Output one JSON line per symbol per update",
+  "  --store             Store latest values in data/${symbol}-{ask,bid,index,mark,last}.txt",
+  "  --debug             Print raw WebSocket messages for debugging",
+  "  --help              Show this help and exit",
+].join("\n");
 
 if (hasFlag("--help")) {
   console.log(USAGE);
@@ -45,6 +47,7 @@ const symbolsRaw = getArg("--symbols") ?? getArg("--symbol") ?? "XBRUSDT";
 const SYMBOLS = new Set(symbolsRaw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean));
 const CSV_FILE = getArg("--json") ? undefined : getArg("--csv");
 const JSON_MODE = hasFlag("--json");
+const STORE = hasFlag("--store");
 const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
@@ -96,6 +99,24 @@ function appendCsvRow(file: string, d: TickerData): void {
   fs.appendFileSync(file, `${row}\n`, "utf8");
 }
 
+function storeToFile(d: TickerData): void {
+  const dir = "data";
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  const fields: [string, number][] = [
+    ["ask", d.ask],
+    ["bid", d.bid],
+    ["index", d.index],
+    ["mark", d.mark],
+    ["last", d.last],
+  ];
+
+  for (const [label, value] of fields) {
+    const file = `${dir}/${d.symbol}-${label}.txt`;
+    fs.writeFileSync(file, String(value), "utf8");
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Display                                                            */
 /* ------------------------------------------------------------------ */
@@ -120,6 +141,9 @@ function emit(d: TickerData): void {
   }
   if (CSV_FILE) {
     appendCsvRow(CSV_FILE, d);
+  }
+  if (STORE) {
+    storeToFile(d);
   }
 }
 
