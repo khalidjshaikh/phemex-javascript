@@ -1,0 +1,26 @@
+{
+  "ETHUSDT": {
+    "threshold": 2.5,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
+  "BTCUSDT": {
+    "threshold": 50,
+    "size": 0.001,
+    "hedge": true,
+    "profit": 35
+  },
+  "XTIUSDT": {
+    "threshold": 0.3,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
+  "XBRUSDT": {
+    "threshold": 0.5,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  }
+}
