@@ -73,7 +73,8 @@
     "threshold": 0.00158859,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   }
 }
 
