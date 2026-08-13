@@ -28,5 +28,42 @@
     "size": 0.001,
     "hedge": true,
     "profit": 0
+  },
+  "BNBUSDT": {
+    "threshold": 0.163,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
+  "DOGEUSDT": {
+    "threshold": 0.0001005,
+    "size": 1,
+    "hedge": true,
+    "profit": 0
+  },
+  "LINKUSDT": {
+    "threshold": 0.00962677,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
+  "SOLUSDT": {
+    "threshold": 0.11079146,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
+  },
+  "SUIUSDT": {
+    "threshold": 0.00109496,
+    "size": 1,
+    "hedge": true,
+    "profit": 0
+  },
+  "XRPUSDT": {
+    "threshold": 0.00158859,
+    "size": 0.01,
+    "hedge": true,
+    "profit": 0
   }
 }
+
