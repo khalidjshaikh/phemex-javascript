@@ -109,6 +109,8 @@ function storeToFile(d: TickerData): void {
     ["index", d.index],
     ["mark", d.mark],
     ["last", d.last],
+    ["indexLast", d.index - d.last],
+    ["markLast", d.mark - d.last],
   ];
 
   for (const [label, value] of fields) {
