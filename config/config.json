@@ -49,7 +49,7 @@
     "leverage": 50
   },
   "LINKUSDT": {
-    "threshold": 0.00962677,
+    "threshold": 0.01676877,
     "size": 0.01,
     "hedge": true,
     "profit": 0,
