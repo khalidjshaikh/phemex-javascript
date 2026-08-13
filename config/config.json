@@ -3,61 +3,71 @@
     "threshold": 2.5,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 100
   },
   "BTCUSDT": {
     "threshold": 50,
     "size": 0.001,
     "hedge": true,
-    "profit": 35
+    "profit": 35,
+    "leverage": 100
   },
   "XBRUSDT": {
     "threshold": 0.5,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 100
   },
   "XTIUSDT": {
     "threshold": 0.3,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 100
   },
   "XAUUSDT": {
     "threshold": 8,
     "size": 0.001,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 100
   },
   "BNBUSDT": {
     "threshold": 0.163,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   },
   "DOGEUSDT": {
     "threshold": 0.0001005,
     "size": 1,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   },
   "LINKUSDT": {
     "threshold": 0.00962677,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   },
   "SOLUSDT": {
     "threshold": 0.11079146,
     "size": 0.01,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   },
   "SUIUSDT": {
     "threshold": 0.00109496,
     "size": 1,
     "hedge": true,
-    "profit": 0
+    "profit": 0,
+    "leverage": 50
   },
   "XRPUSDT": {
     "threshold": 0.00158859,
