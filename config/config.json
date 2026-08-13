@@ -35,7 +35,7 @@
     "leverage": 100
   },
   "BNBUSDT": {
-    "threshold": 0.4,
+    "threshold": 0.759,
     "size": 0.01,
     "hedge": true,
     "profit": 0,
