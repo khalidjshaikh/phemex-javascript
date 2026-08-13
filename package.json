@@ -11,20 +11,20 @@
     "number-line": "tsx scripts/number-line.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1107.0",
-    "@aws-sdk/util-dynamodb": "^3.996.7",
-    "@webgpu/types": "^0.1.71",
+    "@types/node": "^26.2.0",
     "dotenv": "^17.4.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "@aws-sdk/client-dynamodb": "^3.1109.0",
+    "@aws-sdk/util-dynamodb": "^3.996.8",
+    "@webgpu/types": "^0.1.71",
     "nodemailer": "^9.0.5",
     "onnx-proto": "^8.0.1",
     "onnxruntime-node": "^1.27.0",
     "webgpu": "^0.4.0"
-  },
-  "devDependencies": {
-    "@types/node": "^26.2.0",
-    "@types/nodemailer": "^8.0.1",
-    "tsx": "^4.23.12",
-    "typescript": "^7.0.2"
   },
   "allowScripts": {
     "webgpu@0.4.0": true,
