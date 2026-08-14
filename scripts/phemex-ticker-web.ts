@@ -295,6 +295,9 @@ if (coinSymbols.length > 0) {
 
 function buildDashboard(): string {
   const symList = JSON.stringify(SYMBOLS);
+  const rotateStr = rotateActive ? 'true' : 'false';
+  const rotateLabel = rotateActive ? '⏸ Stop' : '▶ Rotate';
+  const rotateClass = rotateActive ? ' active' : '';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -350,7 +353,7 @@ function buildDashboard(): string {
 <div class="header">
   <h1>Phemex Ticker</h1>
   <div class="status"><span class="dot off" id="statusDot"></span><span id="statusText">connecting…</span></div>
-  <button class="rotate-btn${rotateActive ? ' active' : ''}" id="rotateBtn" onclick="toggleRotate()">${rotateActive ? '⏸ Stop' : '▶ Rotate'}</button>
+  <button class="rotate-btn${rotateClass}" id="rotateBtn" onclick="toggleRotate()">${rotateLabel}</button>
 </div>
 
 <div class="tabs" id="tabs"></div>
