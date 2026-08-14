@@ -133,7 +133,9 @@ const RECALC_INTERVAL = 20; // recalc size every 20 trades
 const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
-const MIN_RSI_MOVE_PCT = 0.0001; // ignore RSI price changes below 0.01% of price
+const MIN_RSI_MOVE_PCT = 0.0003; // ignore RSI price changes below 0.03% of price
+const WARMUP_TICKS = 100; // don't trade until we have enough indicator history
+const SIGNAL_DEBOUNCE = 3; // require same signal direction for N consecutive cycles
 const ATR_SL_MULT = 2.0; // stop loss = 2.0x ATR
 const MIN_SL_PCT = 0.0012; // floor: 0.12%
 const MAX_SL_PCT = 0.005;  // cap: 0.50%
@@ -916,6 +918,9 @@ async function main(): Promise<void> {
   // Main trading loop
   let prevEma20: number | null = null;
   let prevEma50: number | null = null;
+  let tickCount = 0;
+  let lastSignalDir = 0; // +1 long, -1 short, 0 neutral
+  let signalStreak = 0; // consecutive same-direction signals
 
   for (;;) {
     const started = Date.now();
@@ -935,6 +940,7 @@ async function main(): Promise<void> {
       // Update indicators
       indicatorEngine.addTick(price, high, low, tickVol);
       const ind = indicatorEngine.getIndicators();
+      tickCount++;
 
       // Run all 5 algorithms
       const signals: AlgorithmSignal[] = [
@@ -947,6 +953,15 @@ async function main(): Promise<void> {
 
       // Ensemble vote
       const vote = ensembleVote(signals);
+
+      // Signal debounce: track consecutive same-direction signals
+      const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
+      if (currentDir === lastSignalDir && currentDir !== 0) {
+        signalStreak++;
+      } else {
+        signalStreak = currentDir !== 0 ? 1 : 0;
+        lastSignalDir = currentDir;
+      }
 
       // Check positions
       const pos = await fetchPositionsForSymbol(creds.PHEMEX_API_KEY, secretRaw);
@@ -1102,6 +1117,10 @@ async function main(): Promise<void> {
       const riskCheck = riskManager.canTrade(state, currentBalance);
       if (!riskCheck.ok) {
         // Suppress repeated log for same reason
+      } else if (tickCount < WARMUP_TICKS) {
+        // Wait for indicator warmup
+      } else if (signalStreak < SIGNAL_DEBOUNCE) {
+        // Signal not confirmed yet
       } else if (vote.signal !== 0 && state.position === "NONE") {
         const qty = calcDynamicQty(state, currentBalance);
         const side = vote.signal > 0 ? "Buy" : "Sell";
@@ -1133,6 +1152,8 @@ async function main(): Promise<void> {
 
       // Display status
       const posLabel = state.position === "NONE" ? "FLAT" : `${state.position} @ ${fmtNum(state.entryPrice)}`;
+      const warmup = tickCount < WARMUP_TICKS ? ` WARMUP(${tickCount}/${WARMUP_TICKS})` : "";
+      const debounce = signalStreak > 0 ? ` streak:${signalStreak}` : "";
       console.log(
         `[${fmtTime()}]  $${fmtNum(currentBalance, 4)}  ` +
         `Price: ${fmtNum(price)}  ` +
@@ -1140,7 +1161,7 @@ async function main(): Promise<void> {
         `RSI: ${fmtNum(ind.rsi)}  ` +
         `Signal: ${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"}  ` +
         `Pos: ${posLabel}  ` +
-        `Trades: ${state.tradeCount}`
+        `Trades: ${state.tradeCount}${warmup}${debounce}`
       );
 
     } catch (e) {
