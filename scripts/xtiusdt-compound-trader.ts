@@ -928,6 +928,7 @@ async function main(): Promise<void> {
   // Main trading loop
   let prevEma20: number | null = null;
   let prevEma50: number | null = null;
+  let lineCount = 0;
 
   for (;;) {
     const started = Date.now();
@@ -1193,6 +1194,11 @@ async function main(): Promise<void> {
         pnlInfo = ` ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% ${fmtNum(tpPrice)} ${fmtNum(slPrice)} ${trailLabel}`;
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
+      if (lineCount % 20 === 0) {
+        console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL    TP     SL    Trail  Trades`);
+        console.log(` ───  ─────  ─────  ─────  ────── ───  ───  ────      ────   ───    ───   ─────  ──────`);
+      }
+      lineCount++;
       console.log(
         ` ${fmtNum(currentBalance, 3)} ` +
         `${fmtNum(price)} ` +
