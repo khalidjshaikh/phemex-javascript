@@ -645,7 +645,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 /*  Start                                                              */
 /* ------------------------------------------------------------------ */
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  Phemex Ticker Dashboard`);
   console.log(`  http://localhost:${PORT}\n`);
   console.log(`  Tracking ${SYMBOLS.length} symbols: ${SYMBOLS.join(", ")}\n`);
