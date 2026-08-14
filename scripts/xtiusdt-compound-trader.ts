@@ -1187,17 +1187,17 @@ async function main(): Promise<void> {
         const slPrice = isLong
           ? state.entryPrice * (1 - effectiveSlPct)
           : state.entryPrice * (1 + effectiveSlPct);
-        const trailLabel = trailingActive ? ` Trail: ${fmtNum(slPrice)}` : ` Trail: OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
-        pnlInfo = `  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%  TP: ${fmtNum(tpPrice)}  SL: ${fmtNum(slPrice)}${trailLabel}`;
+        const trailLabel = trailingActive ? ` Trail:${fmtNum(slPrice)}` : ` Trail:OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+        pnlInfo = ` PnL:${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% TP:${fmtNum(tpPrice)} SL:${fmtNum(slPrice)}${trailLabel}`;
       }
       console.log(
-        `[${fmtTime()}]  $${fmtNum(currentBalance, 4)}  ` +
-        `Price: ${fmtNum(price)}  ` +
-        `EMA20: ${fmtNum(ind.ema20)}  EMA50: ${fmtNum(ind.ema50)}  ` +
-        `RSI: ${fmtNum(ind.rsi)}  ` +
-        `Signal: ${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"}  ` +
-        `Pos: ${posLabel}${pnlInfo}  ` +
-        `Trades: ${state.tradeCount}${warmup}${debounce}`
+        `[${fmtTime()}] $${fmtNum(currentBalance, 4)} ` +
+        `Price:${fmtNum(price)} ` +
+        `EMA20:${fmtNum(ind.ema20)} EMA50:${fmtNum(ind.ema50)} ` +
+        `RSI:${fmtNum(ind.rsi)} ` +
+        `Signal:${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"} ` +
+        `Pos:${posLabel}${pnlInfo} ` +
+        `Trades:${state.tradeCount}${warmup}${debounce}`
       );
 
     } catch (e) {
