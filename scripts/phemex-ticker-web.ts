@@ -875,3 +875,21 @@ process.on("SIGINT", () => {
   saveToDisk();
   process.exit(0);
 });
+
+// Restart when this file changes
+import { watchFile } from "node:fs";
+import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+
+const MY_FILE = resolve(process.argv[1] ?? import.meta.url.replace(/^file:\/\//, ""));
+watchFile(MY_FILE, { interval: 1000 }, () => {
+  console.log("\n  File changed — restarting…");
+  saveToDisk();
+  server.close();
+  wsUsdt.shutdown();
+  if (wsCoin) wsCoin.shutdown();
+  spawn(process.execPath, process.argv.slice(1), {
+    stdio: "inherit",
+    env: process.env,
+  }).on("exit", () => process.exit());
+});
