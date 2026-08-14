@@ -954,9 +954,12 @@ async function main(): Promise<void> {
       // Ensemble vote
       const vote = ensembleVote(signals);
 
-      // Signal debounce: track consecutive same-direction signals
+      // Signal debounce: only track when flat (looking to enter)
       const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
-      if (currentDir === lastSignalDir && currentDir !== 0) {
+      if (state.position !== "NONE") {
+        signalStreak = 0;
+        lastSignalDir = 0;
+      } else if (currentDir === lastSignalDir && currentDir !== 0) {
         signalStreak++;
       } else {
         signalStreak = currentDir !== 0 ? 1 : 0;
