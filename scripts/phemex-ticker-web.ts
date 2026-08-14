@@ -460,6 +460,13 @@ function saveFields() {
   } catch {}
 }
 
+let activeSymbol = loadSymbol();
+let activeFields = loadFields();
+let data = {};
+let rotateActive = loadRotate();
+let rotateTimer = null;
+const ROTATE_INTERVAL = 15000;
+
 const saved = loadData();
 SYMBOLS.forEach(s => {
   const prev = saved[s];
@@ -837,7 +844,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  Phemex Ticker Dashboard`);
-  console.log(`  http://localhost:${PORT}\n`);
+  console.log(`  http://0.0.0.0:${PORT}\n`);
   console.log(`  Tracking ${SYMBOLS.length} symbols: ${SYMBOLS.join(", ")}\n`);
   console.log(`  [USDT-M] connecting…`);
   if (wsCoin) console.log(`  [Coin-M] connecting…`);
@@ -882,14 +889,13 @@ import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
 const MY_FILE = resolve(process.argv[1] ?? import.meta.url.replace(/^file:\/\//, ""));
+const RESTART_CMD = process.env.__PHEMEX_CMD ?? `npx tsx ${MY_FILE}`;
 watchFile(MY_FILE, { interval: 1000 }, () => {
   console.log("\n  File changed — restarting…");
   saveToDisk();
   server.close();
   wsUsdt.shutdown();
   if (wsCoin) wsCoin.shutdown();
-  spawn(process.execPath, process.argv.slice(1), {
-    stdio: "inherit",
-    env: process.env,
-  }).on("exit", () => process.exit());
+  spawn(RESTART_CMD, { shell: true, stdio: "inherit", env: { ...process.env, __PHEMEX_CMD: RESTART_CMD } })
+    .on("exit", () => process.exit());
 });
