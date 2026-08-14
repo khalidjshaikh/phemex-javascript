@@ -18,7 +18,7 @@
     "leverage": 50,
     "profit": 0,
     "size": 1,
-    "threshold": 0.0001005
+    "threshold": 0.00011748
   },
   "ETHUSDT": {
     "hedge": true,
@@ -32,14 +32,14 @@
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.01902553
+    "threshold": 0.01987404
   },
   "SOLUSDT": {
     "hedge": true,
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.11079146
+    "threshold": 0.14060244
   },
   "SUIUSDT": {
     "hedge": true,
@@ -53,21 +53,21 @@
     "leverage": 100,
     "profit": 0,
     "size": 0.001,
-    "threshold": 8
+    "threshold": 9
   },
   "XBRUSDT": {
     "hedge": true,
     "leverage": 100,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.5
+    "threshold": 0.39
   },
   "XRPUSDT": {
     "hedge": true,
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.00158859
+    "threshold": 0.00176128
   },
   "XTIUSDT": {
     "hedge": true,
