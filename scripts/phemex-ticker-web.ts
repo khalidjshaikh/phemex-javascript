@@ -436,8 +436,8 @@ evtSource.onmessage = (e) => {
     for (const [sym, snap] of Object.entries(msg.data)) {
       const d = data[sym];
       if (!d) continue;
-      d.ticks = snap.ticks || [];
-      d.latest = snap.latest;
+      if (snap.ticks?.length) d.ticks = snap.ticks;
+      if (snap.latest) d.latest = snap.latest;
       d.indicators = snap.indicators;
     }
     saveData();
