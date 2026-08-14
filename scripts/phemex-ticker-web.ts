@@ -672,10 +672,10 @@ function startKlineRefresh() {
   }
 }
 
-function fmtPrice(v) { return v == null ? '—' : v.toFixed(2); }
+function fmtPrice(v) { return v == null ? '—' : v.toFixed(4); }
 function fmtDelta(v) {
   if (v == null || isNaN(v)) return '—';
-  const s = v >= 0 ? '+' + v.toFixed(2) : v.toFixed(2);
+  const s = v >= 0 ? '+' + v.toFixed(4) : v.toFixed(4);
   const cls = v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
   return '<span class="' + cls + '">' + s + '</span>';
 }
@@ -794,7 +794,7 @@ function renderKlinesChart(pad, cw, ch, W, H) {
     chartCtx.fillStyle = '#8b949e';
     chartCtx.font = '10px monospace';
     chartCtx.textAlign = 'right';
-    chartCtx.fillText(val.toFixed(2), pad.left - 4, y + 3);
+    chartCtx.fillText(val.toFixed(4), pad.left - 4, y + 3);
   }
 
   // Time labels
@@ -872,7 +872,7 @@ function renderLiveChart(d, pad, cw, ch, W, H) {
     chartCtx.fillStyle = '#8b949e';
     chartCtx.font = '10px monospace';
     chartCtx.textAlign = 'right';
-    chartCtx.fillText(val.toFixed(2), pad.left - 4, y + 3);
+    chartCtx.fillText(val.toFixed(4), pad.left - 4, y + 3);
   }
 
   chartCtx.textAlign = 'center';
