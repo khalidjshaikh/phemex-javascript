@@ -344,6 +344,7 @@ let activeFields = new Set(['last']);
 let data = {};  // symbol -> { ticks: [{t,ask,bid,index,mark,last}], latest: tick, indicators: {...} }
 
 const LS_KEY = 'phemex_ticker_data';
+const LS_FIELDS_KEY = 'phemex_ticker_fields';
 const MAX_TICKS = 180;
 
 function loadData() {
@@ -352,6 +353,17 @@ function loadData() {
     if (raw) return JSON.parse(raw);
   } catch {}
   return {};
+}
+
+function loadFields() {
+  try {
+    const raw = localStorage.getItem(LS_FIELDS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr.filter(f => FIELDS.includes(f)));
+    }
+  } catch {}
+  return new Set(['last']);
 }
 
 function saveData() {
@@ -364,6 +376,14 @@ function saveData() {
     localStorage.setItem(LS_KEY, JSON.stringify(snap));
   } catch {}
 }
+
+function saveFields() {
+  try {
+    localStorage.setItem(LS_FIELDS_KEY, JSON.stringify([...activeFields]));
+  } catch {}
+}
+
+activeFields = loadFields();
 
 const saved = loadData();
 SYMBOLS.forEach(s => {
@@ -454,6 +474,7 @@ function buildFieldSelector() {
     b.onclick = () => {
       const f = b.dataset.field;
       if (activeFields.has(f)) activeFields.delete(f); else activeFields.add(f);
+      saveFields();
       buildFieldSelector(); renderChart();
     };
   });
