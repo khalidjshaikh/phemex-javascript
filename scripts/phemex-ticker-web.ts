@@ -343,7 +343,37 @@ let activeSymbol = SYMBOLS[0];
 let activeFields = new Set(['last']);
 let data = {};  // symbol -> { ticks: [{t,ask,bid,index,mark,last}], latest: tick, indicators: {...} }
 
-SYMBOLS.forEach(s => { data[s] = { ticks: [], latest: null, indicators: null }; });
+const LS_KEY = 'phemex_ticker_data';
+const MAX_TICKS = 180;
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {};
+}
+
+function saveData() {
+  try {
+    const snap = {};
+    for (const s of SYMBOLS) {
+      const d = data[s];
+      snap[s] = { ticks: d.ticks.slice(-MAX_TICKS), latest: d.latest };
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify(snap));
+  } catch {}
+}
+
+const saved = loadData();
+SYMBOLS.forEach(s => {
+  const prev = saved[s];
+  data[s] = {
+    ticks: prev?.ticks ?? [],
+    latest: prev?.latest ?? null,
+    indicators: null,
+  };
+});
 
 // Rotate
 let rotateActive = false;
@@ -378,8 +408,9 @@ evtSource.onmessage = (e) => {
     if (!d) return;
     d.latest = msg.tick;
     d.ticks.push(msg.tick);
-    if (d.ticks.length > 180) d.ticks.shift();  // keep ~60s at ~3 ticks/s
+    if (d.ticks.length > MAX_TICKS) d.ticks.shift();
     d.indicators = msg.indicators;
+    saveData();
     if (msg.symbol === activeSymbol) render();
   } else if (msg.type === 'snapshot') {
     for (const [sym, snap] of Object.entries(msg.data)) {
@@ -389,6 +420,7 @@ evtSource.onmessage = (e) => {
       d.latest = snap.latest;
       d.indicators = snap.indicators;
     }
+    saveData();
     if (msg.connected !== undefined) {
       document.getElementById('statusDot').className = 'dot ' + (msg.connected ? 'on' : 'off');
       document.getElementById('statusText').textContent = msg.connected ? 'connected' : 'reconnecting…';
