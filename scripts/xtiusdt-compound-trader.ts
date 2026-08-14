@@ -132,7 +132,7 @@ const RECALC_INTERVAL = 20; // recalc size every 20 trades
 const ENSEMBLE_MIN_AGREE = 3; // 3/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
-const MIN_RSI_MOVE = 0.05; // ignore RSI price changes below $0.05
+const MIN_RSI_MOVE_PCT = 0.0001; // ignore RSI price changes below 0.01% of price
 const ATR_SL_MULT = 1.5; // stop loss = 1.5x ATR
 const MIN_SL_PCT = 0.0008; // floor: 0.08%
 const MAX_SL_PCT = 0.005;  // cap: 0.50%
@@ -259,10 +259,10 @@ class IndicatorEngine {
   private computeRSI(price: number): void {
     if (this.prevClose === null) return;
     const change = price - this.prevClose;
-    const absChange = Math.abs(change);
     // Ignore micro-movements below threshold to prevent RSI lock at 0/100
-    const gain = change > MIN_RSI_MOVE ? change : 0;
-    const loss = change < -MIN_RSI_MOVE ? -change : 0;
+    const minMove = price * MIN_RSI_MOVE_PCT;
+    const gain = change > minMove ? change : 0;
+    const loss = change < -minMove ? -change : 0;
 
     this.rsiGains.push(gain);
     this.rsiLosses.push(loss);
