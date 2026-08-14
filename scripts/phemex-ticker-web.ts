@@ -14,6 +14,8 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 
@@ -30,6 +32,8 @@ const SYMBOLS = (getArg("--symbols") ?? ALL_SYMBOLS.join(","))
   .split(",").filter(Boolean);
 const BUFFER_SECONDS = 60;
 const WS_URL = "wss://ws.phemex.com";
+const DISK_PATH = join(process.cwd(), ".phemex-ticker-cache.json");
+const SAVE_INTERVAL = 30_000;
 
 /* ------------------------------------------------------------------ */
 /*  Ring Buffer                                                        */
@@ -166,6 +170,36 @@ function getBuffer(sym: string): RingBuffer {
     buffers.set(sym, b);
   }
   return b;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Disk Persistence                                                   */
+/* ------------------------------------------------------------------ */
+
+function saveToDisk(): void {
+  try {
+    const snap: Record<string, Tick[]> = {};
+    for (const sym of SYMBOLS) {
+      const ring = buffers.get(sym);
+      snap[sym] = ring ? ring.toArray() : [];
+    }
+    writeFileSync(DISK_PATH, JSON.stringify(snap));
+  } catch {}
+}
+
+function loadFromDisk(): void {
+  try {
+    const raw = readFileSync(DISK_PATH, "utf-8");
+    const snap: Record<string, Tick[]> = JSON.parse(raw);
+    for (const sym of SYMBOLS) {
+      const ticks = snap[sym];
+      if (!Array.isArray(ticks)) continue;
+      const ring = getBuffer(sym);
+      for (const tick of ticks) ring.push(tick);
+      if (ticks.length) latestTick.set(sym, ticks[ticks.length - 1]);
+    }
+    console.log(`  Loaded cached data from disk`);
+  } catch {}
 }
 
 /* ------------------------------------------------------------------ */
@@ -740,6 +774,8 @@ let lastBroadcast = new Map<string, number>();
 wsUsdt.connect();
 if (wsCoin) wsCoin.connect();
 
+loadFromDisk();
+
 // Broadcast latest ticks to SSE clients every 500ms
 setInterval(() => {
   for (const sym of SYMBOLS) {
@@ -754,3 +790,6 @@ setInterval(() => {
     }
   }
 }, 500);
+
+// Persist to disk every 30s
+setInterval(saveToDisk, SAVE_INTERVAL);
