@@ -306,6 +306,9 @@ function buildDashboard(): string {
   .field-selector { display: flex; gap: 4px; padding: 4px 16px; }
   .field-btn { padding: 3px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-family: inherit; }
   .field-btn.active { background: var(--bg3); color: var(--text); border-color: var(--blue); }
+  .rotate-btn { padding: 5px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-family: inherit; transition: all .15s; margin-left: auto; white-space: nowrap; }
+  .rotate-btn:hover { background: var(--bg3); color: var(--text); }
+  .rotate-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
 </style>
 </head>
 <body>
@@ -313,6 +316,7 @@ function buildDashboard(): string {
 <div class="header">
   <h1>Phemex Ticker</h1>
   <div class="status"><span class="dot off" id="statusDot"></span><span id="statusText">connecting…</span></div>
+  <button class="rotate-btn" id="rotateBtn" onclick="toggleRotate()">▶ Rotate</button>
 </div>
 
 <div class="tabs" id="tabs"></div>
@@ -340,6 +344,30 @@ let activeFields = new Set(['last']);
 let data = {};  // symbol -> { ticks: [{t,ask,bid,index,mark,last}], latest: tick, indicators: {...} }
 
 SYMBOLS.forEach(s => { data[s] = { ticks: [], latest: null, indicators: null }; });
+
+// Rotate
+let rotateActive = false;
+let rotateTimer = null;
+const ROTATE_INTERVAL = 15000; // 15 seconds per ticker
+
+function toggleRotate() {
+  rotateActive = !rotateActive;
+  const btn = document.getElementById('rotateBtn');
+  if (rotateActive) {
+    btn.classList.add('active');
+    btn.textContent = '⏸ Stop';
+    rotateTimer = setInterval(() => {
+      const idx = SYMBOLS.indexOf(activeSymbol);
+      activeSymbol = SYMBOLS[(idx + 1) % SYMBOLS.length];
+      buildTabs();
+      render();
+    }, ROTATE_INTERVAL);
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = '▶ Rotate';
+    if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+  }
+}
 
 // SSE
 const evtSource = new EventSource('/events');
