@@ -1157,13 +1157,31 @@ async function main(): Promise<void> {
       const posLabel = state.position === "NONE" ? "FLAT" : `${state.position} @ ${fmtNum(state.entryPrice)}`;
       const warmup = tickCount < WARMUP_TICKS ? ` WARMUP(${tickCount}/${WARMUP_TICKS})` : "";
       const debounce = signalStreak > 0 ? ` streak:${signalStreak}` : "";
+      let pnlInfo = "";
+      if (state.position !== "NONE" && state.entryPrice > 0) {
+        const isLong = state.position === "LONG";
+        const pnlPct = isLong
+          ? (price - state.entryPrice) / state.entryPrice
+          : (state.entryPrice - price) / state.entryPrice;
+        const tpPrice = isLong
+          ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
+          : state.entryPrice * (1 - TAKE_PROFIT_PCT);
+        const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+        const dynSlPct = atrPct !== null
+          ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+          : STOP_LOSS_PCT;
+        const slPrice = isLong
+          ? state.entryPrice * (1 - dynSlPct)
+          : state.entryPrice * (1 + dynSlPct);
+        pnlInfo = `  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%  TP: ${fmtNum(tpPrice)}  SL: ${fmtNum(slPrice)}`;
+      }
       console.log(
         `[${fmtTime()}]  $${fmtNum(currentBalance, 4)}  ` +
         `Price: ${fmtNum(price)}  ` +
         `EMA20: ${fmtNum(ind.ema20)}  EMA50: ${fmtNum(ind.ema50)}  ` +
         `RSI: ${fmtNum(ind.rsi)}  ` +
         `Signal: ${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"}  ` +
-        `Pos: ${posLabel}  ` +
+        `Pos: ${posLabel}${pnlInfo}  ` +
         `Trades: ${state.tradeCount}${warmup}${debounce}`
       );
 
