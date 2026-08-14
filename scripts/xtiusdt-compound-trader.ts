@@ -928,7 +928,7 @@ async function main(): Promise<void> {
   // Main trading loop
   let prevEma20: number | null = null;
   let prevEma50: number | null = null;
-  let lineCount = 0;
+  let lineCount = 1;
 
   for (;;) {
     const started = Date.now();
