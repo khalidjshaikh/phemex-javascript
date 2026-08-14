@@ -834,7 +834,9 @@ function renderLiveChart(d, pad, cw, ch, W, H) {
     return;
   }
 
-  const ticks = d.ticks;
+  const ticks = activeResolution === '1m'
+    ? d.ticks.filter(t => t.t > Date.now() - 60000)
+    : d.ticks;
   const fields = [...activeFields];
   if (fields.length === 0) fields.push('last');
 
