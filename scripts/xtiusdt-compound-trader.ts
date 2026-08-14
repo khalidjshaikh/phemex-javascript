@@ -1180,10 +1180,15 @@ async function main(): Promise<void> {
         const dynSlPct = atrPct !== null
           ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
           : STOP_LOSS_PCT;
+        const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+        const effectiveSlPct = trailingActive
+          ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+          : dynSlPct;
         const slPrice = isLong
-          ? state.entryPrice * (1 - dynSlPct)
-          : state.entryPrice * (1 + dynSlPct);
-        pnlInfo = `  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%  TP: ${fmtNum(tpPrice)}  SL: ${fmtNum(slPrice)}`;
+          ? state.entryPrice * (1 - effectiveSlPct)
+          : state.entryPrice * (1 + effectiveSlPct);
+        const trailLabel = trailingActive ? ` Trail: ${fmtNum(slPrice)}` : ` Trail: OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+        pnlInfo = `  PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%  TP: ${fmtNum(tpPrice)}  SL: ${fmtNum(slPrice)}${trailLabel}`;
       }
       console.log(
         `[${fmtTime()}]  $${fmtNum(currentBalance, 4)}  ` +
