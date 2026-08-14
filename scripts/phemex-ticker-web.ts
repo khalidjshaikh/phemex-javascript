@@ -350,7 +350,7 @@ function buildDashboard(): string {
 <div class="header">
   <h1>Phemex Ticker</h1>
   <div class="status"><span class="dot off" id="statusDot"></span><span id="statusText">connecting…</span></div>
-  <button class="rotate-btn" id="rotateBtn" onclick="toggleRotate()">▶ Rotate</button>
+  <button class="rotate-btn${rotateActive ? ' active' : ''}" id="rotateBtn" onclick="toggleRotate()">${rotateActive ? '⏸ Stop' : '▶ Rotate'}</button>
 </div>
 
 <div class="tabs" id="tabs"></div>
@@ -373,12 +373,14 @@ const FIELDS = ['ask','bid','index','mark','last'];
 const DELTA_FIELDS = ['ask','bid','index','mark','last'];
 const FIELD_COLORS = { ask: '#58a6ff', bid: '#bc8cff', index: '#d29922', mark: '#f85149', last: '#3fb950' };
 
-let activeSymbol = SYMBOLS[0];
+let activeSymbol = loadSymbol();
 let activeFields = new Set(['last']);
 let data = {};  // symbol -> { ticks: [{t,ask,bid,index,mark,last}], latest: tick, indicators: {...} }
 
 const LS_KEY = 'phemex_ticker_data';
 const LS_FIELDS_KEY = 'phemex_ticker_fields';
+const LS_SYMBOL_KEY = 'phemex_ticker_symbol';
+const LS_ROTATE_KEY = 'phemex_ticker_rotate';
 const MAX_TICKS = 180;
 
 function loadData() {
@@ -398,6 +400,27 @@ function loadFields() {
     }
   } catch {}
   return new Set(['last']);
+}
+
+function loadSymbol() {
+  try {
+    const raw = localStorage.getItem(LS_SYMBOL_KEY);
+    if (raw && SYMBOLS.includes(raw)) return raw;
+  } catch {}
+  return SYMBOLS[0];
+}
+
+function saveSymbol(sym) {
+  try { localStorage.setItem(LS_SYMBOL_KEY, sym); } catch {}
+}
+
+function loadRotate() {
+  try { return localStorage.getItem(LS_ROTATE_KEY) === 'true'; } catch {}
+  return false;
+}
+
+function saveRotate(val) {
+  try { localStorage.setItem(LS_ROTATE_KEY, String(val)); } catch {}
 }
 
 function saveData() {
@@ -430,12 +453,13 @@ SYMBOLS.forEach(s => {
 });
 
 // Rotate
-let rotateActive = false;
+let rotateActive = loadRotate();
 let rotateTimer = null;
 const ROTATE_INTERVAL = 15000; // 15 seconds per ticker
 
 function toggleRotate() {
   rotateActive = !rotateActive;
+  saveRotate(rotateActive);
   const btn = document.getElementById('rotateBtn');
   if (rotateActive) {
     btn.classList.add('active');
@@ -443,6 +467,7 @@ function toggleRotate() {
     rotateTimer = setInterval(() => {
       const idx = SYMBOLS.indexOf(activeSymbol);
       activeSymbol = SYMBOLS[(idx + 1) % SYMBOLS.length];
+      saveSymbol(activeSymbol);
       buildTabs();
       render();
     }, ROTATE_INTERVAL);
@@ -494,7 +519,7 @@ function buildTabs() {
     '<div class="tab' + (s === activeSymbol ? ' active' : '') + '" data-sym="' + s + '">' + s + '</div>'
   ).join('');
   el.querySelectorAll('.tab').forEach(t => {
-    t.onclick = () => { activeSymbol = t.dataset.sym; buildTabs(); buildFieldSelector(); render(); };
+    t.onclick = () => { activeSymbol = t.dataset.sym; saveSymbol(activeSymbol); buildTabs(); buildFieldSelector(); render(); };
   });
 }
 
@@ -673,6 +698,17 @@ buildTabs();
 buildFieldSelector();
 initChart();
 render();
+
+// Start rotate if it was active
+if (rotateActive) {
+  rotateTimer = setInterval(() => {
+    const idx = SYMBOLS.indexOf(activeSymbol);
+    activeSymbol = SYMBOLS[(idx + 1) % SYMBOLS.length];
+    saveSymbol(activeSymbol);
+    buildTabs();
+    render();
+  }, ROTATE_INTERVAL);
+}
 </script>
 </body>
 </html>`;
