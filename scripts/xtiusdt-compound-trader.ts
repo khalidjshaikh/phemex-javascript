@@ -884,6 +884,8 @@ async function main(): Promise<void> {
   console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: ${ENSEMBLE_MIN_AGREE}/5 algorithms`);
   console.log(`[${fmtTime()}]   State: ${state.position} | Balance: $${fmtNum(state.peakBalance, 4)} | Trades: ${perfLogger.getTradeCount()}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════════════════════════`);
+  console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL    TP     SL    Trail  Trades`);
+  console.log(` ───  ─────  ─────  ─────  ────── ───  ───  ────      ────   ───    ───   ─────  ──────`);
 
   // Set initial leverage
   try {
@@ -1187,17 +1189,21 @@ async function main(): Promise<void> {
         const slPrice = isLong
           ? state.entryPrice * (1 - effectiveSlPct)
           : state.entryPrice * (1 + effectiveSlPct);
-        const trailLabel = trailingActive ? ` Trail:${fmtNum(slPrice)}` : ` Trail:OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
-        pnlInfo = ` PnL:${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% TP:${fmtNum(tpPrice)} SL:${fmtNum(slPrice)}${trailLabel}`;
+        const trailLabel = trailingActive ? `${fmtNum(slPrice)}` : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+        pnlInfo = ` ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% ${fmtNum(tpPrice)} ${fmtNum(slPrice)} ${trailLabel}`;
       }
+      const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       console.log(
-        `[${fmtTime()}] $${fmtNum(currentBalance, 4)} ` +
-        `Price:${fmtNum(price)} ` +
-        `EMA20:${fmtNum(ind.ema20)} EMA50:${fmtNum(ind.ema50)} EMA200:${fmtNum(ind.ema200)} ` +
-        `RSI:${fmtNum(ind.rsi)} ` +
-        `Signal:${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"} ` +
-        `Pos:${posLabel}${pnlInfo} ` +
-        `Trades:${state.tradeCount}${warmup}${debounce}`
+        ` ${fmtNum(currentBalance, 3)} ` +
+        `${fmtNum(price)} ` +
+        `${fmtNum(ind.ema20)} ` +
+        `${fmtNum(ind.ema50)} ` +
+        `${fmtNum(ind.ema200)} ` +
+        `${fmtNum(ind.rsi, 0)}  ` +
+        ` ${sigChar}  ` +
+        `${posLabel}` +
+        `${pnlInfo} ` +
+        `${state.tradeCount}${warmup}${debounce}`
       );
 
     } catch (e) {
