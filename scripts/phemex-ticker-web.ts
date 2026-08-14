@@ -793,3 +793,10 @@ setInterval(() => {
 
 // Persist to disk every 30s
 setInterval(saveToDisk, SAVE_INTERVAL);
+
+// Save on CTRL-C
+process.on("SIGINT", () => {
+  console.log("\n  Saving data to disk…");
+  saveToDisk();
+  process.exit(0);
+});
