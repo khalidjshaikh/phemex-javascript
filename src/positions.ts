@@ -32,6 +32,45 @@ export interface PositionsResponse {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Types — Account Balance                                            */
+/* ------------------------------------------------------------------ */
+
+export interface AccountBalance {
+  total: number;       // accountBalanceRv — total equity in USDT
+  used: number;        // totalUsedBalanceRv — margin used
+  available: number;   // total - used
+  bonus: number;       // bonusBalanceRv
+}
+
+/* ------------------------------------------------------------------ */
+/*  API — fetch USDT-M account balance                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fetch the USDT-M account balance (equity, margin used, available).
+ */
+export async function fetchAccountBalance(
+  apiKey: string,
+  secretRaw: Buffer,
+): Promise<AccountBalance> {
+  const resp = (await httpGet(
+    "/g-accounts/accountPositions",
+    "currency=USDT",
+    apiKey,
+    secretRaw,
+  )) as unknown as PositionsResponse;
+
+  if (resp.code !== 0 || !resp.data?.account) {
+    return { total: 0, used: 0, available: 0, bonus: 0 };
+  }
+  const a = resp.data.account;
+  const total = Number(a.accountBalanceRv ?? 0);
+  const used = Number(a.totalUsedBalanceRv ?? 0);
+  const bonus = Number(a.bonusBalanceRv ?? 0);
+  return { total, used, available: total - used, bonus };
+}
+
+/* ------------------------------------------------------------------ */
 /*  API — fetch USDT-M positions                                      */
 /* ------------------------------------------------------------------ */
 

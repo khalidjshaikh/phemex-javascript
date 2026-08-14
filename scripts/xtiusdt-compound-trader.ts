@@ -25,7 +25,7 @@ import path from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { loadCredentials } from "../src/credentials.js";
 import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
-import { fetchPositions, calcPnlPct, type Position } from "../src/positions.js";
+import { fetchPositions, fetchAccountBalance, calcPnlPct, type Position } from "../src/positions.js";
 import { saveJson, loadJson } from "../src/persistence.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 
@@ -1063,9 +1063,17 @@ async function main(): Promise<void> {
         }
       }
 
-      // Check risk limits before new entry
-      const currentBalance = state.peakBalance + state.totalPnl;
-      if (currentBalance > state.peakBalance) state.peakBalance = currentBalance;
+      // Fetch real account balance from Phemex
+      let currentBalance = state.peakBalance + state.totalPnl;
+      try {
+        const acct = await fetchAccountBalance(creds.PHEMEX_API_KEY, secretRaw);
+        if (acct.total > 0) {
+          currentBalance = acct.total;
+          if (currentBalance > state.peakBalance) state.peakBalance = currentBalance;
+        }
+      } catch {
+        // fall back to computed balance
+      }
 
       const riskCheck = riskManager.canTrade(state, currentBalance);
       if (!riskCheck.ok) {
