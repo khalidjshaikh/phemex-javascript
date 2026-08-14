@@ -129,7 +129,7 @@ const MAX_DRAWDOWN_PCT = 0.30; // 30%
 const LOSS_COOLDOWN_MS = 30_000; // 30 seconds
 const MAX_DAILY_TRADES = 500;
 const RECALC_INTERVAL = 20; // recalc size every 20 trades
-const ENSEMBLE_MIN_AGREE = 3; // 3/5 algorithms must agree
+const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
 
@@ -187,6 +187,8 @@ class IndicatorEngine {
   private rsiLosses: number[] = [];
   private rsiAvgGain: number | null = null;
   private rsiAvgLoss: number | null = null;
+  private ema12: number | null = null;
+  private ema26: number | null = null;
   private macdLine: number | null = null;
   private macdSignal: number | null = null;
   private bbSma20: number | null = null;
@@ -275,9 +277,9 @@ class IndicatorEngine {
   }
 
   private computeMACD(price: number): void {
-    const ema12 = this.computeEMA(12, null, price);
-    const ema26 = this.computeEMA(26, null, price);
-    this.macdLine = ema12 - ema26;
+    this.ema12 = this.computeEMA(12, this.ema12, price);
+    this.ema26 = this.computeEMA(26, this.ema26, price);
+    this.macdLine = this.ema12 - this.ema26;
     if (this.macdLine !== null) {
       this.macdSignal = this.computeEMA(9, this.macdSignal, this.macdLine);
     }
@@ -352,6 +354,8 @@ class IndicatorEngine {
     this.ema20 = null;
     this.ema50 = null;
     this.ema200 = null;
+    this.ema12 = null;
+    this.ema26 = null;
     this.atr14 = null;
     this.atrSum = 0;
     this.rsiAvgGain = null;
@@ -451,16 +455,16 @@ function algoRsiDivergence(price: number, ind: Indicators): AlgorithmSignal {
     return { name: "RSI Divergence", signal: 0, confidence: 0, reason: "RSI not ready" };
   }
 
-  if (ind.rsi < 30) {
+  if (ind.rsi < 40) {
     return { name: "RSI Divergence", signal: 1, confidence: 0.6, reason: `RSI oversold (${fmtNum(ind.rsi)})` };
   }
-  if (ind.rsi > 70) {
+  if (ind.rsi > 60) {
     return { name: "RSI Divergence", signal: -1, confidence: 0.6, reason: `RSI overbought (${fmtNum(ind.rsi)})` };
   }
-  if (ind.rsi < 40 && ind.macdHistogram !== null && ind.macdHistogram > 0) {
+  if (ind.rsi < 45 && ind.macdHistogram !== null && ind.macdHistogram > 0) {
     return { name: "RSI Divergence", signal: 0.5, confidence: 0.4, reason: `RSI low + MACD bullish` };
   }
-  if (ind.rsi > 60 && ind.macdHistogram !== null && ind.macdHistogram < 0) {
+  if (ind.rsi > 55 && ind.macdHistogram !== null && ind.macdHistogram < 0) {
     return { name: "RSI Divergence", signal: -0.5, confidence: 0.4, reason: `RSI high + MACD bearish` };
   }
   return { name: "RSI Divergence", signal: 0, confidence: 0.2, reason: "neutral RSI" };
@@ -829,7 +833,7 @@ async function main(): Promise<void> {
 
   console.log(`[${fmtTime()}] ═ ${SYMBOL} Compound Trader ${dryRun ? "(DRY RUN)" : ""} ══════════════════════`);
   console.log(`[${fmtTime()}]   Qty: ${state.currentQty}   Leverage: ${LEVERAGE}x   TP: ${TAKE_PROFIT_PCT * 100}%   SL: ${STOP_LOSS_PCT * 100}%`);
-  console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: ${ENSEMBLE_MIN_AGREE}/5`);
+  console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: ${ENSEMBLE_MIN_AGREE}/5 algorithms`);
   console.log(`[${fmtTime()}]   State: ${state.position} | Balance: $${fmtNum(state.peakBalance, 4)} | Trades: ${perfLogger.getTradeCount()}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════════════════════════`);
 
