@@ -938,6 +938,8 @@ async function main(): Promise<void> {
       }
 
       const price = ticker.last;
+      const ask = ticker.ask;
+      const bid = ticker.bid;
       const high = ticker.ask;
       const low = ticker.bid;
       const tickVol = 1; // simplified tick volume
@@ -989,13 +991,14 @@ async function main(): Promise<void> {
 
       // Check take profit / stop loss for existing position
       if (state.position === "LONG" && pos.longSize > 0) {
-        const pnlPct = (price - state.entryPrice) / state.entryPrice;
+        const exitPrice = bid; // close long at bid
+        const pnlPct = (exitPrice - state.entryPrice) / state.entryPrice;
         // Track best PnL for trailing stop
         if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing LONG`);
           if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-            const pnl = (price - state.entryPrice) * pos.longSize;
+            const pnl = (exitPrice - state.entryPrice) * pos.longSize;
             state.totalPnl += pnl;
             state.tradeCount++;
             state.position = "NONE";
@@ -1005,7 +1008,7 @@ async function main(): Promise<void> {
               time: new Date().toISOString(),
               side: "Long",
               entry: state.entryPrice,
-              exit: price,
+              exit: exitPrice,
               qty: pos.longSize,
               pnl,
               pnlPct: pnlPct * 100,
@@ -1027,7 +1030,7 @@ async function main(): Promise<void> {
             const reason = trailingActive ? "TRAIL-SL" : "SL";
             console.log(`[${fmtTime()}]  ✦  ${reason} hit: ${fmtNum(pnlPct * 100)}% <= -${effectiveSlPct * 100}% — closing LONG`);
             if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-              const pnl = (price - state.entryPrice) * pos.longSize;
+              const pnl = (exitPrice - state.entryPrice) * pos.longSize;
               state.totalPnl += pnl;
               state.tradeCount++;
               state.position = "NONE";
@@ -1038,7 +1041,7 @@ async function main(): Promise<void> {
                 time: new Date().toISOString(),
                 side: "Long",
                 entry: state.entryPrice,
-                exit: price,
+                exit: exitPrice,
                 qty: pos.longSize,
                 pnl,
                 pnlPct: pnlPct * 100,
@@ -1049,13 +1052,14 @@ async function main(): Promise<void> {
           }
         }
       } else if (state.position === "SHORT" && pos.shortSize > 0) {
-        const pnlPct = (state.entryPrice - price) / state.entryPrice;
+        const exitPrice = ask; // close short at ask
+        const pnlPct = (state.entryPrice - exitPrice) / state.entryPrice;
         // Track best PnL for trailing stop
         if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing SHORT`);
           if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-            const pnl = (state.entryPrice - price) * pos.shortSize;
+            const pnl = (state.entryPrice - exitPrice) * pos.shortSize;
             state.totalPnl += pnl;
             state.tradeCount++;
             state.position = "NONE";
@@ -1065,7 +1069,7 @@ async function main(): Promise<void> {
               time: new Date().toISOString(),
               side: "Short",
               entry: state.entryPrice,
-              exit: price,
+              exit: exitPrice,
               qty: pos.shortSize,
               pnl,
               pnlPct: pnlPct * 100,
@@ -1087,7 +1091,7 @@ async function main(): Promise<void> {
             const reason = trailingActive ? "TRAIL-SL" : "SL";
             console.log(`[${fmtTime()}]  ✦  ${reason} hit: ${fmtNum(pnlPct * 100)}% <= -${effectiveSlPct * 100}% — closing SHORT`);
             if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-              const pnl = (state.entryPrice - price) * pos.shortSize;
+              const pnl = (state.entryPrice - exitPrice) * pos.shortSize;
               state.totalPnl += pnl;
               state.tradeCount++;
               state.position = "NONE";
@@ -1098,7 +1102,7 @@ async function main(): Promise<void> {
                 time: new Date().toISOString(),
                 side: "Short",
                 entry: state.entryPrice,
-                exit: price,
+                exit: exitPrice,
                 qty: pos.shortSize,
                 pnl,
                 pnlPct: pnlPct * 100,
@@ -1165,9 +1169,10 @@ async function main(): Promise<void> {
       let pnlInfo = "";
       if (state.position !== "NONE" && state.entryPrice > 0) {
         const isLong = state.position === "LONG";
+        const exitRef = isLong ? bid : ask; // bid for LONG, ask for SHORT
         const pnlPct = isLong
-          ? (price - state.entryPrice) / state.entryPrice
-          : (state.entryPrice - price) / state.entryPrice;
+          ? (exitRef - state.entryPrice) / state.entryPrice
+          : (state.entryPrice - exitRef) / state.entryPrice;
         const tpPrice = isLong
           ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
           : state.entryPrice * (1 - TAKE_PROFIT_PCT);
