@@ -162,6 +162,9 @@ function computeIndicators(ring: RingBuffer): Indicators {
 
 const buffers = new Map<string, RingBuffer>();
 const latestTick = new Map<string, Tick>();
+let rotateActive = loadRotate();
+let rotateTimer: ReturnType<typeof setInterval> | null = null;
+const ROTATE_INTERVAL = 15000; // 15 seconds per ticker
 
 function getBuffer(sym: string): RingBuffer {
   let b = buffers.get(sym);
@@ -456,9 +459,6 @@ SYMBOLS.forEach(s => {
 });
 
 // Rotate
-let rotateActive = loadRotate();
-let rotateTimer = null;
-const ROTATE_INTERVAL = 15000; // 15 seconds per ticker
 
 function toggleRotate() {
   rotateActive = !rotateActive;
