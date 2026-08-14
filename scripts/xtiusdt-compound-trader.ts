@@ -132,7 +132,7 @@ const RECALC_INTERVAL = 20; // recalc size every 20 trades
 const ENSEMBLE_MIN_AGREE = 3; // 3/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
-const MIN_RSI_MOVE = 0.01; // ignore RSI price changes below $0.01
+const MIN_RSI_MOVE = 0.05; // ignore RSI price changes below $0.05
 const ATR_SL_MULT = 1.5; // stop loss = 1.5x ATR
 const MIN_SL_PCT = 0.0008; // floor: 0.08%
 const MAX_SL_PCT = 0.005;  // cap: 0.50%
@@ -832,6 +832,32 @@ async function main(): Promise<void> {
       indicatorEngine.loadState(indState);
       console.log(`[${fmtTime()}] ⟐  Restored ${indState.prices.length} price history`);
     }
+  }
+
+  // Validate state against actual exchange positions
+  try {
+    const actualPos = await fetchPositionsForSymbol(creds.PHEMEX_API_KEY, secretRaw);
+    const hasActual = actualPos.longSize > 0 || actualPos.shortSize > 0;
+    const hasState = state.position !== "NONE";
+    if (hasActual && !hasState) {
+      console.log(`[${fmtTime()}] ⚠  Exchange has position but state is NONE — syncing`);
+      if (actualPos.longSize > 0) {
+        state.position = "LONG";
+        state.entryPrice = actualPos.longEntry;
+        state.entryQty = actualPos.longSize;
+      } else {
+        state.position = "SHORT";
+        state.entryPrice = actualPos.shortEntry;
+        state.entryQty = actualPos.shortSize;
+      }
+    } else if (!hasActual && hasState) {
+      console.log(`[${fmtTime()}] ⚠  State says ${state.position} but no exchange position — resetting`);
+      state.position = "NONE";
+      state.entryPrice = 0;
+      state.entryQty = 0;
+    }
+  } catch (e) {
+    console.error(`[${fmtTime()}] ✗  Position sync check failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   const riskManager = new RiskManager();
