@@ -33,7 +33,24 @@ const SYMBOLS = (getArg("--symbols") ?? ALL_SYMBOLS.join(","))
 const BUFFER_SECONDS = 60;
 const WS_URL = "wss://ws.phemex.com";
 const DISK_PATH = join(process.cwd(), ".phemex-ticker-cache.json");
+const PREFS_PATH = join(process.cwd(), ".phemex-ticker-prefs.json");
 const SAVE_INTERVAL = 30_000;
+
+function loadPrefs(): Record<string, unknown> {
+  try { return JSON.parse(readFileSync(PREFS_PATH, "utf-8")); } catch { return {}; }
+}
+
+function savePrefs(prefs: Record<string, unknown>): void {
+  try { writeFileSync(PREFS_PATH, JSON.stringify(prefs)); } catch {}
+}
+
+function loadRotate(): boolean { return loadPrefs().rotate === true; }
+function saveRotate(val: boolean): void { savePrefs({ ...loadPrefs(), rotate: val }); }
+function loadSymbol(): string {
+  const s = loadPrefs().symbol;
+  return typeof s === "string" && SYMBOLS.includes(s) ? s : SYMBOLS[0];
+}
+function saveSymbol(sym: string): void { savePrefs({ ...loadPrefs(), symbol: sym }); }
 
 /* ------------------------------------------------------------------ */
 /*  Ring Buffer                                                        */
@@ -418,6 +435,7 @@ function loadSymbol() {
 
 function saveSymbol(sym) {
   try { localStorage.setItem(LS_SYMBOL_KEY, sym); } catch {}
+  fetch('/api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: sym }) });
 }
 
 function loadRotate() {
@@ -427,6 +445,7 @@ function loadRotate() {
 
 function saveRotate(val) {
   try { localStorage.setItem(LS_ROTATE_KEY, String(val)); } catch {}
+  fetch('/api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rotate: val }) });
 }
 
 function saveData() {
@@ -787,6 +806,26 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     }
     res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
     res.end(JSON.stringify(snap));
+    return;
+  }
+
+  if (url === "/api/prefs" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => body += c);
+    req.on("end", () => {
+      try {
+        const prefs = JSON.parse(body);
+        const current = loadPrefs();
+        if (prefs.symbol !== undefined) current.symbol = prefs.symbol;
+        if (prefs.rotate !== undefined) current.rotate = prefs.rotate;
+        savePrefs(current);
+        res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end('{"ok":true}');
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end('{"error":"bad json"}');
+      }
+    });
     return;
   }
 
