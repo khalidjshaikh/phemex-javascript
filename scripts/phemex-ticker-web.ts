@@ -505,6 +505,10 @@ evtSource.onmessage = (e) => {
     if (d.ticks.length > MAX_TICKS) d.ticks.shift();
     d.indicators = msg.indicators;
     saveData();
+    if (msg.connected !== undefined) {
+      document.getElementById('statusDot').className = 'dot ' + (msg.connected ? 'on' : 'off');
+      document.getElementById('statusText').textContent = msg.connected ? 'connected' : 'reconnecting…';
+    }
     if (msg.symbol === activeSymbol) render();
   } else if (msg.type === 'snapshot') {
     for (const [sym, snap] of Object.entries(msg.data)) {
@@ -749,7 +753,7 @@ function getSnapshot(): Record<string, unknown> {
 const sseClients = new Set<ServerResponse>();
 
 function broadcastTick(sym: string, tick: Tick, indicators: Indicators): void {
-  const msg = `data: ${JSON.stringify({ type: "tick", symbol: sym, tick, indicators })}\n\n`;
+  const msg = `data: ${JSON.stringify({ type: "tick", symbol: sym, tick, indicators, connected: wsUsdt.isConnected })}\n\n`;
   for (const res of sseClients) {
     res.write(msg);
   }
