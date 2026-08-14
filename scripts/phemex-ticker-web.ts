@@ -17,6 +17,7 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
+import { publicGet } from "../src/http-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 
 /* ------------------------------------------------------------------ */
@@ -30,11 +31,39 @@ const ALL_SYMBOLS = [
 ];
 const SYMBOLS = (getArg("--symbols") ?? ALL_SYMBOLS.join(","))
   .split(",").filter(Boolean);
-const BUFFER_SECONDS = 60;
+const BUFFER_SECONDS = 300; // 5 minutes of ticks at ~2/sec = 600 slots
 const WS_URL = "wss://ws.phemex.com";
 const DISK_PATH = join(process.cwd(), ".phemex-ticker-cache.json");
 const PREFS_PATH = join(process.cwd(), ".phemex-ticker-prefs.json");
 const SAVE_INTERVAL = 30_000;
+
+/* ------------------------------------------------------------------ */
+/*  Klines cache                                                       */
+/* ------------------------------------------------------------------ */
+
+const RESOLUTION_MAP: Record<string, number> = {
+  '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+  '1h': 60, '2h': 120, '4h': 240, '6h': 360,
+  '12h': 720, '1D': 1440, '1W': 10080, '1M': 7200,
+};
+const KLINE_CACHE = new Map<string, { data: unknown[]; ts: number }>();
+const KLINE_TTL_SHORT = 60_000;   // 60s for intervals ≤ 1h
+const KLINE_TTL_LONG = 300_000;   // 5m for intervals > 1h
+
+function klineCacheKey(sym: string, res: number): string { return `${sym}:${res}`; }
+
+async function fetchKlines(sym: string, resolution: number, limit = 500): Promise<unknown[]> {
+  const key = klineCacheKey(sym, resolution);
+  const cached = KLINE_CACHE.get(key);
+  const ttl = resolution > 60 ? KLINE_TTL_LONG : KLINE_TTL_SHORT;
+  if (cached && Date.now() - cached.ts < ttl) return cached.data;
+
+  const query = `symbol=${sym}&resolution=${resolution}&limit=${limit}`;
+  const resp = await publicGet("/exchange/public/md/v2/kline/last", query);
+  const rows = (resp as any)?.data?.rows ?? [];
+  KLINE_CACHE.set(key, { data: rows, ts: Date.now() });
+  return rows;
+}
 
 function loadPrefs(): Record<string, unknown> {
   try { return JSON.parse(readFileSync(PREFS_PATH, "utf-8")); } catch { return {}; }
@@ -51,6 +80,10 @@ function loadSymbol(): string {
   return typeof s === "string" && SYMBOLS.includes(s) ? s : SYMBOLS[0];
 }
 function saveSymbol(sym: string): void { savePrefs({ ...loadPrefs(), symbol: sym }); }
+function loadResolution(): string {
+  const r = loadPrefs().resolution;
+  return typeof r === "string" && r in RESOLUTION_MAP ? r : "5m";
+}
 
 /* ------------------------------------------------------------------ */
 /*  Ring Buffer                                                        */
@@ -363,6 +396,9 @@ function buildDashboard(): string {
   .field-selector { display: flex; gap: 4px; padding: 4px 16px; }
   .field-btn { padding: 3px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-family: inherit; }
   .field-btn.active { background: var(--bg3); color: var(--text); border-color: var(--blue); }
+  .res-selector { display: flex; gap: 4px; padding: 4px 16px; flex-wrap: wrap; }
+  .res-btn { padding: 3px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-family: inherit; }
+  .res-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
   .rotate-btn { padding: 5px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg2); color: var(--text2); font-family: inherit; transition: all .15s; margin-left: auto; white-space: nowrap; }
   .rotate-btn:hover { background: var(--bg3); color: var(--text); }
   .rotate-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
@@ -382,6 +418,7 @@ function buildDashboard(): string {
   <div class="price-row" id="priceRow"></div>
   <div class="indicators" id="indicators"></div>
   <div class="field-selector" id="fieldSelector"></div>
+  <div class="res-selector" id="resSelector"></div>
   <div class="chart-wrap">
     <div class="chart-box">
       <canvas id="chart"></canvas>
@@ -399,7 +436,12 @@ const LS_KEY = 'phemex_ticker_data';
 const LS_FIELDS_KEY = 'phemex_ticker_fields';
 const LS_SYMBOL_KEY = 'phemex_ticker_symbol';
 const LS_ROTATE_KEY = 'phemex_ticker_rotate';
+const LS_RESOLUTION_KEY = 'phemex_ticker_resolution';
 const MAX_TICKS = 180;
+
+const RESOLUTIONS = ['1m','5m','15m','30m','1h','2h','4h','6h','12h','1D','1W','1M'];
+const RESOLUTION_VALUES = { '1m':1, '5m':5, '15m':15, '30m':30, '1h':60, '2h':120, '4h':240, '6h':360, '12h':720, '1D':1440, '1W':10080, '1M':7200 };
+const KLINE_FIELDS = ['open','high','low','close','volume'];
 
 function loadData() {
   try {
@@ -443,6 +485,19 @@ function saveRotate(val) {
   fetch('/api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rotate: val }) });
 }
 
+function loadResolution() {
+  try {
+    const raw = localStorage.getItem(LS_RESOLUTION_KEY);
+    if (raw && RESOLUTIONS.includes(raw)) return raw;
+  } catch {}
+  return '5m';
+}
+
+function saveResolution(val) {
+  try { localStorage.setItem(LS_RESOLUTION_KEY, val); } catch {}
+  fetch('/api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolution: val }) });
+}
+
 function saveData() {
   try {
     const snap = {};
@@ -466,6 +521,9 @@ let data = {};
 let rotateActive = loadRotate();
 let rotateTimer = null;
 const ROTATE_INTERVAL = 15000;
+let activeResolution = loadResolution();
+let klineData = {};  // symbol -> rows from klines API
+let klineRefreshTimer = null;
 
 const saved = loadData();
 SYMBOLS.forEach(s => {
@@ -545,7 +603,14 @@ function buildTabs() {
     '<div class="tab' + (s === activeSymbol ? ' active' : '') + '" data-sym="' + s + '">' + s + '</div>'
   ).join('');
   el.querySelectorAll('.tab').forEach(t => {
-    t.onclick = () => { activeSymbol = t.dataset.sym; saveSymbol(activeSymbol); buildTabs(); buildFieldSelector(); render(); };
+    t.onclick = () => {
+      activeSymbol = t.dataset.sym;
+      saveSymbol(activeSymbol);
+      buildTabs();
+      buildFieldSelector();
+      if (!isLiveMode()) fetchKlinesForActive();
+      render();
+    };
   });
 }
 
@@ -563,6 +628,48 @@ function buildFieldSelector() {
       buildFieldSelector(); renderChart();
     };
   });
+}
+
+// Resolution selector
+function buildResSelector() {
+  const el = document.getElementById('resSelector');
+  el.innerHTML = RESOLUTIONS.map(r =>
+    '<button class="res-btn' + (r === activeResolution ? ' active' : '') + '" data-res="' + r + '">' + r + '</button>'
+  ).join('');
+  el.querySelectorAll('.res-btn').forEach(b => {
+    b.onclick = () => {
+      activeResolution = b.dataset.res;
+      saveResolution(activeResolution);
+      buildResSelector();
+      if (RESOLUTION_VALUES[activeResolution] >= 15) {
+        fetchKlinesForActive();
+      }
+      render();
+    };
+  });
+}
+
+function isLiveMode() {
+  return RESOLUTION_VALUES[activeResolution] < 15;
+}
+
+async function fetchKlinesForActive() {
+  if (isLiveMode()) return;
+  try {
+    const res = await fetch('/api/klines?symbol=' + activeSymbol + '&resolution=' + RESOLUTION_VALUES[activeResolution]);
+    const json = await res.json();
+    klineData[activeSymbol] = json.rows || [];
+  } catch {}
+}
+
+function startKlineRefresh() {
+  if (klineRefreshTimer) clearInterval(klineRefreshTimer);
+  if (!isLiveMode()) {
+    fetchKlinesForActive();
+    klineRefreshTimer = setInterval(fetchKlinesForActive, 60000);
+  } else {
+    klineRefreshTimer = null;
+  }
 }
 
 function fmtPrice(v) { return v == null ? '—' : v.toFixed(2); }
@@ -639,36 +746,39 @@ function renderChart() {
   const cw = W - pad.left - pad.right;
   const ch = H - pad.top - pad.bottom;
 
-  if (!d || d.ticks.length < 2) {
+  const useKlines = !isLiveMode() && klineData[activeSymbol]?.length > 0;
+
+  if (useKlines) {
+    renderKlinesChart(pad, cw, ch, W, H);
+  } else {
+    renderLiveChart(d, pad, cw, ch, W, H);
+  }
+}
+
+function renderKlinesChart(pad, cw, ch, W, H) {
+  const rows = klineData[activeSymbol];
+  if (!rows || rows.length < 2) {
     chartCtx.fillStyle = '#8b949e';
     chartCtx.font = '12px monospace';
     chartCtx.textAlign = 'center';
-    chartCtx.fillText('Waiting for data…', W / 2, H / 2);
+    chartCtx.fillText('Loading klines…', W / 2, H / 2);
     return;
   }
 
-  const ticks = d.ticks;
-  const fields = [...activeFields];
-  if (fields.length === 0) fields.push('last');
+  // rows: [timestamp, interval, last_close, open, high, low, close, volume, turnover]
+  const closes = rows.map(r => Number(r[6]));
+  const times = rows.map(r => Number(r[0]));
 
-  // Determine value range
-  let minV = Infinity, maxV = -Infinity;
-  for (const f of fields) {
-    for (const tick of ticks) {
-      const v = tick[f];
-      if (v < minV) minV = v;
-      if (v > maxV) maxV = v;
-    }
-  }
+  let minV = Math.min(...closes);
+  let maxV = Math.max(...closes);
   const range = maxV - minV || 1;
   const margin = range * 0.08;
   minV -= margin;
   maxV += margin;
   const vRange = maxV - minV;
 
-  // Time range
-  const tMin = ticks[0].t;
-  const tMax = ticks[ticks.length - 1].t;
+  const tMin = times[0];
+  const tMax = times[times.length - 1];
   const tRange = Math.max(tMax - tMin, 1000);
 
   // Grid
@@ -689,6 +799,79 @@ function renderChart() {
 
   // Time labels
   chartCtx.textAlign = 'center';
+  const labelCount = Math.min(6, rows.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.floor(i * (rows.length - 1) / (labelCount - 1));
+    const x = pad.left + ((times[idx] - tMin) / tRange) * cw;
+    const d2 = new Date(times[idx]);
+    const label = d2.getMonth() + 1 + '/' + d2.getDate() + ' ' + d2.getHours() + ':' + String(d2.getMinutes()).padStart(2, '0');
+    chartCtx.fillText(label, x, H - 4);
+  }
+
+  // Line
+  chartCtx.strokeStyle = '#3fb950';
+  chartCtx.lineWidth = 1.5;
+  chartCtx.beginPath();
+  for (let i = 0; i < rows.length; i++) {
+    const x = pad.left + ((times[i] - tMin) / tRange) * cw;
+    const y = pad.top + ((maxV - closes[i]) / vRange) * ch;
+    if (i === 0) chartCtx.moveTo(x, y);
+    else chartCtx.lineTo(x, y);
+  }
+  chartCtx.stroke();
+
+  // Legend
+  const leg = document.getElementById('legend');
+  leg.innerHTML = '<span><span class="swatch" style="background:#3fb950"></span>close (' + activeResolution + ')</span>';
+}
+
+function renderLiveChart(d, pad, cw, ch, W, H) {
+  if (!d || d.ticks.length < 2) {
+    chartCtx.fillStyle = '#8b949e';
+    chartCtx.font = '12px monospace';
+    chartCtx.textAlign = 'center';
+    chartCtx.fillText('Waiting for data…', W / 2, H / 2);
+    return;
+  }
+
+  const ticks = d.ticks;
+  const fields = [...activeFields];
+  if (fields.length === 0) fields.push('last');
+
+  let minV = Infinity, maxV = -Infinity;
+  for (const f of fields) {
+    for (const tick of ticks) {
+      const v = tick[f];
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+  }
+  const range = maxV - minV || 1;
+  const margin = range * 0.08;
+  minV -= margin;
+  maxV += margin;
+  const vRange = maxV - minV;
+
+  const tMin = ticks[0].t;
+  const tMax = ticks[ticks.length - 1].t;
+  const tRange = Math.max(tMax - tMin, 1000);
+
+  chartCtx.strokeStyle = '#21262d';
+  chartCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ch * i / 4);
+    chartCtx.beginPath();
+    chartCtx.moveTo(pad.left, y);
+    chartCtx.lineTo(pad.left + cw, y);
+    chartCtx.stroke();
+    const val = maxV - (vRange * i / 4);
+    chartCtx.fillStyle = '#8b949e';
+    chartCtx.font = '10px monospace';
+    chartCtx.textAlign = 'right';
+    chartCtx.fillText(val.toFixed(2), pad.left - 4, y + 3);
+  }
+
+  chartCtx.textAlign = 'center';
   const labelCount = Math.min(6, ticks.length);
   for (let i = 0; i < labelCount; i++) {
     const idx = Math.floor(i * (ticks.length - 1) / (labelCount - 1));
@@ -698,7 +881,6 @@ function renderChart() {
     chartCtx.fillText(label, x, H - 4);
   }
 
-  // Lines
   for (const f of fields) {
     chartCtx.strokeStyle = FIELD_COLORS[f];
     chartCtx.lineWidth = 1.5;
@@ -713,7 +895,6 @@ function renderChart() {
     chartCtx.stroke();
   }
 
-  // Legend
   const leg = document.getElementById('legend');
   leg.innerHTML = fields.map(f =>
     '<span><span class="swatch" style="background:' + FIELD_COLORS[f] + '"></span>' + f + '</span>'
@@ -722,8 +903,10 @@ function renderChart() {
 
 buildTabs();
 buildFieldSelector();
+buildResSelector();
 initChart();
 render();
+startKlineRefresh();
 
 // Start rotate if it was active
 if (rotateActive) {
@@ -732,6 +915,7 @@ if (rotateActive) {
     activeSymbol = SYMBOLS[(idx + 1) % SYMBOLS.length];
     saveSymbol(activeSymbol);
     buildTabs();
+    if (!isLiveMode()) fetchKlinesForActive();
     render();
   }, ROTATE_INTERVAL);
 }
@@ -813,6 +997,21 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  if (url.startsWith("/api/klines")) {
+    const u = new URL(url, "http://localhost");
+    const sym = u.searchParams.get("symbol") ?? SYMBOLS[0];
+    const resLabel = u.searchParams.get("resolution") ?? "60";
+    const resolution = Number(resLabel) || RESOLUTION_MAP[resLabel] || 60;
+    fetchKlines(sym, resolution).then((rows) => {
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ symbol: sym, resolution, rows }));
+    }).catch((err) => {
+      res.writeHead(502, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({ error: String(err) }));
+    });
+    return;
+  }
+
   if (url === "/api/prefs" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => body += c);
@@ -822,6 +1021,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         const current = loadPrefs();
         if (prefs.symbol !== undefined) current.symbol = prefs.symbol;
         if (prefs.rotate !== undefined) current.rotate = prefs.rotate;
+        if (prefs.resolution !== undefined) current.resolution = prefs.resolution;
         savePrefs(current);
         res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
         res.end('{"ok":true}');
