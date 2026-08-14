@@ -431,7 +431,7 @@ function buildDashboard(): string {
 const SYMBOLS = ${symList};
 const FIELDS = ['ask','bid','index','mark','last'];
 const DELTA_FIELDS = ['ask','bid','index','mark','last'];
-const FIELD_COLORS = { ask: '#58a6ff', bid: '#bc8cff', index: '#d29922', mark: '#f85149', last: '#3fb950' };
+const FIELD_COLORS = { ask: '#f85149', bid: '#3fb950', index: '#d29922', mark: '#58a6ff', last: '#bc8cff' };
 const LS_KEY = 'phemex_ticker_data';
 const LS_FIELDS_KEY = 'phemex_ticker_fields';
 const LS_SYMBOL_KEY = 'phemex_ticker_symbol';
