@@ -32,7 +32,7 @@
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.01676877
+    "threshold": 0.01902553
   },
   "SOLUSDT": {
     "hedge": true,
@@ -46,7 +46,7 @@
     "leverage": 50,
     "profit": 0,
     "size": 1,
-    "threshold": 0.00109496
+    "threshold": 0.00121952
   },
   "XAUUSDT": {
     "hedge": true,
