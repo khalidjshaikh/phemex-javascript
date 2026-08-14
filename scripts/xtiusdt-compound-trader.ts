@@ -1193,7 +1193,7 @@ async function main(): Promise<void> {
       console.log(
         `[${fmtTime()}] $${fmtNum(currentBalance, 4)} ` +
         `Price:${fmtNum(price)} ` +
-        `EMA20:${fmtNum(ind.ema20)} EMA50:${fmtNum(ind.ema50)} ` +
+        `EMA20:${fmtNum(ind.ema20)} EMA50:${fmtNum(ind.ema50)} EMA200:${fmtNum(ind.ema200)} ` +
         `RSI:${fmtNum(ind.rsi)} ` +
         `Signal:${vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—"} ` +
         `Pos:${posLabel}${pnlInfo} ` +
