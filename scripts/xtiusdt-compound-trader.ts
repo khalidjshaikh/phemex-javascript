@@ -86,6 +86,7 @@ interface CompoundState {
   position: "NONE" | "LONG" | "SHORT";
   entryPrice: number;
   entryQty: number;
+  bestPnlPct: number; // best unrealized PnL% for trailing stop
 }
 
 interface TradeRecord {
@@ -123,19 +124,21 @@ const WS_URL = "wss://ws.phemex.com";
 const LEVERAGE = 100;
 const BASE_QTY = 0.01;
 const MAX_QTY = 1.0;
-const TAKE_PROFIT_PCT = 0.0015; // 0.15%
-const STOP_LOSS_PCT = 0.0008; // 0.08%
+const TAKE_PROFIT_PCT = 0.0020; // 0.20%
+const STOP_LOSS_PCT = 0.0012; // 0.12%
 const MAX_DRAWDOWN_PCT = 0.30; // 30%
-const LOSS_COOLDOWN_MS = 30_000; // 30 seconds
+const LOSS_COOLDOWN_MS = 90_000; // 90 seconds
 const MAX_DAILY_TRADES = 500;
 const RECALC_INTERVAL = 20; // recalc size every 20 trades
-const ENSEMBLE_MIN_AGREE = 3; // 3/5 algorithms must agree
+const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
 const MIN_RSI_MOVE_PCT = 0.0001; // ignore RSI price changes below 0.01% of price
-const ATR_SL_MULT = 1.5; // stop loss = 1.5x ATR
-const MIN_SL_PCT = 0.0008; // floor: 0.08%
+const ATR_SL_MULT = 2.0; // stop loss = 2.0x ATR
+const MIN_SL_PCT = 0.0012; // floor: 0.12%
 const MAX_SL_PCT = 0.005;  // cap: 0.50%
+const TRAILING_ACTIVATE_PCT = 0.0010; // activate trailing stop at 0.10% profit
+const TRAILING_STEP_PCT = 0.0005; // trail by 0.05% behind best profit
 
 const DATA_DIR = path.resolve(__dirname, "..", "data", "xtiusdt-compound");
 
@@ -823,6 +826,7 @@ async function main(): Promise<void> {
         position: "NONE",
         entryPrice: 0,
         entryQty: 0,
+        bestPnlPct: 0,
       };
 
   // Restore indicator state
@@ -963,6 +967,8 @@ async function main(): Promise<void> {
       // Check take profit / stop loss for existing position
       if (state.position === "LONG" && pos.longSize > 0) {
         const pnlPct = (price - state.entryPrice) / state.entryPrice;
+        // Track best PnL for trailing stop
+        if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing LONG`);
           if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
@@ -970,6 +976,7 @@ async function main(): Promise<void> {
             state.totalPnl += pnl;
             state.tradeCount++;
             state.position = "NONE";
+            state.bestPnlPct = 0;
             riskManager.recordTrade();
             perfLogger.recordTrade({
               time: new Date().toISOString(),
@@ -988,15 +995,22 @@ async function main(): Promise<void> {
           const dynSlPct = atrPct !== null
             ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
             : STOP_LOSS_PCT;
-          if (pnlPct <= -dynSlPct) {
-            console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${dynSlPct * 100}% (ATR-based) — closing LONG`);
+          // Trailing stop: if in profit beyond activation threshold, trail behind best PnL
+          const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+          const effectiveSlPct = trailingActive
+            ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+            : dynSlPct;
+          if (pnlPct <= -effectiveSlPct) {
+            const reason = trailingActive ? "TRAIL-SL" : "SL";
+            console.log(`[${fmtTime()}]  ✦  ${reason} hit: ${fmtNum(pnlPct * 100)}% <= -${effectiveSlPct * 100}% — closing LONG`);
             if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
               const pnl = (price - state.entryPrice) * pos.longSize;
               state.totalPnl += pnl;
               state.tradeCount++;
               state.position = "NONE";
+              state.bestPnlPct = 0;
               riskManager.recordTrade();
-              riskManager.recordLoss();
+              if (!trailingActive) riskManager.recordLoss();
               perfLogger.recordTrade({
                 time: new Date().toISOString(),
                 side: "Long",
@@ -1005,7 +1019,7 @@ async function main(): Promise<void> {
                 qty: pos.longSize,
                 pnl,
                 pnlPct: pnlPct * 100,
-                reason: "SL",
+                reason,
                 balance: state.peakBalance + state.totalPnl,
               });
             }
@@ -1013,6 +1027,8 @@ async function main(): Promise<void> {
         }
       } else if (state.position === "SHORT" && pos.shortSize > 0) {
         const pnlPct = (state.entryPrice - price) / state.entryPrice;
+        // Track best PnL for trailing stop
+        if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing SHORT`);
           if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
@@ -1020,6 +1036,7 @@ async function main(): Promise<void> {
             state.totalPnl += pnl;
             state.tradeCount++;
             state.position = "NONE";
+            state.bestPnlPct = 0;
             riskManager.recordTrade();
             perfLogger.recordTrade({
               time: new Date().toISOString(),
@@ -1038,15 +1055,22 @@ async function main(): Promise<void> {
           const dynSlPct = atrPct !== null
             ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
             : STOP_LOSS_PCT;
-          if (pnlPct <= -dynSlPct) {
-            console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${dynSlPct * 100}% (ATR-based) — closing SHORT`);
+          // Trailing stop: if in profit beyond activation threshold, trail behind best PnL
+          const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+          const effectiveSlPct = trailingActive
+            ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+            : dynSlPct;
+          if (pnlPct <= -effectiveSlPct) {
+            const reason = trailingActive ? "TRAIL-SL" : "SL";
+            console.log(`[${fmtTime()}]  ✦  ${reason} hit: ${fmtNum(pnlPct * 100)}% <= -${effectiveSlPct * 100}% — closing SHORT`);
             if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
               const pnl = (state.entryPrice - price) * pos.shortSize;
               state.totalPnl += pnl;
               state.tradeCount++;
               state.position = "NONE";
+              state.bestPnlPct = 0;
               riskManager.recordTrade();
-              riskManager.recordLoss();
+              if (!trailingActive) riskManager.recordLoss();
               perfLogger.recordTrade({
                 time: new Date().toISOString(),
                 side: "Short",
@@ -1055,7 +1079,7 @@ async function main(): Promise<void> {
                 qty: pos.shortSize,
                 pnl,
                 pnlPct: pnlPct * 100,
-                reason: "SL",
+                reason,
                 balance: state.peakBalance + state.totalPnl,
               });
             }
@@ -1093,6 +1117,7 @@ async function main(): Promise<void> {
           state.position = posSide.toUpperCase() as "LONG" | "SHORT";
           state.entryPrice = price;
           state.entryQty = qty;
+          state.bestPnlPct = 0;
           state.lastTradeTime = Date.now();
           riskManager.recordTrade();
         }
