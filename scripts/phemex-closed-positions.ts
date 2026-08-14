@@ -99,11 +99,22 @@ function printTable(positions: ClosedPosition[], color = false): void {
   // Sort: most recently closed first
   const rows = [...positions].sort((a, b) => b.closedAt - a.closedAt);
 
-  console.log(
-    `\n${"#".padStart(3)} ${"Opened At".padEnd(19)} ${"Closed At".padEnd(19)} ${"Duration".padEnd(8)} ${"Symbol".padEnd(7)} ${"Side".padEnd(5)}` +
-    `${"Qty".padStart(6)} ${"Entry".padStart(8)} ${"Exit".padStart(8)}${"Spread".padStart(7)}${"Realized".padStart(10)}${"Net".padStart(10)}${"Fee".padStart(10)}`
-  );
-  console.log("─".repeat(136));
+  const hdr =
+    `${"#".padStart(3)} ` +
+    `${"Opened At".padEnd(19)} ` +
+    `${"Closed At".padEnd(19)} ` +
+    `${"Duration".padEnd(9)} ` +
+    `${"Symbol".padEnd(8)} ` +
+    `${"Side".padEnd(6)}` +
+    `${"Qty".padStart(7)} ` +
+    `${"Entry".padStart(9)} ` +
+    `${"Exit".padStart(9)} ` +
+    `${"Spread".padStart(7)} ` +
+    `${"Realized".padStart(10)} ` +
+    `${"Net".padStart(10)} ` +
+    `${"Fee".padStart(10)}`;
+  console.log(`\n${hdr}`);
+  console.log("─".repeat(hdr.length));
 
   let gross = 0;
   let net = 0;
@@ -121,8 +132,19 @@ function printTable(positions: ClosedPosition[], color = false): void {
     const red = color && realized < 0 ? "\x1b[31m" : "";
     const reset = red ? "\x1b[0m" : "";
     console.log(
-      `${red}${String(i + 1).padStart(3)} ${fmtTime(p.openedAt).padEnd(19)} ${fmtTime(p.closedAt).padEnd(19)} ${fmtDuration(p.closedAt - p.openedAt).padEnd(8)} ${p.symbol.padEnd(7)} ${p.posSide.padEnd(5)}` +
-      `${fmtQty(p.qty).padStart(6)} ${p.avgEntryPrice.toFixed(2).padStart(8)} ${p.avgExitPrice.toFixed(2).padStart(8)}${spread}${pnlFmt}${netFmt}${feeFmt}` +
+      `${red}${String(i + 1).padStart(3)} ` +
+      `${fmtTime(p.openedAt).padEnd(19)} ` +
+      `${fmtTime(p.closedAt).padEnd(19)} ` +
+      `${fmtDuration(p.closedAt - p.openedAt).padEnd(9)} ` +
+      `${p.symbol.padEnd(8)} ` +
+      `${p.posSide.padEnd(6)}` +
+      `${fmtQty(p.qty).padStart(7)} ` +
+      `${p.avgEntryPrice.toFixed(2).padStart(9)} ` +
+      `${p.avgExitPrice.toFixed(2).padStart(9)} ` +
+      `${spread} ` +
+      `${pnlFmt} ` +
+      `${netFmt} ` +
+      `${feeFmt}` +
       `${p.realizedPnl >= 0 ? " *" : "  "}${p.netPnl >= 0 ? " *" : "  "}${reset}`
     );
     gross += realized;
