@@ -1,3 +1,5 @@
+.phemex-ticker-cache.json
+.phemex-ticker-prefs.json
 ticker-graph.html
 vendor
 __pycache__
