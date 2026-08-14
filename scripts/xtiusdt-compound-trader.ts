@@ -837,6 +837,9 @@ async function main(): Promise<void> {
     if (indState) {
       indicatorEngine.loadState(indState);
       console.log(`[${fmtTime()}] ⟐  Restored ${indState.prices.length} price history`);
+      if (indState.prices.length >= WARMUP_TICKS) {
+        tickCount = WARMUP_TICKS; // skip warmup — enough history restored
+      }
     }
   }
 
