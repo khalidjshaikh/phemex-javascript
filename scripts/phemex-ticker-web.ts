@@ -395,11 +395,6 @@ const SYMBOLS = ${symList};
 const FIELDS = ['ask','bid','index','mark','last'];
 const DELTA_FIELDS = ['ask','bid','index','mark','last'];
 const FIELD_COLORS = { ask: '#58a6ff', bid: '#bc8cff', index: '#d29922', mark: '#f85149', last: '#3fb950' };
-
-let activeSymbol = loadSymbol();
-let activeFields = new Set(['last']);
-let data = {};  // symbol -> { ticks: [{t,ask,bid,index,mark,last}], latest: tick, indicators: {...} }
-
 const LS_KEY = 'phemex_ticker_data';
 const LS_FIELDS_KEY = 'phemex_ticker_fields';
 const LS_SYMBOL_KEY = 'phemex_ticker_symbol';
@@ -464,8 +459,6 @@ function saveFields() {
     localStorage.setItem(LS_FIELDS_KEY, JSON.stringify([...activeFields]));
   } catch {}
 }
-
-activeFields = loadFields();
 
 const saved = loadData();
 SYMBOLS.forEach(s => {
