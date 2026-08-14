@@ -129,9 +129,13 @@ const MAX_DRAWDOWN_PCT = 0.30; // 30%
 const LOSS_COOLDOWN_MS = 30_000; // 30 seconds
 const MAX_DAILY_TRADES = 500;
 const RECALC_INTERVAL = 20; // recalc size every 20 trades
-const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
+const ENSEMBLE_MIN_AGREE = 3; // 3/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
+const MIN_RSI_MOVE = 0.01; // ignore RSI price changes below $0.01
+const ATR_SL_MULT = 1.5; // stop loss = 1.5x ATR
+const MIN_SL_PCT = 0.0008; // floor: 0.08%
+const MAX_SL_PCT = 0.005;  // cap: 0.50%
 
 const DATA_DIR = path.resolve(__dirname, "..", "data", "xtiusdt-compound");
 
@@ -255,8 +259,10 @@ class IndicatorEngine {
   private computeRSI(price: number): void {
     if (this.prevClose === null) return;
     const change = price - this.prevClose;
-    const gain = change > 0 ? change : 0;
-    const loss = change < 0 ? -change : 0;
+    const absChange = Math.abs(change);
+    // Ignore micro-movements below threshold to prevent RSI lock at 0/100
+    const gain = change > MIN_RSI_MOVE ? change : 0;
+    const loss = change < -MIN_RSI_MOVE ? -change : 0;
 
     this.rsiGains.push(gain);
     this.rsiLosses.push(loss);
@@ -296,7 +302,9 @@ class IndicatorEngine {
 
   getRSI(): number | null {
     if (this.rsiAvgGain === null || this.rsiAvgLoss === null) return null;
+    if (this.rsiAvgGain === 0 && this.rsiAvgLoss === 0) return 50;
     if (this.rsiAvgLoss === 0) return 100;
+    if (this.rsiAvgGain === 0) return 0;
     const rs = this.rsiAvgGain / this.rsiAvgLoss;
     return 100 - 100 / (1 + rs);
   }
@@ -949,26 +957,32 @@ async function main(): Promise<void> {
               balance: state.peakBalance + state.totalPnl,
             });
           }
-        } else if (pnlPct <= -STOP_LOSS_PCT) {
-          console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${STOP_LOSS_PCT * 100}% — closing LONG`);
-          if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-            const pnl = (price - state.entryPrice) * pos.longSize;
-            state.totalPnl += pnl;
-            state.tradeCount++;
-            state.position = "NONE";
-            riskManager.recordTrade();
-            riskManager.recordLoss();
-            perfLogger.recordTrade({
-              time: new Date().toISOString(),
-              side: "Long",
-              entry: state.entryPrice,
-              exit: price,
-              qty: pos.longSize,
-              pnl,
-              pnlPct: pnlPct * 100,
-              reason: "SL",
-              balance: state.peakBalance + state.totalPnl,
-            });
+        } else {
+          const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+          const dynSlPct = atrPct !== null
+            ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+            : STOP_LOSS_PCT;
+          if (pnlPct <= -dynSlPct) {
+            console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${dynSlPct * 100}% (ATR-based) — closing LONG`);
+            if (await closePosition("Long", pos.longSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
+              const pnl = (price - state.entryPrice) * pos.longSize;
+              state.totalPnl += pnl;
+              state.tradeCount++;
+              state.position = "NONE";
+              riskManager.recordTrade();
+              riskManager.recordLoss();
+              perfLogger.recordTrade({
+                time: new Date().toISOString(),
+                side: "Long",
+                entry: state.entryPrice,
+                exit: price,
+                qty: pos.longSize,
+                pnl,
+                pnlPct: pnlPct * 100,
+                reason: "SL",
+                balance: state.peakBalance + state.totalPnl,
+              });
+            }
           }
         }
       } else if (state.position === "SHORT" && pos.shortSize > 0) {
@@ -993,26 +1007,32 @@ async function main(): Promise<void> {
               balance: state.peakBalance + state.totalPnl,
             });
           }
-        } else if (pnlPct <= -STOP_LOSS_PCT) {
-          console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${STOP_LOSS_PCT * 100}% — closing SHORT`);
-          if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-            const pnl = (state.entryPrice - price) * pos.shortSize;
-            state.totalPnl += pnl;
-            state.tradeCount++;
-            state.position = "NONE";
-            riskManager.recordTrade();
-            riskManager.recordLoss();
-            perfLogger.recordTrade({
-              time: new Date().toISOString(),
-              side: "Short",
-              entry: state.entryPrice,
-              exit: price,
-              qty: pos.shortSize,
-              pnl,
-              pnlPct: pnlPct * 100,
-              reason: "SL",
-              balance: state.peakBalance + state.totalPnl,
-            });
+        } else {
+          const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+          const dynSlPct = atrPct !== null
+            ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+            : STOP_LOSS_PCT;
+          if (pnlPct <= -dynSlPct) {
+            console.log(`[${fmtTime()}]  ✦  SL hit: ${fmtNum(pnlPct * 100)}% <= -${dynSlPct * 100}% (ATR-based) — closing SHORT`);
+            if (await closePosition("Short", pos.shortSize, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
+              const pnl = (state.entryPrice - price) * pos.shortSize;
+              state.totalPnl += pnl;
+              state.tradeCount++;
+              state.position = "NONE";
+              riskManager.recordTrade();
+              riskManager.recordLoss();
+              perfLogger.recordTrade({
+                time: new Date().toISOString(),
+                side: "Short",
+                entry: state.entryPrice,
+                exit: price,
+                qty: pos.shortSize,
+                pnl,
+                pnlPct: pnlPct * 100,
+                reason: "SL",
+                balance: state.peakBalance + state.totalPnl,
+              });
+            }
           }
         }
       }
