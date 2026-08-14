@@ -831,6 +831,11 @@ async function main(): Promise<void> {
         bestPnlPct: 0,
       };
 
+  // Runtime signal tracking
+  let tickCount = 0;
+  let lastSignalDir = 0; // +1 long, -1 short, 0 neutral
+  let signalStreak = 0; // consecutive same-direction signals
+
   // Restore indicator state
   if (restore) {
     const indState = loadJson<ReturnType<IndicatorEngine["getState"]>>(INDICATORS_PATH);
@@ -921,9 +926,6 @@ async function main(): Promise<void> {
   // Main trading loop
   let prevEma20: number | null = null;
   let prevEma50: number | null = null;
-  let tickCount = 0;
-  let lastSignalDir = 0; // +1 long, -1 short, 0 neutral
-  let signalStreak = 0; // consecutive same-direction signals
 
   for (;;) {
     const started = Date.now();
