@@ -514,7 +514,6 @@ function handleMessage(msg: Record<string, unknown>): Record<string, unknown>[] 
 /*  Main — WebSocket                                                    */
 /* ------------------------------------------------------------------ */
 
-let legendPrinted = false;
 let lastHeaderMinute = -1;
 let linesPrinted = 0;
 const widths = new Map<string, number>();
@@ -743,16 +742,6 @@ function processTicker(data: Record<string, unknown>): void {
     }
   }
 
-  if (!legendPrinted) {
-    console.log(
-      "Columns: " +
-        keys
-          .map((k) => `${colLabel(k)}=${colFull(k)}`)
-          .join(", "),
-    );
-    legendPrinted = true;
-  }
-
   if (STORE) {
     const files = getSymbolFiles(sym);
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -848,6 +837,20 @@ function processTicker(data: Record<string, unknown>): void {
 
 const type = IS_USDT_M ? "USDT-M" : "Coin-M";
 console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(", ")} …`);
+
+const legendKeys = Object.keys(COLUMNS)
+  .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
+  .sort(
+    (a, b) =>
+      (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
+      (COLUMN_RANK.get(b) ?? COLUMN_ORDER.length),
+  );
+console.log(
+  "Columns: " +
+    legendKeys
+      .map((k) => `${colLabel(k)}=${colFull(k)}`)
+      .join(", "),
+);
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
