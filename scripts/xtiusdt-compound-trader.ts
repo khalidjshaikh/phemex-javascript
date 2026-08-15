@@ -3,7 +3,7 @@
 /**
  * xtiusdt-compound-trader.ts — Multi-algorithm compound interest trader for XTIUSDT.
  *
- * Combines 5 algorithms with ensemble voting to trade WTI Crude Oil perpetual
+ * Combines 6 algorithms with ensemble voting to trade WTI Crude Oil perpetual
  * contracts. Reinvests profits to grow the account over months/years.
  *
  * Algorithms:
@@ -12,6 +12,9 @@
  *   3. Bollinger Band Squeeze Breakout
  *   4. RSI Divergence (reversal detection)
  *   5. Momentum + Tick Volume
+ *   6. Index Trade (trader2 mandatory gate — bias/threshold entry)
+ *
+ * Ensemble: trader2 must agree + at least 2 of the other 5 algorithms.
  *
  * Usage:
  *   npx tsx scripts/xtiusdt-compound-trader.ts
@@ -133,7 +136,7 @@ const MAX_DRAWDOWN_PCT = 0.30; // 30%
 const LOSS_COOLDOWN_MS = 90_000; // 90 seconds
 const MAX_DAILY_TRADES = 500;
 const RECALC_INTERVAL = 20; // recalc size every 20 trades
-const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
+const ENSEMBLE_MIN_AGREE = 2; // 2 of 5 other algorithms must agree (trader2 mandatory)
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
 const MIN_RSI_MOVE_PCT = 0.0003; // ignore RSI price changes below 0.03% of price
@@ -161,19 +164,6 @@ function fmtNum(n: number | null, decimals = 2): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-function readVal(file: string): number | null {
-  try {
-    const v = parseFloat(fs.readFileSync(file, "utf8").trim());
-    return Number.isFinite(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function valuePath(name: string): string {
-  return path.resolve(__dirname, "..", "data", `${SYMBOL}-${name}`);
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -440,9 +430,9 @@ function algoEmaCrossover(price: number, ind: Indicators): AlgorithmSignal {
   return { name: "EMA Crossover", signal: 0, confidence: 0.3, reason: "mixed signals" };
 }
 
-function algoIndexDivergence(): AlgorithmSignal {
-  const indexLast = readVal(valuePath("indexLast.txt"));
-  if (indexLast === null) {
+function algoIndexDivergence(index: number, last: number): AlgorithmSignal {
+  const indexLast = index - last;
+  if (!Number.isFinite(indexLast)) {
     return { name: "Index Divergence", signal: 0, confidence: 0, reason: "no data" };
   }
 
@@ -522,32 +512,53 @@ function algoMomentumVolume(price: number, ind: Indicators): AlgorithmSignal {
   return { name: "Momentum+Volume", signal: 0, confidence: 0.2, reason: "weak momentum" };
 }
 
+function algoIndexTrade(index: number, last: number): AlgorithmSignal {
+  const bias = -0.13;
+  const threshold = 0.54;
+  const indexLast = index - last;
+
+  if (!Number.isFinite(indexLast)) {
+    return { name: "Index Trade (trader2)", signal: 0, confidence: 0, reason: "no data" };
+  }
+
+  const adjusted = indexLast + bias;
+  if (adjusted >= threshold) {
+    return { name: "Index Trade (trader2)", signal: 1, confidence: 0.7, reason: `adjusted ${fmtNum(adjusted)} >= ${threshold} (indexLast ${fmtNum(indexLast)})` };
+  }
+  if (adjusted <= -threshold) {
+    return { name: "Index Trade (trader2)", signal: -1, confidence: 0.7, reason: `adjusted ${fmtNum(adjusted)} <= -${threshold} (indexLast ${fmtNum(indexLast)})` };
+  }
+  return { name: "Index Trade (trader2)", signal: 0, confidence: 0.2, reason: `adjusted ${fmtNum(adjusted)} in dead band` };
+}
+
 /* ================================================================== */
 /*  Ensemble Engine                                                    */
 /* ================================================================== */
 
 function ensembleVote(signals: AlgorithmSignal[]): { signal: number; confidence: number; reasons: string[] } {
-  const activeSignals = signals.filter((s) => s.signal !== 0);
-  const agreeLong = activeSignals.filter((s) => s.signal > 0);
-  const agreeShort = activeSignals.filter((s) => s.signal < 0);
+  const trader2Signal = signals.find((s) => s.name === "Index Trade (trader2)");
+  const otherSignals = signals.filter((s) => s.name !== "Index Trade (trader2)");
 
-  let finalSignal = 0;
-  let confidence = 0;
   const reasons: string[] = [];
 
-  if (agreeLong.length >= ENSEMBLE_MIN_AGREE) {
-    finalSignal = 1;
-    confidence = agreeLong.reduce((a, s) => a + s.confidence, 0) / agreeLong.length;
-    reasons.push(`LONG: ${agreeLong.map((s) => s.name).join(", ")}`);
-  } else if (agreeShort.length >= ENSEMBLE_MIN_AGREE) {
-    finalSignal = -1;
-    confidence = agreeShort.reduce((a, s) => a + s.confidence, 0) / agreeShort.length;
-    reasons.push(`SHORT: ${agreeShort.map((s) => s.name).join(", ")}`);
-  } else {
-    reasons.push(`NO TRADE: ${agreeLong.length}L/${agreeShort.length}S (need ${ENSEMBLE_MIN_AGREE})`);
+  if (!trader2Signal || trader2Signal.signal === 0) {
+    reasons.push(`NO TRADE: trader2 veto (signal: ${trader2Signal?.signal ?? "missing"})`);
+    return { signal: 0, confidence: 0, reasons };
   }
 
-  return { signal: finalSignal, confidence, reasons };
+  const dir = trader2Signal.signal > 0 ? 1 : -1;
+  const agreeOthers = otherSignals.filter((s) => (dir > 0 ? s.signal > 0 : s.signal < 0));
+
+  if (agreeOthers.length < ENSEMBLE_MIN_AGREE) {
+    reasons.push(`NO TRADE: trader2 ${dir > 0 ? "LONG" : "SHORT"} but only ${agreeOthers.length}/${ENSEMBLE_MIN_AGREE} others agree`);
+    return { signal: 0, confidence: 0, reasons };
+  }
+
+  const allAgree = [trader2Signal, ...agreeOthers];
+  const confidence = allAgree.reduce((a, s) => a + s.confidence, 0) / allAgree.length;
+  reasons.push(`${dir > 0 ? "LONG" : "SHORT"}: ${allAgree.map((s) => s.name).join(", ")}`);
+
+  return { signal: dir, confidence, reasons };
 }
 
 /* ================================================================== */
@@ -900,7 +911,7 @@ async function main(): Promise<void> {
 
   console.log(`[${fmtTime()}] ═ ${SYMBOL} Compound Trader ${dryRun ? "(DRY RUN)" : ""} ══════════════════════`);
   console.log(`[${fmtTime()}]   Qty: ${state.currentQty}   Leverage: ${LEVERAGE}x   TP: ${TAKE_PROFIT_PCT * 100}%   SL: ${STOP_LOSS_PCT * 100}%`);
-  console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: ${ENSEMBLE_MIN_AGREE}/5 algorithms`);
+  console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: trader2 mandatory + ${ENSEMBLE_MIN_AGREE}/5 algorithms`);
   console.log(`[${fmtTime()}]   State: ${state.position} | Balance: $${fmtNum(state.peakBalance, 4)} | Trades: ${perfLogger.getTradeCount()}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════════════════════════`);
 
@@ -969,13 +980,14 @@ async function main(): Promise<void> {
       const ind = indicatorEngine.getIndicators();
       tickCount++;
 
-      // Run all 5 algorithms
+      // Run all 6 algorithms
       const signals: AlgorithmSignal[] = [
         algoEmaCrossover(price, ind),
-        algoIndexDivergence(),
+        algoIndexDivergence(ticker.index, ticker.last),
         algoBollingerSqueeze(price, ind),
         algoRsiDivergence(price, ind),
         algoMomentumVolume(price, ind),
+        algoIndexTrade(ticker.index, ticker.last),
       ];
 
       // Ensemble vote
