@@ -34,7 +34,8 @@
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.01987404
+    "bias": 0.000405155,
+    "threshold": 0.020279195
   },
   "SOLUSDT": {
     "hedge": true,
