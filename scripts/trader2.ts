@@ -290,6 +290,7 @@ async function closePos(pos: Position): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 async function indexTrade(
+  symbol: string,
   longSize: number,
   shortSize: number,
 ): Promise<void> {
