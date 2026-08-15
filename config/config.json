@@ -11,7 +11,8 @@
     "leverage": 100,
     "profit": 35,
     "size": 0.001,
-    "threshold": 50
+    "bias": -20,
+    "threshold": 30
   },
   "DOGEUSDT": {
     "hedge": true,
@@ -60,7 +61,8 @@
     "leverage": 100,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.39
+    "bias": -0.1,
+    "threshold": 0.29
   },
   "XRPUSDT": {
     "hedge": true,
@@ -74,6 +76,7 @@
     "leverage": 100,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.4
+    "bias": -0.11,
+    "threshold": 0.29
   }
 }
