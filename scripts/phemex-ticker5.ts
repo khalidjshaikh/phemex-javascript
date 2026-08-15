@@ -515,7 +515,7 @@ function handleMessage(msg: Record<string, unknown>): Record<string, unknown>[] 
 /* ------------------------------------------------------------------ */
 
 let lastHeaderMinute = -1;
-let linesPrinted = 0;
+let headerPrinted = false;
 const widths = new Map<string, number>();
 
 // Per-symbol state for MA, sigma/xbar, and maxIndex tracking.
@@ -806,9 +806,8 @@ function processTicker(data: Record<string, unknown>): void {
     }
 
     if (!REMOVE_TICKER_OUTPUT) {
-      const rows = process.stdout.rows ?? 24;
-      if (linesPrinted >= rows) {
-        linesPrinted = 0;
+      if (!headerPrinted) {
+        headerPrinted = true;
         const head = keys
           .map((k) => {
             const rightAlign = k !== "timestamp" && k !== "symbol";
@@ -819,7 +818,6 @@ function processTicker(data: Record<string, unknown>): void {
           .join(" ");
         console.log(`[${tsToHMS(now)}] ${head}`);
       }
-      linesPrinted++;
 
       const line = keys
         .map((k) => {
@@ -872,6 +870,7 @@ const ws = new ReconnectingWs(WS_URL, {
     for (const s of symbolState.values()) {
       s.lastSig = "";
     }
+    headerPrinted = false;
     cachedFields = null;
   },
 });
