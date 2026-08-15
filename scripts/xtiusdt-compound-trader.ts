@@ -1192,9 +1192,8 @@ async function main(): Promise<void> {
         pnlInfo = ` ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% ${fmtNum(tpPrice)} ${fmtNum(slPrice)} ${trailLabel}`;
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
-      if (lineCount % 20 === 0) {
+      if (lineCount % (process.stdout.rows || 24) === 0) {
         console.log(`Bal    Price  EMA20  EMA50  EMA200  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
-                   //0.988  81.56  81.56  81.56  81.55   50  ↑    LONG @ 81.55 +0.00% 81.71 81.45 OFF(0.00%)  0
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
