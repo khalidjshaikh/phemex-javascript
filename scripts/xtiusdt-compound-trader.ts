@@ -1212,7 +1212,7 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % (process.stdout.rows || 24) === 0) {
-        console.log(`Bal    Price  EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
+        console.log(`Bal    Price   Ask    Bid   EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
@@ -1249,6 +1249,8 @@ async function main(): Promise<void> {
       console.log(
         `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
         `${rpad(fmtNum(price), 5)}  ` +
+        `${rpad(fmtNum(ask), 5)}  ` +
+        `${rpad(fmtNum(bid), 5)}  ` +
         `${rpad(fmtNum(ind.ema20), 5)}  ` +
         `${rpad(fmtNum(ind.ema50), 5)}  ` +
         `${rpad(fmtNum(ind.ema200), 5)}  ` +
