@@ -71,6 +71,9 @@ Options:
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
                       each field minus the last price, plus Δt (elapsed
                       seconds from ticker timestamp)
+  --prevDelta         Add ΔindexPrev (index − previous index) and
+                      ΔlastPrev (last − previous last) columns showing
+                      price change from the prior tick
   --xbar              Print the per-minute average-price line (x̄ask … x̄last)
   --sigma             Print the per-minute cumulative movement lines
                       (Σask … Σlast and Σask/Δt … Σlast/Δt)
@@ -115,6 +118,9 @@ const MA_WINDOWS = [1, 3, 5, 10, 15, 30, 60] as const;
 const DELTA = hasFlag("--delta");
 const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "lastRp", "markRp"] as const;
 
+// --prevDelta: ΔindexPrev (index − previous index) and ΔlastPrev (last − previous last).
+const PREV_DELTA = hasFlag("--prevDelta");
+
 // --xbar / --sigma: per-minute summary lines — the average price line (x̄)
 // and the cumulative movement lines (Σ, Σ/Δt); hidden by default.
 const SHOW_XBAR = hasFlag("--xbar");
@@ -135,6 +141,7 @@ const COLUMN_ORDER_BASE = [
   "timestamp", "turnoverRv", "volumeRq",
   "askRpDelta", "bidRpDelta", "indexRpDelta",
   "markRpDelta", "lastRpDelta",
+  "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
 ];
 const COLUMN_ORDER = ADD_SYMBOL
@@ -232,6 +239,9 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   indexRpDelta:      { label: "Δindex",  full: "index − last" },
   lastRpDelta:       { label: "Δlast",   full: "last − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
+  // Previous-tick delta columns (--prevDelta): change from prior tick.
+  indexRpPrevDelta:  { label: "ΔindexPrev", full: "index − previous index" },
+  lastRpPrevDelta:   { label: "ΔlastPrev",  full: "last − previous last" },
   // Moving average columns (--ma): time-weighted avg of Δindex over N seconds.
   ma1s:              { label: "ma1s",    full: "Δindex MA 1s" },
   ma3s:              { label: "ma3s",    full: "Δindex MA 3s" },
@@ -525,6 +535,8 @@ const symbolState = new Map<string, {
   minDeltaIndex: number | null;
   maxDeltaMark: number | null;
   minDeltaMark: number | null;
+  prevIndexRp: number | null;
+  prevLastRp: number | null;
 }>();
 
 function getSymbolState(sym: string) {
@@ -546,6 +558,8 @@ function getSymbolState(sym: string) {
       minDeltaIndex: null,
       maxDeltaMark: null,
       minDeltaMark: null,
+      prevIndexRp: null,
+      prevLastRp: null,
     };
     // Initialize maxDelta from stored files if they exist.
     if (MAX_DELTA) {
@@ -603,6 +617,19 @@ function processTicker(data: Record<string, unknown>): void {
       data[`${f}Delta`] =
         Number.isFinite(v) && Number.isFinite(last) ? v - last : null;
     }
+  }
+
+  // --prevDelta: ΔindexPrev (index − previous index) and ΔlastPrev (last − previous last).
+  if (PREV_DELTA) {
+    const prevIdx = state.prevIndexRp;
+    const prevLtp = state.prevLastRp;
+    data.indexRpPrevDelta =
+      Number.isFinite(indexRp) && Number.isFinite(prevIdx) ? indexRp - prevIdx : null;
+    data.lastRpPrevDelta =
+      Number.isFinite(last) && Number.isFinite(prevLtp) ? last - prevLtp : null;
+    // Store current values as previous for next tick.
+    if (Number.isFinite(indexRp)) state.prevIndexRp = indexRp;
+    if (Number.isFinite(last)) state.prevLastRp = last;
   }
 
   // --ma: time-weighted moving average of Δindex over each window.
