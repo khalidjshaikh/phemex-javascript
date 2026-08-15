@@ -128,7 +128,7 @@ const LEVERAGE = 100;
 const BASE_QTY = 0.01;
 const MAX_QTY = 1.0;
 const TAKE_PROFIT_PCT = 0.0020; // 0.20%
-const STOP_LOSS_PCT = 0.0012; // 0.12%
+const STOP_LOSS_PCT = 0.0008; // 0.08%
 const MAX_DRAWDOWN_PCT = 0.30; // 30%
 const LOSS_COOLDOWN_MS = 90_000; // 90 seconds
 const MAX_DAILY_TRADES = 500;
@@ -140,7 +140,7 @@ const MIN_RSI_MOVE_PCT = 0.0003; // ignore RSI price changes below 0.03% of pric
 const WARMUP_TICKS = 100; // don't trade until we have enough indicator history
 const SIGNAL_DEBOUNCE = 3; // require same signal direction for N consecutive cycles
 const ATR_SL_MULT = 2.0; // stop loss = 2.0x ATR
-const MIN_SL_PCT = 0.0012; // floor: 0.12%
+const MIN_SL_PCT = 0.0008; // floor: 0.08%
 const MAX_SL_PCT = 0.005;  // cap: 0.50%
 const TRAILING_ACTIVATE_PCT = 0.0010; // activate trailing stop at 0.10% profit
 const TRAILING_STEP_PCT = 0.0005; // trail by 0.05% behind best profit
