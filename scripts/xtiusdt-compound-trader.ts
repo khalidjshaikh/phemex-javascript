@@ -885,7 +885,6 @@ async function main(): Promise<void> {
   console.log(`[${fmtTime()}]   State: ${state.position} | Balance: $${fmtNum(state.peakBalance, 4)} | Trades: ${perfLogger.getTradeCount()}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════════════════════════`);
   console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL    TP     SL    Trail  Trades`);
-  console.log(` ───  ─────  ─────  ─────  ────── ───  ───  ────      ────   ───    ───   ─────  ──────`);
 
   // Set initial leverage
   try {
@@ -1196,7 +1195,6 @@ async function main(): Promise<void> {
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % 20 === 0) {
         console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL    TP     SL    Trail  Trades`);
-        console.log(` ───  ─────  ─────  ─────  ────── ───  ───  ────      ────   ───    ───   ─────  ──────`);
       }
       lineCount++;
       console.log(
