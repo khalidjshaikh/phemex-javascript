@@ -53,7 +53,7 @@
     "leverage": 100,
     "profit": 0,
     "size": 0.001,
-    "threshold": 9
+    "threshold": 10
   },
   "XBRUSDT": {
     "hedge": true,
