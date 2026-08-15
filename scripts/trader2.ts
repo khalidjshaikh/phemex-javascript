@@ -232,23 +232,6 @@ function fmtExact(v: unknown): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Positions                                                          */
-/* ------------------------------------------------------------------ */
-
-async function symbolPositions(symbol: string): Promise<{ longSize: number; shortSize: number }> {
-  const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
-  let longSize = 0;
-  let shortSize = 0;
-  for (const p of positions) {
-    if (p.symbol !== symbol) continue;
-    const size = parseFloat(p.size || "0");
-    if (p.side === "Buy") longSize += size;
-    else if (p.side === "Sell") shortSize += size;
-  }
-  return { longSize, shortSize };
-}
-
-/* ------------------------------------------------------------------ */
 /*  Open orders                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -266,7 +249,9 @@ async function openOrder(
     secretRaw,
   );
   console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} ${posSide} opened — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`);
-  pending.set(symbol, (pending.get(symbol) ?? 0) + qty);
+  if (result.ordStatus === "New" || result.ordStatus === "Filled") {
+    pending.set(symbol, (pending.get(symbol) ?? 0) + qty);
+  }
 }
 
 async function openLong(symbol: string, qty: number): Promise<void> {
@@ -366,6 +351,7 @@ async function main(): Promise<void> {
   for (const symbol of symbols) {
     const s = cfg(symbol);
     await setLeverageUsdtM(symbol, s.leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
+    await setLeverageUsdtM(symbol, s.leverage, "Short", creds.PHEMEX_API_KEY, secretRaw);
     console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} leverage set to ${s.leverage}x`);
   }
 
@@ -391,8 +377,7 @@ async function main(): Promise<void> {
             else if (p.side === "Sell") shortSize += size;
           }
 
-          if (longSize >= pendingQ) pending.delete(symbol);
-          if (shortSize >= pendingQ) pending.delete(symbol);
+          if (longSize + shortSize >= pendingQ) pending.delete(symbol);
 
           await indexTrade(symbol, longSize, shortSize);
           await askBidClose(positions, symbol);
