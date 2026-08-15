@@ -884,8 +884,6 @@ async function main(): Promise<void> {
   console.log(`[${fmtTime()}]   Max Drawdown: ${MAX_DRAWDOWN_PCT * 100}%   Loss Cooldown: ${LOSS_COOLDOWN_MS / 1000}s   Ensemble: ${ENSEMBLE_MIN_AGREE}/5 algorithms`);
   console.log(`[${fmtTime()}]   State: ${state.position} | Balance: $${fmtNum(state.peakBalance, 4)} | Trades: ${perfLogger.getTradeCount()}`);
   console.log(`[${fmtTime()}] ══════════════════════════════════════════════════════════════════════════`);
-  console.log(`Bal    Price  EMA20  EMA50  EMA200  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
-             //0.988  81.56  81.56  81.56  81.55   50  ↑    LONG @ 81.55 +0.00% 81.71 81.45 OFF(0.00%)  0
 
   // Set initial leverage
   try {
@@ -1195,7 +1193,8 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % 20 === 0) {
-        console.log(`Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL   TP    SL   Trail   Trades`);
+        console.log(`Bal    Price  EMA20  EMA50  EMA200  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
+                   //0.988  81.56  81.56  81.56  81.55   50  ↑    LONG @ 81.55 +0.00% 81.71 81.45 OFF(0.00%)  0
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
