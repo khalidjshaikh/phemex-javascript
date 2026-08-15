@@ -201,13 +201,11 @@ function startWebSocket(): ReconnectingWs {
 
 function cfg(symbol: string): Required<SymbolConfig> {
   const c = config[symbol] ?? {};
-  let longThreshold = c.threshold - c.bias
-  let shortThreshold = c.threshold + c.bias
   return {
     threshold:       c.threshold ?? 0.2,
     bias:            c.bias ?? 0,
-    longThreshold:   c.longThreshold ?? longThreshold ?? 0.2,
-    shortThreshold:  c.shortThreshold ?? shortThreshold ?? 0.2,
+    longThreshold:   c.longThreshold ?? c.threshold ?? 0.2,
+    shortThreshold:  c.shortThreshold ?? c.threshold ?? 0.2,
     size:            c.size ?? 0.01,
     leverage:        c.leverage ?? 100,
     hedge:           c.hedge ?? false,
@@ -292,7 +290,6 @@ async function closePos(pos: Position): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 async function indexTrade(
-  symbol: string,
   longSize: number,
   shortSize: number,
 ): Promise<void> {
@@ -308,12 +305,12 @@ async function indexTrade(
 
   const pendingQ = pending.get(symbol) ?? 0;
 
-  if (signal >= s.longThreshold) {
+  if (signal + s.bias >= s.longThreshold) {
     if (!s.hedge && shortSize > 0) return;
     if (longSize + pendingQ >= s.size) return;
     const qty = Math.round((s.size - longSize - pendingQ) * 10000) / 10000;
     if (qty > 0) await openLong(symbol, qty);
-  } else if (signal <= -s.shortThreshold) {
+  } else if (signal + s.bias <= -s.shortThreshold) {
     if (!s.hedge && longSize > 0) return;
     if (shortSize + pendingQ >= s.size) return;
     const qty = Math.round((s.size - shortSize - pendingQ) * 10000) / 10000;
