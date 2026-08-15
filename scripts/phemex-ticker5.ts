@@ -34,6 +34,8 @@
  *   npx tsx phemex-ticker-24hr.ts --sigma          # per-minute Σ and Σ/Δt movement lines
  *   npx tsx phemex-ticker-24hr.ts --ma             # Δindex moving averages (1s,3s,5s,10s,15s,30s,60s)
  *   npx tsx phemex-ticker-24hr.ts --csv ticker.csv # append CSV rows
+ *   npx tsx phemex-ticker-24hr.ts --histogram      # price distribution files
+ *   npx tsx phemex-ticker-24hr.ts --histogram --histogramBuckets 200
  */
 
 import fs from "node:fs";
@@ -82,6 +84,10 @@ Options:
                       over each window in ticker-time seconds (implies --delta)
   --csv <FILE>        Append a CSV row (time,ask,bid,index,mark,last) to
                       FILE on every tick; writes the header when FILE is new
+  --histogram         Track price distribution per symbol and write to
+                      data/<SYMBOL>-histogram.json (bucketed frequencies of
+                      ask, bid, index, mark, last). Final write on SIGINT.
+  --histogramBuckets <N>  Number of histogram buckets (default: 100)
   --help              Show this help and exit
 `;
 
@@ -99,6 +105,10 @@ const REMOVE_TICKER_OUTPUT = hasFlag("--removeTickerOutput");
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
 // --csv <FILE>: append a time,ask,bid,index,mark,last row to FILE every tick.
 const CSV_FILE = getArg("--csv");
+// --histogram: track price distribution per symbol and write to data/<SYMBOL>-histogram.json.
+const HISTOGRAM = hasFlag("--histogram");
+const HISTOGRAM_BUCKETS = Number(getArg("--histogramBuckets") ?? 100);
+
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
@@ -403,6 +413,91 @@ function weightedMa(
   return sumW > 0 ? sumWV / sumW : null;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Histogram (--histogram) — price distribution tracking              */
+/* ------------------------------------------------------------------ */
+
+const HIST_FIELDS = ["askRp", "bidRp", "indexRp", "markRp", "lastRp"] as const;
+
+type HistogramBuckets = Map<number, number>;
+
+interface HistogramState {
+  min: number | null;
+  max: number | null;
+  total: number;
+  fieldBuckets: Map<string, HistogramBuckets>;
+}
+
+function initHistogramState(): HistogramState {
+  return {
+    min: null,
+    max: null,
+    total: 0,
+    fieldBuckets: new Map(HIST_FIELDS.map((f) => [f, new Map()])),
+  };
+}
+
+function computeBucketSize(min: number, max: number, numBuckets: number): number {
+  const range = max - min;
+  if (range <= 0) return 1;
+  const raw = range / numBuckets;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  if (norm <= 1) return mag;
+  if (norm <= 2) return 2 * mag;
+  if (norm <= 5) return 5 * mag;
+  return 10 * mag;
+}
+
+function getBucketKey(price: number, bucketSize: number): number {
+  return Math.floor(price / bucketSize) * bucketSize;
+}
+
+function histogramFilePath(sym: string): string {
+  return resolve(DATA_DIR, `${sym}-histogram.json`);
+}
+
+function updateHistogram(state: HistogramState, data: Record<string, unknown>): void {
+  for (const f of HIST_FIELDS) {
+    const v = Number(data[f]);
+    if (!Number.isFinite(v)) continue;
+    if (state.min === null || v < state.min) state.min = v;
+    if (state.max === null || v > state.max) state.max = v;
+  }
+  state.total++;
+
+  if (state.min === null || state.max === null) return;
+  const bucketSize = computeBucketSize(state.min, state.max, HISTOGRAM_BUCKETS);
+
+  for (const f of HIST_FIELDS) {
+    const v = Number(data[f]);
+    if (!Number.isFinite(v)) continue;
+    const buckets = state.fieldBuckets.get(f)!;
+    const key = getBucketKey(v, bucketSize);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+}
+
+function writeHistogramFile(sym: string, state: HistogramState): void {
+  if (state.min === null || state.max === null) return;
+  const bucketSize = computeBucketSize(state.min, state.max, HISTOGRAM_BUCKETS);
+  const result: Record<string, unknown> = {
+    symbol: sym,
+    total: state.total,
+    min: state.min,
+    max: state.max,
+    bucketSize,
+    fields: {},
+  };
+  for (const f of HIST_FIELDS) {
+    const buckets = state.fieldBuckets.get(f)!;
+    const sorted = new Map([...buckets.entries()].sort((a, b) => a[0] - b[0]));
+    (result.fields as Record<string, unknown>)[f] = Object.fromEntries(sorted);
+  }
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(histogramFilePath(sym), JSON.stringify(result, null, 2), "utf8");
+}
+
 /**
  * Print the per-minute summary right after the minute rolls over — but only
  * the lines enabled by --xbar and --sigma: the average price of each of the
@@ -538,6 +633,7 @@ const symbolState = new Map<string, {
   minDeltaMark: number | null;
   prevIndexRp: number | null;
   prevLastRp: number | null;
+  histogram: HistogramState;
 }>();
 
 function getSymbolState(sym: string) {
@@ -561,6 +657,7 @@ function getSymbolState(sym: string) {
       minDeltaMark: null,
       prevIndexRp: null,
       prevLastRp: null,
+      histogram: initHistogramState(),
     };
     // Initialize maxDelta from stored files if they exist.
     if (MAX_DELTA) {
@@ -795,6 +892,11 @@ function processTicker(data: Record<string, unknown>): void {
 
   if (CSV_FILE) appendCsvRow(CSV_FILE, data);
 
+  if (HISTOGRAM) {
+    updateHistogram(state.histogram, data);
+    writeHistogramFile(sym, state.histogram);
+  }
+
   const sig = SIG_FIELDS.map((k) => `${k}=${data[k]}`).join("|");
   const changed = sig !== state.lastSig;
   state.lastSig = sig;
@@ -878,3 +980,12 @@ const ws = new ReconnectingWs(WS_URL, {
 });
 
 ws.connect();
+
+if (HISTOGRAM) {
+  process.on("SIGINT", () => {
+    for (const [sym, state] of symbolState) {
+      writeHistogramFile(sym, state.histogram);
+    }
+    process.exit(0);
+  });
+}
