@@ -46,6 +46,7 @@ type Config = Record<string, SymbolConfig>;
 
 const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
+const verbose = getArg("--verbose") !== null;
 if (!rawConfig && !configFile) {
   console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json");
   console.error("       npx tsx scripts/trader.ts --config '<JSON>'");
@@ -290,6 +291,11 @@ async function indexTrade(
   if (!Number.isFinite(signal)) return;
 
   const pendingQ = pending.get(symbol) ?? 0;
+
+  if (verbose) {
+    const adjusted = signal + s.bias;
+    console.log(`[${new Date().toLocaleTimeString()}]  📊  ${symbol} signal=${signal} bias=${s.bias} adjusted=${adjusted} longThresh=${s.longThreshold} shortThresh=${-s.shortThreshold}`);
+  }
 
   if (signal + s.bias >= s.longThreshold) {
     if (!s.hedge && shortSize > 0) return;
