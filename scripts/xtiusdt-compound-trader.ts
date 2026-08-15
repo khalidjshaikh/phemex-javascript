@@ -1194,19 +1194,52 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % 20 === 0) {
-        console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL    TP     SL    Trail  Trades`);
+        console.log(` Bal   Price   EMA20   EMA50   EMA200  RSI   Sig   Pos         PnL     TP      SL     Trail     Trades`);
       }
       lineCount++;
+      const pad = (s: string, n: number) => s.padEnd(n);
+      let pnlStr = "";
+      let tpStr = "";
+      let slStr = "";
+      let trailStr = "";
+      if (state.position !== "NONE" && state.entryPrice > 0) {
+        const isLong = state.position === "LONG";
+        const exitRef = isLong ? bid : ask;
+        const pnlPct = isLong
+          ? (exitRef - state.entryPrice) / state.entryPrice
+          : (state.entryPrice - exitRef) / state.entryPrice;
+        const tpPrice = isLong
+          ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
+          : state.entryPrice * (1 - TAKE_PROFIT_PCT);
+        const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+        const dynSlPct = atrPct !== null
+          ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+          : STOP_LOSS_PCT;
+        const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+        const effectiveSlPct = trailingActive
+          ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+          : dynSlPct;
+        const slPrice = isLong
+          ? state.entryPrice * (1 - effectiveSlPct)
+          : state.entryPrice * (1 + effectiveSlPct);
+        pnlStr = `${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%`;
+        tpStr = fmtNum(tpPrice);
+        slStr = fmtNum(slPrice);
+        trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+      }
       console.log(
-        ` ${fmtNum(currentBalance, 3)} ` +
-        `${fmtNum(price)} ` +
-        `${fmtNum(ind.ema20)} ` +
-        `${fmtNum(ind.ema50)} ` +
-        `${fmtNum(ind.ema200)} ` +
-        `${fmtNum(ind.rsi, 0)}  ` +
-        ` ${sigChar}  ` +
-        `${posLabel}` +
-        `${pnlInfo} ` +
+        ` ${pad(fmtNum(currentBalance, 3), 5)}` +
+        `${pad(fmtNum(price), 8)}` +
+        `${pad(fmtNum(ind.ema20), 8)}` +
+        `${pad(fmtNum(ind.ema50), 8)}` +
+        `${pad(fmtNum(ind.ema200), 9)}` +
+        `${pad(fmtNum(ind.rsi, 0), 6)}` +
+        `  ${sigChar}   ` +
+        `${pad(posLabel, 12)}` +
+        `${pad(pnlStr, 8)}` +
+        `${pad(tpStr, 8)}` +
+        `${pad(slStr, 8)}` +
+        `${pad(trailStr, 10)}` +
         `${state.tradeCount}${warmup}${debounce}`
       );
 
