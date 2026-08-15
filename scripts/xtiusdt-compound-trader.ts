@@ -1211,7 +1211,7 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % (process.stdout.rows || 24) === 0) {
-        console.log(`Bal    Price  EMA20  EMA50  EMA200  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
+        console.log(`Bal    Price  EMA20  EMA50  EMA200 EMA1800 EMA3600 EMA10800  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
@@ -1251,6 +1251,9 @@ async function main(): Promise<void> {
         `${rpad(fmtNum(ind.ema20), 5)}  ` +
         `${rpad(fmtNum(ind.ema50), 5)}  ` +
         `${rpad(fmtNum(ind.ema200), 5)}  ` +
+        `${rpad(fmtNum(ind.ema1800), 6)}  ` +
+        `${rpad(fmtNum(ind.ema3600), 6)}  ` +
+        `${rpad(fmtNum(ind.ema10800), 7)}  ` +
         `${rpad(fmtNum(ind.rsi, 0), 3)}  ` +
         `${lpad(sigChar, 3)}  ` +
         `${lpad(posLabel, 9)} ` +
