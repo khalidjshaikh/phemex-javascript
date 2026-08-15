@@ -53,15 +53,6 @@ interface TickerData {
   timestamp: number;
 }
 
-interface Candle {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-  timestamp: number;
-}
-
 interface Indicators {
   ema20: number | null;
   ema50: number | null;
@@ -143,8 +134,7 @@ const ENSEMBLE_MIN_AGREE = 2; // 2/5 algorithms must agree
 const PAUSE_MS = 1_000; // 1 second between cycles
 const PRICE_SCALE = 10_000;
 const MIN_RSI_MOVE_PCT = 0.0003; // ignore RSI price changes below 0.03% of price
-const CANDLE_INTERVAL_MS = 60_000; // 1 minute candles
-const WARMUP_CANDLES = 210; // need 200+ candles for EMA200
+const WARMUP_TICKS = 100; // don't trade until we have enough indicator history
 const SIGNAL_DEBOUNCE = 3; // require same signal direction for N consecutive cycles
 const ATR_SL_MULT = 2.0; // stop loss = 2.0x ATR
 const MIN_SL_PCT = 0.0012; // floor: 0.12%
@@ -192,8 +182,11 @@ function clamp(v: number, min: number, max: number): number {
 /* ================================================================== */
 
 class IndicatorEngine {
-  private candles: Candle[] = [];
-  private currentCandle: Candle | null = null;
+  private prices: number[] = [];
+  private highs: number[] = [];
+  private lows: number[] = [];
+  private closes: number[] = [];
+  private tickVolumes: number[] = [];
   private ema20: number | null = null;
   private ema50: number | null = null;
   private ema200: number | null = null;
@@ -210,54 +203,36 @@ class IndicatorEngine {
   private bbSma20: number | null = null;
   private bbVariance: number | null = null;
   private prevClose: number | null = null;
-  private maxCandles = 300;
+  private maxLen = 300;
 
-  addTick(price: number, high: number, low: number, volume: number, timestamp: number): boolean {
-    const candleMinute = Math.floor(timestamp / CANDLE_INTERVAL_MS);
+  addTick(price: number, high: number, low: number, tickVolume: number): void {
+    this.prices.push(price);
+    this.highs.push(high);
+    this.lows.push(low);
+    this.closes.push(price);
+    this.tickVolumes.push(tickVolume);
 
-    if (!this.currentCandle) {
-      this.currentCandle = { open: price, high, low, close: price, volume, timestamp: candleMinute * CANDLE_INTERVAL_MS };
-      return false;
+    if (this.prices.length > this.maxLen) {
+      this.prices.shift();
+      this.highs.shift();
+      this.lows.shift();
+      this.closes.shift();
+      this.tickVolumes.shift();
     }
 
-    const currentMinute = this.currentCandle.timestamp / CANDLE_INTERVAL_MS;
-
-    if (candleMinute > currentMinute) {
-      this.currentCandle.close = price;
-      this.candles.push(this.currentCandle);
-      if (this.candles.length > this.maxCandles) {
-        this.candles.shift();
-      }
-      this.updateIndicators();
-      this.currentCandle = { open: price, high, low, close: price, volume, timestamp: candleMinute * CANDLE_INTERVAL_MS };
-      return true;
-    }
-
-    this.currentCandle.high = Math.max(this.currentCandle.high, high);
-    this.currentCandle.low = Math.min(this.currentCandle.low, low);
-    this.currentCandle.close = price;
-    this.currentCandle.volume += volume;
-    return false;
-  }
-
-  private updateIndicators(): void {
-    if (this.candles.length === 0) return;
-    const close = this.candles[this.candles.length - 1].close;
-    const high = this.candles[this.candles.length - 1].high;
-    const low = this.candles[this.candles.length - 1].low;
-    this.ema20 = this.computeEMA(20, this.ema20, close);
-    this.ema50 = this.computeEMA(50, this.ema50, close);
-    this.ema200 = this.computeEMA(200, this.ema200, close);
+    this.ema20 = this.computeEMA(20, this.ema20, price);
+    this.ema50 = this.computeEMA(50, this.ema50, price);
+    this.ema200 = this.computeEMA(200, this.ema200, price);
     this.computeATR(high, low);
-    this.computeRSI(close);
-    this.computeMACD(close);
-    this.computeBollinger(close);
-    this.prevClose = close;
+    this.computeRSI(price);
+    this.computeMACD(price);
+    this.computeBollinger(price);
+    this.prevClose = price;
   }
 
   private computeEMA(period: number, prev: number | null, price: number): number {
-    if (this.candles.length <= period) {
-      const slice = this.candles.map(c => c.close);
+    if (this.prices.length <= period) {
+      const slice = this.prices.slice(0, this.prices.length);
       return slice.reduce((a, b) => a + b, 0) / slice.length;
     }
     const k = 2 / (period + 1);
@@ -269,14 +244,14 @@ class IndicatorEngine {
       ? Math.max(high - low, Math.abs(high - this.prevClose), Math.abs(low - this.prevClose))
       : high - low;
     this.atrSum += tr;
-    if (this.atrSum > this.maxCandles * 10) this.atrSum /= 2;
-    if (this.candles.length >= 14) {
+    if (this.atrSum > this.maxLen * 10) this.atrSum /= 2; // prevent overflow
+    if (this.prices.length >= 14) {
       if (this.atr14 === null) {
         const atrs: number[] = [];
-        for (let i = 1; i <= Math.min(14, this.candles.length - 1); i++) {
-          const h = this.candles[this.candles.length - 1 - i].high;
-          const l = this.candles[this.candles.length - 1 - i].low;
-          const c = this.candles[this.candles.length - 2 - i].close;
+        for (let i = 1; i <= Math.min(14, this.prices.length - 1); i++) {
+          const h = this.highs[this.highs.length - 1 - i];
+          const l = this.lows[this.lows.length - 1 - i];
+          const c = this.closes[this.closes.length - 2 - i];
           atrs.push(Math.max(h - l, Math.abs(h - c), Math.abs(l - c)));
         }
         this.atr14 = atrs.reduce((a, b) => a + b, 0) / atrs.length;
@@ -289,13 +264,14 @@ class IndicatorEngine {
   private computeRSI(price: number): void {
     if (this.prevClose === null) return;
     const change = price - this.prevClose;
+    // Ignore micro-movements below threshold to prevent RSI lock at 0/100
     const minMove = price * MIN_RSI_MOVE_PCT;
     const gain = change > minMove ? change : 0;
     const loss = change < -minMove ? -change : 0;
 
     this.rsiGains.push(gain);
     this.rsiLosses.push(loss);
-    if (this.rsiGains.length > this.maxCandles) {
+    if (this.rsiGains.length > this.maxLen) {
       this.rsiGains.shift();
       this.rsiLosses.shift();
     }
@@ -321,8 +297,8 @@ class IndicatorEngine {
   }
 
   private computeBollinger(price: number): void {
-    if (this.candles.length < 20) return;
-    const slice = this.candles.slice(-20).map(c => c.close);
+    if (this.prices.length < 20) return;
+    const slice = this.prices.slice(-20);
     const sma = slice.reduce((a, b) => a + b, 0) / 20;
     const variance = slice.reduce((a, b) => a + (b - sma) ** 2, 0) / 20;
     this.bbSma20 = sma;
@@ -339,24 +315,26 @@ class IndicatorEngine {
   }
 
   getTickVolume(): number {
-    return this.currentCandle ? this.currentCandle.volume : 0;
+    return this.tickVolumes.length > 0 ? this.tickVolumes[this.tickVolumes.length - 1] : 0;
   }
 
   getAvgTickVolume(period: number = 20): number {
-    if (this.candles.length < period) return 0;
-    const slice = this.candles.slice(-period);
-    return slice.reduce((a, c) => a + c.volume, 0) / period;
+    if (this.tickVolumes.length < period) return 0;
+    const slice = this.tickVolumes.slice(-period);
+    return slice.reduce((a, b) => a + b, 0) / period;
   }
 
   getATRPercent(): number | null {
-    if (this.atr14 === null || this.candles.length === 0) return null;
-    const last = this.candles[this.candles.length - 1].close;
+    if (this.atr14 === null || this.prices.length === 0) return null;
+    const last = this.prices[this.prices.length - 1];
     return last > 0 ? (this.atr14 / last) * 100 : null;
   }
 
   getATRPercentile(): number | null {
     const current = this.getATRPercent();
     if (current === null) return null;
+    // Approximate percentile based on typical range
+    // ATR% for commodities is usually 0.5-3%
     return clamp((current - 0.3) / (2.5 - 0.3) * 100, 0, 100);
   }
 
@@ -379,8 +357,13 @@ class IndicatorEngine {
     };
   }
 
-  loadState(data: { candles: Candle[] }): void {
-    this.candles = data.candles || [];
+  loadState(data: { prices: number[]; highs: number[]; lows: number[]; closes: number[]; tickVolumes: number[] }): void {
+    this.prices = data.prices || [];
+    this.highs = data.highs || [];
+    this.lows = data.lows || [];
+    this.closes = data.closes || [];
+    this.tickVolumes = data.tickVolumes || [];
+    // Recompute indicators from history
     this.ema20 = null;
     this.ema50 = null;
     this.ema200 = null;
@@ -394,24 +377,26 @@ class IndicatorEngine {
     this.bbSma20 = null;
     this.bbVariance = null;
     this.prevClose = null;
-    for (let i = 0; i < this.candles.length; i++) {
-      this.ema20 = this.computeEMA(20, this.ema20, this.candles[i].close);
-      this.ema50 = this.computeEMA(50, this.ema50, this.candles[i].close);
-      this.ema200 = this.computeEMA(200, this.ema200, this.candles[i].close);
-      this.computeATR(this.candles[i].high, this.candles[i].low);
-      this.computeRSI(this.candles[i].close);
-      this.computeMACD(this.candles[i].close);
-      this.computeBollinger(this.candles[i].close);
-      this.prevClose = this.candles[i].close;
+    for (let i = 0; i < this.prices.length; i++) {
+      this.ema20 = this.computeEMA(20, this.ema20, this.prices[i]);
+      this.ema50 = this.computeEMA(50, this.ema50, this.prices[i]);
+      this.ema200 = this.computeEMA(200, this.ema200, this.prices[i]);
+      this.computeATR(this.highs[i], this.lows[i]);
+      this.computeRSI(this.prices[i]);
+      this.computeMACD(this.prices[i]);
+      this.computeBollinger(this.prices[i]);
+      this.prevClose = this.prices[i];
     }
   }
 
-  getState(): { candles: Candle[] } {
-    return { candles: [...this.candles] };
-  }
-
-  getCandleCount(): number {
-    return this.candles.length;
+  getState(): { prices: number[]; highs: number[]; lows: number[]; closes: number[]; tickVolumes: number[] } {
+    return {
+      prices: [...this.prices],
+      highs: [...this.highs],
+      lows: [...this.lows],
+      closes: [...this.closes],
+      tickVolumes: [...this.tickVolumes],
+    };
   }
 }
 
@@ -847,20 +832,18 @@ async function main(): Promise<void> {
       };
 
   // Runtime signal tracking
-  let candleCount = 0;
+  let tickCount = 0;
   let lastSignalDir = 0; // +1 long, -1 short, 0 neutral
   let signalStreak = 0; // consecutive same-direction signals
-  let lastCandleMinute = 0;
 
   // Restore indicator state
   if (restore) {
     const indState = loadJson<ReturnType<IndicatorEngine["getState"]>>(INDICATORS_PATH);
     if (indState) {
       indicatorEngine.loadState(indState);
-      candleCount = indicatorEngine.getCandleCount();
-      console.log(`[${fmtTime()}] ⟐  Restored ${candleCount} candles`);
-      if (candleCount >= WARMUP_CANDLES) {
-        lastCandleMinute = Math.floor(Date.now() / CANDLE_INTERVAL_MS);
+      console.log(`[${fmtTime()}] ⟐  Restored ${indState.prices.length} price history`);
+      if (indState.prices.length >= WARMUP_TICKS) {
+        tickCount = WARMUP_TICKS; // skip warmup — enough history restored
       }
     }
   }
@@ -960,21 +943,38 @@ async function main(): Promise<void> {
       const bid = ticker.bid;
       const high = ticker.ask;
       const low = ticker.bid;
-      const tickVol = 1;
-      const timestamp = Date.now();
+      const tickVol = 1; // simplified tick volume
 
-      const newCandle = indicatorEngine.addTick(price, high, low, tickVol, timestamp);
+      // Update indicators
+      indicatorEngine.addTick(price, high, low, tickVol);
       const ind = indicatorEngine.getIndicators();
+      tickCount++;
 
-      if (newCandle) {
-        candleCount++;
-        lastCandleMinute = Math.floor(timestamp / CANDLE_INTERVAL_MS);
+      // Run all 5 algorithms
+      const signals: AlgorithmSignal[] = [
+        algoEmaCrossover(price, ind),
+        algoIndexDivergence(),
+        algoBollingerSqueeze(price, ind),
+        algoRsiDivergence(price, ind),
+        algoMomentumVolume(price, ind),
+      ];
+
+      // Ensemble vote
+      const vote = ensembleVote(signals);
+
+      // Signal debounce: only track when flat (looking to enter)
+      const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
+      if (state.position !== "NONE") {
+        signalStreak = 0;
+        lastSignalDir = 0;
+      } else if (currentDir === lastSignalDir && currentDir !== 0) {
+        signalStreak++;
+      } else {
+        signalStreak = currentDir !== 0 ? 1 : 0;
+        lastSignalDir = currentDir;
       }
 
-      const candleReady = candleCount >= WARMUP_CANDLES;
-      let vote = { signal: 0, confidence: 0, reasons: [] as string[] };
-
-      // Check positions every tick for TP/SL
+      // Check positions
       const pos = await fetchPositionsForSymbol(creds.PHEMEX_API_KEY, secretRaw);
 
       // Sync state with actual positions
@@ -992,8 +992,9 @@ async function main(): Promise<void> {
 
       // Check take profit / stop loss for existing position
       if (state.position === "LONG" && pos.longSize > 0) {
-        const exitPrice = bid;
+        const exitPrice = bid; // close long at bid
         const pnlPct = (exitPrice - state.entryPrice) / state.entryPrice;
+        // Track best PnL for trailing stop
         if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing LONG`);
@@ -1021,6 +1022,7 @@ async function main(): Promise<void> {
           const dynSlPct = atrPct !== null
             ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
             : STOP_LOSS_PCT;
+          // Trailing stop: if in profit beyond activation threshold, trail behind best PnL
           const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
           const effectiveSlPct = trailingActive
             ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
@@ -1051,8 +1053,9 @@ async function main(): Promise<void> {
           }
         }
       } else if (state.position === "SHORT" && pos.shortSize > 0) {
-        const exitPrice = ask;
+        const exitPrice = ask; // close short at ask
         const pnlPct = (state.entryPrice - exitPrice) / state.entryPrice;
+        // Track best PnL for trailing stop
         if (pnlPct > state.bestPnlPct) state.bestPnlPct = pnlPct;
         if (pnlPct >= TAKE_PROFIT_PCT) {
           console.log(`[${fmtTime()}]  ✦  TP hit: ${fmtNum(pnlPct * 100)}% >= ${TAKE_PROFIT_PCT * 100}% — closing SHORT`);
@@ -1080,6 +1083,7 @@ async function main(): Promise<void> {
           const dynSlPct = atrPct !== null
             ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
             : STOP_LOSS_PCT;
+          // Trailing stop: if in profit beyond activation threshold, trail behind best PnL
           const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
           const effectiveSlPct = trailingActive
             ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
@@ -1123,111 +1127,121 @@ async function main(): Promise<void> {
         // fall back to computed balance
       }
 
-      // Only run algorithms and check for new entries on candle close
-      if (newCandle && candleReady) {
-        const signals: AlgorithmSignal[] = [
-          algoEmaCrossover(price, ind),
-          algoIndexDivergence(),
-          algoBollingerSqueeze(price, ind),
-          algoRsiDivergence(price, ind),
-          algoMomentumVolume(price, ind),
-        ];
+      const riskCheck = riskManager.canTrade(state, currentBalance);
+      if (!riskCheck.ok) {
+        // Suppress repeated log for same reason
+      } else if (tickCount < WARMUP_TICKS) {
+        // Wait for indicator warmup
+      } else if (signalStreak < SIGNAL_DEBOUNCE) {
+        // Signal not confirmed yet
+      } else if (vote.signal !== 0 && state.position === "NONE") {
+        const qty = calcDynamicQty(state, currentBalance);
+        const side = vote.signal > 0 ? "Buy" : "Sell";
+        const posSide = vote.signal > 0 ? "Long" : "Short";
 
-        vote = ensembleVote(signals);
+        console.log(
+          `[${fmtTime()}]  ⟐  ${posSide} signal (${fmtNum(vote.confidence, 2)}) ` +
+          `[${vote.reasons.join(" | ")}] ` +
+          `qty: ${qty} @ ${LEVERAGE}x`
+        );
 
-        const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
-        if (state.position !== "NONE") {
-          signalStreak = 0;
-          lastSignalDir = 0;
-        } else if (currentDir === lastSignalDir && currentDir !== 0) {
-          signalStreak++;
-        } else {
-          signalStreak = currentDir !== 0 ? 1 : 0;
-          lastSignalDir = currentDir;
+        if (await openPosition(side, posSide, qty, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
+          state.position = posSide.toUpperCase() as "LONG" | "SHORT";
+          state.entryPrice = price;
+          state.entryQty = qty;
+          state.bestPnlPct = 0;
+          state.lastTradeTime = Date.now();
+          riskManager.recordTrade();
         }
+      }
 
-        const riskCheck = riskManager.canTrade(state, currentBalance);
-        if (riskCheck.ok && signalStreak >= SIGNAL_DEBOUNCE && vote.signal !== 0 && state.position === "NONE") {
-          const qty = calcDynamicQty(state, currentBalance);
-          const side = vote.signal > 0 ? "Buy" : "Sell";
-          const posSide = vote.signal > 0 ? "Long" : "Short";
-
-          console.log(
-            `[${fmtTime()}]  ⟐  ${posSide} signal (${fmtNum(vote.confidence, 2)}) ` +
-            `[${vote.reasons.join(" | ")}] ` +
-            `qty: ${qty} @ ${LEVERAGE}x`
-          );
-
-          if (await openPosition(side, posSide, qty, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
-            state.position = posSide.toUpperCase() as "LONG" | "SHORT";
-            state.entryPrice = price;
-            state.entryQty = qty;
-            state.bestPnlPct = 0;
-            state.lastTradeTime = Date.now();
-            riskManager.recordTrade();
-          }
-        }
-
-        // Save state on candle close
+      // Update peak balance and save state periodically
+      if (state.tradeCount > 0 && state.tradeCount % 5 === 0) {
         saveState(state);
         saveJson(INDICATORS_PATH, indicatorEngine.getState());
         const metrics = perfLogger.getMetrics(currentBalance, state.peakBalance);
         perfLogger.saveMetrics(metrics);
       }
 
-      // Display status on candle close only
-      if (newCandle) {
-        const rpad = (s: string, n: number) => s.padStart(n);
-        const lpad = (s: string, n: number) => s.padEnd(n);
-        const posLabel = state.position === "NONE" ? "FLAT" : `${state.position} @ ${fmtNum(state.entryPrice)}`;
-        const warmup = !candleReady ? ` WARMUP(${candleCount}/${WARMUP_CANDLES})` : "";
-        const debounce = signalStreak > 0 ? ` streak:${signalStreak}` : "";
-        const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
-        let pnlStr = "";
-        let tpStr = "";
-        let slStr = "";
-        let trailStr = "";
-        if (state.position !== "NONE" && state.entryPrice > 0) {
-          const isLong = state.position === "LONG";
-          const exitRef = isLong ? bid : ask;
-          const pnlPct = isLong
-            ? (exitRef - state.entryPrice) / state.entryPrice
-            : (state.entryPrice - exitRef) / state.entryPrice;
-          const tpPrice = isLong
-            ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
-            : state.entryPrice * (1 - TAKE_PROFIT_PCT);
-          const atrPct = ind.atr !== null ? (ind.atr / price) : null;
-          const dynSlPct = atrPct !== null
-            ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
-            : STOP_LOSS_PCT;
-          const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
-          const effectiveSlPct = trailingActive
-            ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
-            : dynSlPct;
-          const slPrice = isLong
-            ? state.entryPrice * (1 - effectiveSlPct)
-            : state.entryPrice * (1 + effectiveSlPct);
-          pnlStr = `${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%`;
-          tpStr = fmtNum(tpPrice);
-          slStr = fmtNum(slPrice);
-          trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
-        }
-        console.log(
-          `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
-          `${rpad(fmtNum(price), 5)}  ` +
-          `${rpad(fmtNum(ind.ema20), 5)}  ` +
-          `${rpad(fmtNum(ind.ema50), 5)}  ` +
-          `${rpad(fmtNum(ind.ema200), 5)}  ` +
-          `${rpad(fmtNum(ind.rsi, 0), 3)}  ` +
-          `${lpad(sigChar, 3)}  ` +
-          `${lpad(posLabel, 9)} ` +
-          `${rpad(pnlStr, 5)} ` +
-          `${rpad(tpStr, 5)} ` +
-          `${rpad(slStr, 4)} ` +
-          `${lpad(trailStr, 7)}  ` +
-          `${state.tradeCount}${warmup}${debounce}`
-        );
+      // Display status
+      const posLabel = state.position === "NONE" ? "FLAT" : `${state.position} @ ${fmtNum(state.entryPrice)}`;
+      const warmup = tickCount < WARMUP_TICKS ? ` WARMUP(${tickCount}/${WARMUP_TICKS})` : "";
+      const debounce = signalStreak > 0 ? ` streak:${signalStreak}` : "";
+      let pnlInfo = "";
+      if (state.position !== "NONE" && state.entryPrice > 0) {
+        const isLong = state.position === "LONG";
+        const exitRef = isLong ? bid : ask; // bid for LONG, ask for SHORT
+        const pnlPct = isLong
+          ? (exitRef - state.entryPrice) / state.entryPrice
+          : (state.entryPrice - exitRef) / state.entryPrice;
+        const tpPrice = isLong
+          ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
+          : state.entryPrice * (1 - TAKE_PROFIT_PCT);
+        const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+        const dynSlPct = atrPct !== null
+          ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+          : STOP_LOSS_PCT;
+        const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+        const effectiveSlPct = trailingActive
+          ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+          : dynSlPct;
+        const slPrice = isLong
+          ? state.entryPrice * (1 - effectiveSlPct)
+          : state.entryPrice * (1 + effectiveSlPct);
+        const trailLabel = trailingActive ? `${fmtNum(slPrice)}` : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+        pnlInfo = ` ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% ${fmtNum(tpPrice)} ${fmtNum(slPrice)} ${trailLabel}`;
       }
+      const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
+      if (lineCount % (process.stdout.rows || 24) === 0) {
+        console.log(`Bal    Price  EMA20  EMA50  EMA200  RSI Sig  Pos           PnL    TP     SL    Trail     Trades`);
+      }
+      lineCount++;
+      const rpad = (s: string, n: number) => s.padStart(n);
+      const lpad = (s: string, n: number) => s.padEnd(n);
+      let pnlStr = "";
+      let tpStr = "";
+      let slStr = "";
+      let trailStr = "";
+      if (state.position !== "NONE" && state.entryPrice > 0) {
+        const isLong = state.position === "LONG";
+        const exitRef = isLong ? bid : ask;
+        const pnlPct = isLong
+          ? (exitRef - state.entryPrice) / state.entryPrice
+          : (state.entryPrice - exitRef) / state.entryPrice;
+        const tpPrice = isLong
+          ? state.entryPrice * (1 + TAKE_PROFIT_PCT)
+          : state.entryPrice * (1 - TAKE_PROFIT_PCT);
+        const atrPct = ind.atr !== null ? (ind.atr / price) : null;
+        const dynSlPct = atrPct !== null
+          ? clamp(atrPct * ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT)
+          : STOP_LOSS_PCT;
+        const trailingActive = state.bestPnlPct >= TRAILING_ACTIVATE_PCT;
+        const effectiveSlPct = trailingActive
+          ? Math.max(dynSlPct, state.bestPnlPct - TRAILING_STEP_PCT)
+          : dynSlPct;
+        const slPrice = isLong
+          ? state.entryPrice * (1 - effectiveSlPct)
+          : state.entryPrice * (1 + effectiveSlPct);
+        pnlStr = `${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}%`;
+        tpStr = fmtNum(tpPrice);
+        slStr = fmtNum(slPrice);
+        trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
+      }
+      console.log(
+        `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
+        `${rpad(fmtNum(price), 5)}  ` +
+        `${rpad(fmtNum(ind.ema20), 5)}  ` +
+        `${rpad(fmtNum(ind.ema50), 5)}  ` +
+        `${rpad(fmtNum(ind.ema200), 5)}  ` +
+        `${rpad(fmtNum(ind.rsi, 0), 3)}  ` +
+        `${lpad(sigChar, 3)}  ` +
+        `${lpad(posLabel, 9)} ` +
+        `${rpad(pnlStr, 5)} ` +
+        `${rpad(tpStr, 5)} ` +
+        `${rpad(slStr, 4)} ` +
+        `${lpad(trailStr, 7)}  ` +
+        `${state.tradeCount}${warmup}${debounce}`
+      );
 
     } catch (e) {
       console.error(`[${fmtTime()}] ✗  Cycle error: ${e instanceof Error ? e.message : String(e)}`);
