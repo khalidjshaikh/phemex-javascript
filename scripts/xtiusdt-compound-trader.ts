@@ -57,6 +57,9 @@ interface Indicators {
   ema20: number | null;
   ema50: number | null;
   ema200: number | null;
+  ema1800: number | null;
+  ema3600: number | null;
+  ema10800: number | null;
   rsi: number | null;
   bbUpper: number | null;
   bbMiddle: number | null;
@@ -190,6 +193,9 @@ class IndicatorEngine {
   private ema20: number | null = null;
   private ema50: number | null = null;
   private ema200: number | null = null;
+  private ema1800: number | null = null;
+  private ema3600: number | null = null;
+  private ema10800: number | null = null;
   private atr14: number | null = null;
   private atrSum = 0;
   private rsiGains: number[] = [];
@@ -203,7 +209,7 @@ class IndicatorEngine {
   private bbSma20: number | null = null;
   private bbVariance: number | null = null;
   private prevClose: number | null = null;
-  private maxLen = 300;
+  private maxLen = 12000;
 
   addTick(price: number, high: number, low: number, tickVolume: number): void {
     this.prices.push(price);
@@ -223,6 +229,9 @@ class IndicatorEngine {
     this.ema20 = this.computeEMA(20, this.ema20, price);
     this.ema50 = this.computeEMA(50, this.ema50, price);
     this.ema200 = this.computeEMA(200, this.ema200, price);
+    this.ema1800 = this.computeEMA(1800, this.ema1800, price);
+    this.ema3600 = this.computeEMA(3600, this.ema3600, price);
+    this.ema10800 = this.computeEMA(10800, this.ema10800, price);
     this.computeATR(high, low);
     this.computeRSI(price);
     this.computeMACD(price);
@@ -345,6 +354,9 @@ class IndicatorEngine {
       ema20: this.ema20,
       ema50: this.ema50,
       ema200: this.ema200,
+      ema1800: this.ema1800,
+      ema3600: this.ema3600,
+      ema10800: this.ema10800,
       rsi,
       bbUpper: this.bbSma20 !== null && bbStd !== null ? this.bbSma20 + 2 * bbStd : null,
       bbMiddle: this.bbSma20,
@@ -367,6 +379,9 @@ class IndicatorEngine {
     this.ema20 = null;
     this.ema50 = null;
     this.ema200 = null;
+    this.ema1800 = null;
+    this.ema3600 = null;
+    this.ema10800 = null;
     this.ema12 = null;
     this.ema26 = null;
     this.atr14 = null;
@@ -381,6 +396,9 @@ class IndicatorEngine {
       this.ema20 = this.computeEMA(20, this.ema20, this.prices[i]);
       this.ema50 = this.computeEMA(50, this.ema50, this.prices[i]);
       this.ema200 = this.computeEMA(200, this.ema200, this.prices[i]);
+      this.ema1800 = this.computeEMA(1800, this.ema1800, this.prices[i]);
+      this.ema3600 = this.computeEMA(3600, this.ema3600, this.prices[i]);
+      this.ema10800 = this.computeEMA(10800, this.ema10800, this.prices[i]);
       this.computeATR(this.highs[i], this.lows[i]);
       this.computeRSI(this.prices[i]);
       this.computeMACD(this.prices[i]);
