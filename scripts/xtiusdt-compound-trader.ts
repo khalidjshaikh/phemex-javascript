@@ -1194,7 +1194,7 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % 20 === 0) {
-        console.log(` Bal   Price   EMA20   EMA50   EMA200  RSI   Sig   Pos         PnL     TP      SL     Trail     Trades`);
+        console.log(` Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos        PnL    TP     SL    Trail    Trades`);
       }
       lineCount++;
       const pad = (s: string, n: number) => s.padEnd(n);
@@ -1229,17 +1229,17 @@ async function main(): Promise<void> {
       }
       console.log(
         ` ${pad(fmtNum(currentBalance, 3), 5)}` +
-        `${pad(fmtNum(price), 8)}` +
-        `${pad(fmtNum(ind.ema20), 8)}` +
-        `${pad(fmtNum(ind.ema50), 8)}` +
-        `${pad(fmtNum(ind.ema200), 9)}` +
-        `${pad(fmtNum(ind.rsi, 0), 6)}` +
-        `  ${sigChar}   ` +
-        `${pad(posLabel, 12)}` +
-        `${pad(pnlStr, 8)}` +
-        `${pad(tpStr, 8)}` +
-        `${pad(slStr, 8)}` +
-        `${pad(trailStr, 10)}` +
+        `${pad(fmtNum(price), 7)}` +
+        `${pad(fmtNum(ind.ema20), 7)}` +
+        `${pad(fmtNum(ind.ema50), 7)}` +
+        `${pad(fmtNum(ind.ema200), 8)}` +
+        `${pad(fmtNum(ind.rsi, 0), 5)}` +
+        `  ${sigChar}  ` +
+        `${pad(posLabel, 11)}` +
+        `${pad(pnlStr, 7)}` +
+        `${pad(tpStr, 7)}` +
+        `${pad(slStr, 6)}` +
+        `${pad(trailStr, 9)}` +
         `${state.tradeCount}${warmup}${debounce}`
       );
 
