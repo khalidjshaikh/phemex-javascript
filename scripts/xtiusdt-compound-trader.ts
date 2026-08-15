@@ -1166,7 +1166,7 @@ async function main(): Promise<void> {
 
         if (await openPosition(side, posSide, qty, creds.PHEMEX_API_KEY, secretRaw, dryRun)) {
           state.position = posSide.toUpperCase() as "LONG" | "SHORT";
-          state.entryPrice = price;
+          state.entryPrice = posSide === "Long" ? ask : bid;
           state.entryQty = qty;
           state.bestPnlPct = 0;
           state.lastTradeTime = Date.now();
