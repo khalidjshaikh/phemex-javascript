@@ -423,18 +423,19 @@ class IndicatorEngine {
 /* ================================================================== */
 
 function algoEmaCrossover(price: number, ind: Indicators): AlgorithmSignal {
-  if (ind.ema20 === null || ind.ema50 === null || ind.ema200 === null) {
+  if (ind.ema20 === null || ind.ema50 === null || ind.ema200 === null || ind.ema1200 === null) {
     return { name: "EMA Crossover", signal: 0, confidence: 0, reason: "indicators not ready" };
   }
 
   const emaAbove = ind.ema20 > ind.ema50;
   const priceAboveEma200 = price > ind.ema200;
+  const priceAboveEma1200 = price > ind.ema1200;
 
-  if (emaAbove && priceAboveEma200) {
-    return { name: "EMA Crossover", signal: 1, confidence: 0.7, reason: "EMA20>EMA50, price>EMA200" };
+  if (emaAbove && priceAboveEma200 && priceAboveEma1200) {
+    return { name: "EMA Crossover", signal: 1, confidence: 0.7, reason: "EMA20>EMA50, price>EMA200, price>EMA1200" };
   }
-  if (!emaAbove && !priceAboveEma200) {
-    return { name: "EMA Crossover", signal: -1, confidence: 0.7, reason: "EMA20<EMA50, price<EMA200" };
+  if (!emaAbove && !priceAboveEma200 && !priceAboveEma1200) {
+    return { name: "EMA Crossover", signal: -1, confidence: 0.7, reason: "EMA20<EMA50, price<EMA200, price<EMA1200" };
   }
   return { name: "EMA Crossover", signal: 0, confidence: 0.3, reason: "mixed signals" };
 }
