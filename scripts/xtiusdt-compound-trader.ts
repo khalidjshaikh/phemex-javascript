@@ -1194,7 +1194,7 @@ async function main(): Promise<void> {
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
       if (lineCount % 20 === 0) {
-        console.log(`Bal  Price  EMA20  EMA50  EMA200  RSI  Sig  Pos        PnL    TP     SL    Trail    Trades`);
+        console.log(`Bal  Price  EMA20  EMA50  EMA200 RSI  Sig  Pos       PnL   TP    SL   Trail   Trades`);
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
@@ -1229,18 +1229,18 @@ async function main(): Promise<void> {
         trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
       }
       console.log(
-        `${rpad(fmtNum(currentBalance, 3), 4)} ` +
-        `${rpad(fmtNum(price), 6)} ` +
-        `${rpad(fmtNum(ind.ema20), 6)} ` +
-        `${rpad(fmtNum(ind.ema50), 6)} ` +
-        `${rpad(fmtNum(ind.ema200), 7)} ` +
-        `${rpad(fmtNum(ind.rsi, 0), 4)} ` +
-        ` ${sigChar}  ` +
-        `${lpad(posLabel, 11)} ` +
-        `${rpad(pnlStr, 6)} ` +
-        `${rpad(tpStr, 6)} ` +
-        `${rpad(slStr, 6)} ` +
-        `${lpad(trailStr, 9)} ` +
+        `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
+        `${rpad(fmtNum(price), 5)}  ` +
+        `${rpad(fmtNum(ind.ema20), 5)}  ` +
+        `${rpad(fmtNum(ind.ema50), 5)}  ` +
+        `${rpad(fmtNum(ind.ema200), 5)}  ` +
+        `${rpad(fmtNum(ind.rsi, 0), 3)}  ` +
+        `${lpad(sigChar, 3)}  ` +
+        `${lpad(posLabel, 9)} ` +
+        `${rpad(pnlStr, 5)} ` +
+        `${rpad(tpStr, 5)} ` +
+        `${rpad(slStr, 4)} ` +
+        `${lpad(trailStr, 7)}  ` +
         `${state.tradeCount}${warmup}${debounce}`
       );
 
