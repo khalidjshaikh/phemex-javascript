@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import { resolve } from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
-import { getArg, findSymbolRow } from "../src/cli-utils.js";
+import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 import { loadCredentials } from "../src/credentials.js";
 import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
 import { fetchPositions, closePosition, type Position } from "../src/positions.js";
@@ -46,7 +46,7 @@ type Config = Record<string, SymbolConfig>;
 
 const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
-const verbose = getArg("--verbose") !== null;
+const verbose = hasFlag("--verbose");
 if (!rawConfig && !configFile) {
   console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json");
   console.error("       npx tsx scripts/trader.ts --config '<JSON>'");
