@@ -1001,7 +1001,7 @@ async function main(): Promise<void> {
       const agreeCount = vote.signal !== 0
         ? signals.filter((s) => (vote.signal > 0 ? s.signal > 0 : s.signal < 0)).length
         : 0;
-      console.log(`[${fmtTime()}]  ◆  ${algoSignals}  → ENS:${ensLabel} (${agreeCount}/${signals.length}) ${vote.reasons.join(" | ")}`);
+      // console.log(`[${fmtTime()}]  ◆  ${algoSignals}  → ENS:${ensLabel} (${agreeCount}/${signals.length}) ${vote.reasons.join(" | ")}`);
 
       // Signal debounce: only track when flat (looking to enter)
       const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
