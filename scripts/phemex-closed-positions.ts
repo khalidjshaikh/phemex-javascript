@@ -43,6 +43,7 @@ Options:
   --limit <n>         Max fills to fetch (default 200; pages of 200)
   --json              Output raw JSON instead of the table
   --color             Color rows red when net PnL is negative
+  --decimals <N>      Decimal places for numbers (default 2)
   --help, -h          Show this help message
 
 Examples:
@@ -50,17 +51,18 @@ Examples:
   ./phemex-closed-positions.ts --symbol XBRUSDT        Only XBRUSDT
   ./phemex-closed-positions.ts --days 30 --limit 1000  Longer window
   ./phemex-closed-positions.ts --json                  Machine-readable output
+  ./phemex-closed-positions.ts --decimals 4            4 decimal places
 `);
   process.exit(0);
 }
 
-function fmtUsd(n: number): string {
+function fmtUsd(n: number, decimals = 4): string {
   const sign = n >= 0 ? "+" : "";
-  return sign + n.toFixed(4);
+  return sign + n.toFixed(decimals);
 }
 
-function fmtQty(n: number): string {
-  return n.toFixed(3);
+function fmtQty(n: number, decimals = 2): string {
+  return n.toFixed(decimals);
 }
 
 function fmtTime(ms: number): string {
@@ -90,7 +92,7 @@ function fmtDuration(ms: number): string {
 /*  Table output                                                       */
 /* ------------------------------------------------------------------ */
 
-function printTable(positions: ClosedPosition[], color = false): void {
+function printTable(positions: ClosedPosition[], color = false, decimals = 2): void {
   if (positions.length === 0) {
     console.log("\nNo closed positions found in the requested window.");
     return;
@@ -125,10 +127,10 @@ function printTable(positions: ClosedPosition[], color = false): void {
     const p = rows[i];
     const realized = p.realizedPnl;
     if (realized >= 0) winners++;
-    const pnlFmt = fmtUsd(realized).padStart(10);
-    const netFmt = fmtUsd(p.netPnl).padStart(10);
-    const feeFmt = fmtUsd(-(p.entryFee + p.exitFee)).padStart(10);
-    const spread = Math.abs(p.avgExitPrice - p.avgEntryPrice).toFixed(2).padStart(7);
+    const pnlFmt = fmtUsd(realized, decimals).padStart(10);
+    const netFmt = fmtUsd(p.netPnl, decimals).padStart(10);
+    const feeFmt = fmtUsd(-(p.entryFee + p.exitFee), decimals).padStart(10);
+    const spread = Math.abs(p.avgExitPrice - p.avgEntryPrice).toFixed(decimals).padStart(7);
     const red = color && realized < 0 ? "\x1b[31m" : "";
     const reset = red ? "\x1b[0m" : "";
     console.log(
@@ -138,9 +140,9 @@ function printTable(positions: ClosedPosition[], color = false): void {
       `${fmtDuration(p.closedAt - p.openedAt).padEnd(9)} ` +
       `${p.symbol.padEnd(8)} ` +
       `${p.posSide.padEnd(6)}` +
-      `${fmtQty(p.qty).padStart(7)} ` +
-      `${p.avgEntryPrice.toFixed(2).padStart(9)} ` +
-      `${p.avgExitPrice.toFixed(2).padStart(9)} ` +
+      `${fmtQty(p.qty, decimals).padStart(7)} ` +
+      `${p.avgEntryPrice.toFixed(decimals).padStart(9)} ` +
+      `${p.avgExitPrice.toFixed(decimals).padStart(9)} ` +
       `${spread} ` +
       `${pnlFmt} ` +
       `${netFmt} ` +
@@ -156,9 +158,9 @@ function printTable(positions: ClosedPosition[], color = false): void {
   console.log(
     `Positions: ${rows.length}   ` +
     `Winners: ${winners}   ` +
-    `Σ Realized PnL: ${fmtUsd(gross)}   ` +
-    `Σ Fees: ${fees.toFixed(4)}   ` +
-    `Σ Net PnL: ${fmtUsd(net)}`
+    `Σ Realized PnL: ${fmtUsd(gross, decimals)}   ` +
+    `Σ Fees: ${fees.toFixed(decimals)}   ` +
+    `Σ Net PnL: ${fmtUsd(net, decimals)}`
   );
 }
 
@@ -174,6 +176,7 @@ async function main(): Promise<void> {
   const limit = Math.max(parseInt(getArg("--limit") || "200", 10) || 200, 1);
   const asJson = hasFlag("--json");
   const useColor = hasFlag("--color");
+  const decimals = Math.max(parseInt(getArg("--decimals") || "2", 10) || 2, 0);
 
   const creds = loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
@@ -194,7 +197,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(positions, null, 2));
     return;
   }
-  printTable(positions, useColor);
+  printTable(positions, useColor, decimals);
 }
 
 main().catch((err) => {
