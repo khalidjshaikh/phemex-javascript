@@ -1230,7 +1230,7 @@ async function main(): Promise<void> {
         return ".";
       }).join("");
       if (lineCount % (process.stdout.rows || 24) === 0) {
-        console.log(`Bal    Price   Ask    Bid   EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI  ATR  Algo  Sig  Pos           PnL    TP     SL    Trail     Trades`);
+        console.log(`Bal    Price   Ask    Bid   Index  Last   I-L    EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI  ATR  Algo  Sig  Pos           PnL    TP     SL    Trail     Trades`);
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
@@ -1264,11 +1264,15 @@ async function main(): Promise<void> {
         slStr = fmtNum(slPrice);
         trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
       }
+      const indexLast = ticker.index - ticker.last;
       console.log(
         `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
         `${rpad(fmtNum(price), 5)}  ` +
         `${rpad(fmtNum(ask), 5)}  ` +
         `${rpad(fmtNum(bid), 5)}  ` +
+        `${rpad(fmtNum(ticker.index), 5)}  ` +
+        `${rpad(fmtNum(ticker.last), 5)}  ` +
+        `${rpad(fmtNum(indexLast), 5)}  ` +
         `${rpad(fmtNum(ind.ema20), 5)}  ` +
         `${rpad(fmtNum(ind.ema50), 5)}  ` +
         `${rpad(fmtNum(ind.ema200), 5)}  ` +
