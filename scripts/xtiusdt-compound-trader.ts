@@ -513,8 +513,8 @@ function algoMomentumVolume(price: number, ind: Indicators): AlgorithmSignal {
 }
 
 function algoIndexTrade(index: number, last: number): AlgorithmSignal {
-  const bias = -0.13;
-  const threshold = 0.24;
+  const bias = 0;
+  const threshold = 0.2;
   const indexLast = index - last;
 
   if (!Number.isFinite(indexLast)) {
@@ -992,6 +992,16 @@ async function main(): Promise<void> {
 
       // Ensemble vote
       const vote = ensembleVote(signals);
+
+      // Per-algorithm signal display
+      const sigLabel = (s: AlgorithmSignal) => s.signal > 0 ? "▲" : s.signal < 0 ? "▼" : "—";
+      const sigConf = (s: AlgorithmSignal) => s.signal !== 0 ? `(${(s.confidence * 100).toFixed(0)}%)` : "";
+      const algoSignals = signals.map((s) => `${s.name.split(" ")[0]}:${sigLabel(s)}${sigConf(s)}`).join(" ");
+      const ensLabel = vote.signal > 0 ? "LONG" : vote.signal < 0 ? "SHORT" : "FLAT";
+      const agreeCount = vote.signal !== 0
+        ? signals.filter((s) => (vote.signal > 0 ? s.signal > 0 : s.signal < 0)).length
+        : 0;
+      console.log(`[${fmtTime()}]  ◆  ${algoSignals}  → ENS:${ensLabel} (${agreeCount}/${signals.length}) ${vote.reasons.join(" | ")}`);
 
       // Signal debounce: only track when flat (looking to enter)
       const currentDir = vote.signal > 0 ? 1 : vote.signal < 0 ? -1 : 0;
