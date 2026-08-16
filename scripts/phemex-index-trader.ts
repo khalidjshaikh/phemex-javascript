@@ -223,7 +223,7 @@ async function closePosition(
   }
 
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side, price: 0, qty: closeQty, posSide },
+    { account: "usdt-m", symbol: SYMBOL, side, price: 0, qty: closeQty, posSide, reduceOnly: true },
     apiKey,
     secretRaw,
   );

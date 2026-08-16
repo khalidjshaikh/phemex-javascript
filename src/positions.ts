@@ -148,6 +148,7 @@ export async function closePosition(
       qty: size,
       posSide: closePosSide,
       price: 0,
+      reduceOnly: true,
     },
     apiKey,
     secretRaw,

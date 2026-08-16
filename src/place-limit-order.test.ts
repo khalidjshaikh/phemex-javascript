@@ -275,6 +275,7 @@ function mockRequestError(errorMsg: string): HttpRequest {
       posSide: "Long",
       takeProfit: 55000,
       stopLoss: 48000,
+      reduceOnly: true,
     },
     FAKE_API_KEY,
     FAKE_SECRET_RAW,
@@ -284,6 +285,7 @@ function mockRequestError(errorMsg: string): HttpRequest {
   const qs = mock.lastCall.query!;
   assert.ok(qs.includes("takeProfitRp=55000"), "Should include takeProfitRp");
   assert.ok(qs.includes("stopLossRp=48000"), "Should include stopLossRp");
+  assert.ok(qs.includes("reduceOnly=true"), "Should include reduceOnly for safe closes");
 
   console.log("✓  Test 7 — placeLinear with TP/SL: PASSED");
 }

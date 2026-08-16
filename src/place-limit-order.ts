@@ -43,6 +43,8 @@ export interface PlaceLimitOrderParams {
   takeProfit?: number;
   /** Stop-loss trigger price (usdt-m only, optional) */
   stopLoss?: number;
+  /** Only reduce an existing position (usdt-m only, recommended for closes) */
+  reduceOnly?: boolean;
 }
 
 export interface PlaceOrderResult {
@@ -245,6 +247,9 @@ export async function placeLinear(
   if ((params.stopLoss !== undefined) && (params.stopLoss > 0)) {
     paramsList.push(`stopLossRp=${params.stopLoss}`);
   }
+  if (params.reduceOnly !== undefined) {
+    paramsList.push(`reduceOnly=${params.reduceOnly}`);
+  }
   const query = paramsList.join("&");
 
   const resp = (await _request(
@@ -441,6 +446,9 @@ export async function placeMarketLinear(
   }
   if ((params.stopLoss !== undefined) && (params.stopLoss > 0)) {
     paramsList.push(`stopLossRp=${params.stopLoss}`);
+  }
+  if (params.reduceOnly !== undefined) {
+    paramsList.push(`reduceOnly=${params.reduceOnly}`);
   }
   const query = paramsList.join("&");
 
