@@ -522,6 +522,7 @@ function algoIndexTrade(index: number, last: number): AlgorithmSignal {
   }
 
   const adjusted = indexLast + bias;
+  console.log(`[DEBUG] indexLast=${indexLast} (raw), bias=${bias}, adjusted=${adjusted}, threshold=${threshold}`);
   if (adjusted >= threshold) {
     return { name: "Index Trade (trader2)", signal: 1, confidence: 0.7, reason: `adjusted ${fmtNum(adjusted)} >= ${threshold} (indexLast ${fmtNum(indexLast)})` };
   }
