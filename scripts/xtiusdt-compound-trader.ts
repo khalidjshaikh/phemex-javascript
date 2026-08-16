@@ -1280,6 +1280,7 @@ async function main(): Promise<void> {
       }
       // const indexLast = ticker.index - ticker.last;
       console.log(
+        `${lpad(new Date().toLocaleTimeString(), 8)}  ` +
         `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
         `${rpad(fmtNum(price), 5)}  ` +
         `${rpad(fmtNum(ask), 5)}  ` +
