@@ -1223,8 +1223,14 @@ async function main(): Promise<void> {
         pnlInfo = ` ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct * 100)}% ${fmtNum(tpPrice)} ${fmtNum(slPrice)} ${trailLabel}`;
       }
       const sigChar = vote.signal > 0 ? "↑" : vote.signal < 0 ? "↓" : "—";
+      // Algorithm status: Uppercase=long, lowercase=short, .=neutral
+      const algoStatus = signals.map((s) => {
+        if (s.signal > 0) return s.name[0].toUpperCase();
+        if (s.signal < 0) return s.name[0].toLowerCase();
+        return ".";
+      }).join("");
       if (lineCount % (process.stdout.rows || 24) === 0) {
-        console.log(`Bal    Price   Ask    Bid   EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI  ATR  Sig  Pos           PnL    TP     SL    Trail     Trades`);
+        console.log(`Bal    Price   Ask    Bid   EMA20  EMA50  EMA200 EMA1200 EMA3000 EMA12000  RSI  ATR  Algo  Sig  Pos           PnL    TP     SL    Trail     Trades`);
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
@@ -1271,6 +1277,7 @@ async function main(): Promise<void> {
         `${rpad(fmtNum(ind.ema12000), 7)}  ` +
         `${rpad(fmtNum(ind.rsi, 0), 3)}  ` +
         `${rpad(fmtNum(ind.atr), 5)}  ` +
+        `${lpad(algoStatus, 6)}  ` +
         `${lpad(sigChar, 3)}  ` +
         `${lpad(posLabel, 9)} ` +
         `${rpad(pnlStr, 5)} ` +
