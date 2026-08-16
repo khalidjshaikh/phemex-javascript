@@ -156,7 +156,7 @@ const DATA_DIR = path.resolve(__dirname, "..", "data", "xtiusdt-compound");
 /* ================================================================== */
 
 function fmtTime(): string {
-  return new Date().toLocaleTimeString();
+  return new Date().toLocaleString();
 }
 
 function fmtNum(n: number | null, decimals = 2): string {
