@@ -36,6 +36,7 @@
  *   npx tsx phemex-ticker-24hr.ts --csv ticker.csv # append CSV rows
  *   npx tsx phemex-ticker-24hr.ts --histogram      # price distribution files
  *   npx tsx phemex-ticker-24hr.ts --histogram --histogramBuckets 200
+ *   npx tsx phemex-ticker-24hr.ts --decimals 4   # 4 decimal places (default: 2)
  */
 
 import fs from "node:fs";
@@ -88,6 +89,7 @@ Options:
                       data/<SYMBOL>-histogram.json (bucketed frequencies of
                       ask, bid, index, mark, last). Final write on SIGINT.
   --histogramBuckets <N>  Number of histogram buckets (default: 100)
+  --decimals <N>      Number of decimal places for price display (default: 2)
   --help              Show this help and exit
 `;
 
@@ -108,6 +110,8 @@ const CSV_FILE = getArg("--csv");
 // --histogram: track price distribution per symbol and write to data/<SYMBOL>-histogram.json.
 const HISTOGRAM = hasFlag("--histogram");
 const HISTOGRAM_BUCKETS = Number(getArg("--histogramBuckets") ?? 100);
+// --decimals <N>: number of decimal places for price display (default: 2).
+const DECIMALS = Number(getArg("--decimals") ?? 2);
 
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
@@ -280,15 +284,15 @@ function colFull(key: string): string {
 function colWidth(key: string): number {
   const label = visWidth(colLabel(key));
   if (key === "timestamp") return Math.max(label, 12); // HH:MM:SS.mmm
-  if (key === "markRp") return Math.max(label, 6);
-  if (key === "markRpDelta") return Math.max(label, 6);
+  if (key === "markRp") return Math.max(label, DECIMALS + 4); // sign + "0." + decimals
+  if (key === "markRpDelta") return Math.max(label, DECIMALS + 4);
   if (key === "dt") return Math.max(label, 12);
   // Cumulative counters can grow; everything else is a small price/delta.
   if (key === "volumeRq" || key === "turnoverRv" || key === "openInterestRv")
     return Math.max(label, 8);
   // MA columns: signed 8-decimal values (e.g. +0.06000000 = 11 chars).
   if (key.startsWith("ma")) return Math.max(label, 11);
-  return Math.max(label, 5); // 2-decimal numbers: 84.00, +0.02
+  return Math.max(label, DECIMALS + 3); // N-decimal numbers: sign + digits + decimals
 }
 
 /**
@@ -322,7 +326,7 @@ function padLeft(s: string, w: number): string {
 }
 
 /** Format a number with exactly DECIMALS decimals; dash when absent/invalid. */
-function fmt(v: unknown, decimals = 2): string {
+function fmt(v: unknown, decimals = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
@@ -332,9 +336,9 @@ function fmt(v: unknown, decimals = 2): string {
 /**
  * Format a delta value with a sign so columns align: "+0.05", "-0.02",
  * " 0.00" (a space holds the sign position for zero). DECIMALS controls
- * the digits after the point (default 2).
+ * the digits after the point (default 2, overridable via --decimals).
  */
-function fmtDelta(v: unknown, decimals = 2): string {
+function fmtDelta(v: unknown, decimals = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
@@ -553,8 +557,8 @@ function printMinuteSummary(
  *  delta and MA columns with a sign prefix. */
 function fmtField(k: string, v: unknown): string {
   if (k === "timestamp") return fmtTsLocal(v);
-  if (k === "markRp") return fmt(v, 2);
-  if (k.endsWith("Delta")) return fmtDelta(v, 2);
+  if (k === "markRp") return fmt(v, DECIMALS);
+  if (k.endsWith("Delta")) return fmtDelta(v, DECIMALS);
   if (k.startsWith("ma")) return fmtDelta(v, 8);
   return fmt(v);
 }
