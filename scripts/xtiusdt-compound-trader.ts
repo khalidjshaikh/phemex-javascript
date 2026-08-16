@@ -21,6 +21,7 @@
  *   npx tsx scripts/xtiusdt-compound-trader.ts --dry-run
  *   npx tsx scripts/xtiusdt-compound-trader.ts --size 0.02
  *   npx tsx scripts/xtiusdt-compound-trader.ts --restore
+ *   npx tsx scripts/xtiusdt-compound-trader.ts --debug
  */
 
 import fs from "node:fs";
@@ -521,7 +522,9 @@ function algoIndexTrade(indexLast: number): AlgorithmSignal {
   }
 
   const adjusted = indexLast + bias;
-  console.log(`[DEBUG] indexLast=${indexLast} (raw), bias=${bias}, adjusted=${adjusted}, threshold=${threshold}`);
+  if (hasFlag("--debug")) {
+    console.log(`[DEBUG] indexLast=${indexLast} (raw), bias=${bias}, adjusted=${adjusted}, threshold=${threshold}`);
+  }
   if (adjusted >= threshold) {
     return { name: "Index Trade (trader2)", signal: 1, confidence: 0.7, reason: `adjusted ${fmtNum(adjusted)} >= ${threshold} (indexLast ${fmtNum(indexLast)})` };
   }
