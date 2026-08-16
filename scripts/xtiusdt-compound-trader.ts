@@ -1244,7 +1244,9 @@ async function main(): Promise<void> {
         return ".";
       }).join("");
       if (lineCount % (process.stdout.rows || 24) === 0) {
-        console.log(`DateTime  Bal  Price   Ask   Bid  Index  Last   I-L  EMA20 EMA50 EMA200 EMA1200 EMA3000 EMA12000  RSI  ATR  Algo   Sig  Pos       PnL    TP    SL  Trail    Trades`);
+        console.log(`DateTime  Bal    Price  Ask    Bid    Index  Last    I-L   EMA20  EMA50  EMA200  EMA1200 EMA3000  EMA12k RSI   ATR   Algo   Sig   Pos       PnL    TP    SL  Trail    Trades`);
+                  // 13:51:32  0.954  81.47  81.47  81.43  81.61  81.47   0.14  81.47  81.47  81.47   81.43   81.38    81.25  100   0.04  E.br..  —    FLAT                                2
+
       }
       lineCount++;
       const rpad = (s: string, n: number) => s.padStart(n);
