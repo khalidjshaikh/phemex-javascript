@@ -641,9 +641,7 @@ function buildResSelector() {
       activeResolution = b.dataset.res;
       saveResolution(activeResolution);
       buildResSelector();
-      if (RESOLUTION_VALUES[activeResolution] >= 15) {
-        fetchKlinesForActive();
-      }
+      startKlineRefresh();
       render();
     };
   });
@@ -659,6 +657,7 @@ async function fetchKlinesForActive() {
     const res = await fetch('/api/klines?symbol=' + activeSymbol + '&resolution=' + RESOLUTION_VALUES[activeResolution]);
     const json = await res.json();
     klineData[activeSymbol] = json.rows || [];
+    render();
   } catch {}
 }
 
