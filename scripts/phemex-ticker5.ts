@@ -74,9 +74,9 @@ Options:
   --delta             Add Δask, Δbid, Δindex, Δlast, Δmark columns showing
                       each field minus the last price, plus Δt (elapsed
                       seconds from ticker timestamp)
-  --prevDelta         Add ΔindexPrev (index − previous index) and
-                      ΔlastPrev (last − previous last) columns showing
-                      price change from the prior tick
+  --prevDelta         Add ΔaskPrev, ΔbidPrev, ΔindexPrev and
+                      ΔlastPrev columns showing each field's price
+                      change from the prior tick
   --xbar              Print the per-minute average-price line (x̄ask … x̄last)
   --sigma             Print the per-minute cumulative movement lines
                       (Σask … Σlast and Σask/Δt … Σlast/Δt)
@@ -155,6 +155,7 @@ const COLUMN_ORDER_BASE = [
   "timestamp", "turnoverRv", "volumeRq",
   "askRpDelta", "bidRpDelta", "indexRpDelta",
   "markRpDelta", "lastRpDelta",
+  "askRpPrevDelta", "bidRpPrevDelta",
   "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
 ];
@@ -254,6 +255,8 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   lastRpDelta:       { label: "Δlast",   full: "last − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
   // Previous-tick delta columns (--prevDelta): change from prior tick.
+  askRpPrevDelta:    { label: "ΔaskPrev",   full: "ask − previous ask" },
+  bidRpPrevDelta:    { label: "ΔbidPrev",   full: "bid − previous bid" },
   indexRpPrevDelta:  { label: "ΔindexPrev", full: "index − previous index" },
   lastRpPrevDelta:   { label: "ΔlastPrev",  full: "last − previous last" },
   // Moving average columns (--ma): time-weighted avg of Δindex over N seconds.
@@ -635,6 +638,8 @@ const symbolState = new Map<string, {
   minDeltaIndex: number | null;
   maxDeltaMark: number | null;
   minDeltaMark: number | null;
+  prevAskRp: number | null;
+  prevBidRp: number | null;
   prevIndexRp: number | null;
   prevLastRp: number | null;
   histogram: HistogramState;
@@ -659,6 +664,8 @@ function getSymbolState(sym: string) {
       minDeltaIndex: null,
       maxDeltaMark: null,
       minDeltaMark: null,
+      prevAskRp: null,
+      prevBidRp: null,
       prevIndexRp: null,
       prevLastRp: null,
       histogram: initHistogramState(),
@@ -721,15 +728,25 @@ function processTicker(data: Record<string, unknown>): void {
     }
   }
 
-  // --prevDelta: ΔindexPrev (index − previous index) and ΔlastPrev (last − previous last).
+  // --prevDelta: ΔaskPrev, ΔbidPrev, ΔindexPrev and ΔlastPrev — change from prior tick.
   if (PREV_DELTA) {
+    const prevAsk = state.prevAskRp;
+    const prevBid = state.prevBidRp;
     const prevIdx = state.prevIndexRp;
     const prevLtp = state.prevLastRp;
+    const ask = Number(data.askRp);
+    const bid = Number(data.bidRp);
+    data.askRpPrevDelta =
+      Number.isFinite(ask) && Number.isFinite(prevAsk) ? ask - prevAsk : null;
+    data.bidRpPrevDelta =
+      Number.isFinite(bid) && Number.isFinite(prevBid) ? bid - prevBid : null;
     data.indexRpPrevDelta =
       Number.isFinite(indexRp) && Number.isFinite(prevIdx) ? indexRp - prevIdx : null;
     data.lastRpPrevDelta =
       Number.isFinite(last) && Number.isFinite(prevLtp) ? last - prevLtp : null;
     // Store current values as previous for next tick.
+    if (Number.isFinite(ask)) state.prevAskRp = ask;
+    if (Number.isFinite(bid)) state.prevBidRp = bid;
     if (Number.isFinite(indexRp)) state.prevIndexRp = indexRp;
     if (Number.isFinite(last)) state.prevLastRp = last;
   }
