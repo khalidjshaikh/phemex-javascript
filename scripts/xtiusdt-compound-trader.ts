@@ -1278,7 +1278,6 @@ async function main(): Promise<void> {
         slStr = fmtNum(slPrice);
         trailStr = trailingActive ? fmtNum(slPrice) : `OFF(${fmtNum(state.bestPnlPct * 100)}%)`;
       }
-      const indexLast = ticker.index - ticker.last;
       console.log(
         `${rpad(fmtNum(currentBalance, 3), 3)}  ` +
         `${rpad(fmtNum(price), 5)}  ` +
