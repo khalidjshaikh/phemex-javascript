@@ -11,7 +11,7 @@
     "leverage": 100,
     "profit": 35,
     "size": 0.001,
-    "bias": -20,
+    "bias": -30,
     "threshold": 50
   },
   "DOGEUSDT": {
