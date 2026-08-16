@@ -513,8 +513,8 @@ function algoMomentumVolume(price: number, ind: Indicators): AlgorithmSignal {
 }
 
 function algoIndexTrade(index: number, last: number): AlgorithmSignal {
-  const bias = 0;
-  const threshold = 0.2;
+  const bias = -0.3555;
+  const threshold = 0.4;
   const indexLast = index - last;
 
   if (!Number.isFinite(indexLast)) {
