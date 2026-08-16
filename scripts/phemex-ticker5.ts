@@ -41,6 +41,7 @@
 
 import fs from "node:fs";
 import { resolve } from "node:path";
+import { execSync } from "node:child_process";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 
@@ -66,6 +67,7 @@ Options:
                       symbol, e.g. data/BTCUSDT-ask.txt)
   --concise           Hide all columns except ask, bid, index, mark, last
   --addSymbol         Add symbol column as the 1st column
+  --timestamp         Print Phemex ticker timestamp (HH:MM:SS.mmm) as 1st column
   --maxDelta          Track and store largest Δask, Δbid, Δindex, Δmark per
                       symbol to data/<SYMBOL>-max{Ask,Bid,Index,Mark}.txt
   --minDelta          Track and store smallest Δask, Δbid, Δindex, Δmark per
@@ -103,6 +105,7 @@ const STORE = hasFlag("--store");
 const MAX_DELTA = hasFlag("--maxDelta");
 const MIN_DELTA = hasFlag("--minDelta");
 const ADD_SYMBOL = hasFlag("--addSymbol");
+const SHOW_TIMESTAMP = hasFlag("--timestamp");
 const REMOVE_TICKER_OUTPUT = hasFlag("--removeTickerOutput");
 const INTERVAL_MS = Number(getArg("--interval") ?? 1000);
 // --csv <FILE>: append a time,ask,bid,index,mark,last row to FILE every tick.
@@ -118,9 +121,12 @@ const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
 // Columns hidden in --concise mode (keyed by raw response field name).
 // Hides everything except ask, bid, index, mark, last (and their delta/ma variants).
+// When --timestamp is set, timestamp is never hidden.
 const CONCISE_HIDDEN = new Set([
   "fundingRateRr", "highRp", "lowRp", "openInterestRv", "openRp",
-  "predFundingRateRr", "symbol", "timestamp", "turnoverRv", "volumeRq",
+  "predFundingRateRr", "symbol",
+  ...(SHOW_TIMESTAMP ? [] : ["timestamp"]),
+  "turnoverRv", "volumeRq",
 ]);
 
 // --ma: time-weighted moving average of Δindex over fixed windows.
@@ -159,9 +165,12 @@ const COLUMN_ORDER_BASE = [
   "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
 ];
-const COLUMN_ORDER = ADD_SYMBOL
-  ? ["symCol", ...COLUMN_ORDER_BASE]
-  : COLUMN_ORDER_BASE;
+const COLUMN_ORDER = (() => {
+  let order = [...COLUMN_ORDER_BASE];
+  if (ADD_SYMBOL) order = ["symCol", ...order];
+  if (SHOW_TIMESTAMP) order = ["timestamp", ...order];
+  return order;
+})();
 const COLUMN_RANK = new Map(COLUMN_ORDER.map((k, i) => [k, i]));
 
 // Value files live at the project root (like last.txt / mark.txt) so both
@@ -360,7 +369,7 @@ function fmtExact(v: unknown): string {
 function tsToHMS(ms: number): string {
   const d = new Date(ms);
   const p = (x: number) => String(x).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 }
 
 /** Format a Phemex ticker timestamp (nanoseconds since epoch) as local time,
@@ -959,6 +968,9 @@ function processTicker(data: Record<string, unknown>): void {
 }
 
 const type = IS_USDT_M ? "USDT-M" : "Coin-M";
+const nodeVersion = execSync("node --version", { encoding: "utf8" }).trim();
+const npmVersion = execSync("npm --version", { encoding: "utf8" }).trim();
+console.log(`Node: ${nodeVersion}  npm: ${npmVersion}`);
 console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(", ")} …`);
 
 const legendKeys = Object.keys(COLUMNS)
