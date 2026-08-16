@@ -512,10 +512,9 @@ function algoMomentumVolume(price: number, ind: Indicators): AlgorithmSignal {
   return { name: "Momentum+Volume", signal: 0, confidence: 0.2, reason: "weak momentum" };
 }
 
-function algoIndexTrade(index: number, last: number): AlgorithmSignal {
+function algoIndexTrade(indexLast: number): AlgorithmSignal {
   const bias = -0.1;
   const threshold = 0.1;
-  const indexLast = index - last;
 
   if (!Number.isFinite(indexLast)) {
     return { name: "Index Trade (trader2)", signal: 0, confidence: 0, reason: "no data" };
@@ -982,13 +981,14 @@ async function main(): Promise<void> {
       tickCount++;
 
       // Run all 6 algorithms
+      const indexLast = ticker.index - ticker.last;
       const signals: AlgorithmSignal[] = [
         algoEmaCrossover(price, ind),
         algoIndexDivergence(ticker.index, ticker.last),
         algoBollingerSqueeze(price, ind),
         algoRsiDivergence(price, ind),
         algoMomentumVolume(price, ind),
-        algoIndexTrade(ticker.index, ticker.last),
+        algoIndexTrade(indexLast),
       ];
 
       // Ensemble vote
