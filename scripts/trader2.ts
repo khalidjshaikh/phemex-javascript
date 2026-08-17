@@ -5,18 +5,19 @@
  *
  * Combines ticker polling, index-based entry, and ask/bid-based exit into a
  * single process. Each symbol's parameters (threshold, size, hedge, profit)
- * come from a JSON config passed via --config or --configfile.
+ * come from a JSON5 config passed via --config or --configfile.
  *
  * Usage:
- *   npx tsx scripts/trader.ts --configfile config/config.json
+ *   npx tsx scripts/trader.ts --configfile config/config.json5
  *   npx tsx scripts/trader.ts --config '{
- *     "XBRUSDT": { "threshold": 0.5, "size": 0.01, "hedge": true, "profit": 0 },
- *     "BTCUSDT": { "threshold": 50, "size": 0.001, "hedge": true, "profit": 35 }
+ *     XBRUSDT: { threshold: 0.5, size: 0.01, hedge: true, profit: 0 },
+ *     BTCUSDT: { threshold: 50, size: 0.001, hedge: true, profit: 35 }
  *   }'
  */
 
 import fs from "node:fs";
 import { resolve } from "node:path";
+import JSON5 from "json5";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 import { loadCredentials } from "../src/credentials.js";
@@ -48,14 +49,14 @@ const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
 const verbose = hasFlag("--verbose");
 if (!rawConfig && !configFile) {
-  console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json");
+  console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json5");
   console.error("       npx tsx scripts/trader.ts --config '<JSON>'");
   process.exit(1);
 }
 
 const config: Config = configFile
-  ? JSON.parse(fs.readFileSync(resolve(process.cwd(), configFile), "utf8"))
-  : JSON.parse(rawConfig!);
+  ? JSON5.parse(fs.readFileSync(resolve(process.cwd(), configFile), "utf8"))
+  : JSON5.parse(rawConfig!);
 const symbols = Object.keys(config);
 if (symbols.length === 0) {
   console.error("No symbols in config");

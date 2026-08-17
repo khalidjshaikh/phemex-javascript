@@ -59,8 +59,8 @@ const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
 const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number }> = {
-  XTRUSDT: { bias: -0.1, threshold: 0.3 },
-  XBRUSDT: { bias: -0.01753, threshold: 0.4 },
+  XTRUSDT: { bias: -0.1, threshold: 0.2 },
+  XBRUSDT: { bias: -0.01753, threshold: 0.2 },
 };
 
 const config = SYMBOL_CONFIG[SYMBOL] ?? {
