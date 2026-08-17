@@ -61,6 +61,7 @@ const WS_URL = "wss://ws.phemex.com";
 const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number }> = {
   XTRUSDT: { bias: -0.1, threshold: 0.2 },
   XBRUSDT: { bias: -0.01753, threshold: 0.2 },
+  XAUUSDT: { bias: -2.3, threshold: 7 },
 };
 
 const config = SYMBOL_CONFIG[SYMBOL] ?? {
