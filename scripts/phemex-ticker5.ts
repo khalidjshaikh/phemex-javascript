@@ -91,6 +91,7 @@ Options:
                       data/<SYMBOL>-histogram.json (bucketed frequencies of
                       ask, bid, index, mark, last). Final write on SIGINT.
   --histogramBuckets <N>  Number of histogram buckets (default: 100)
+  --verdict           Print LONG if last < index, SHORT if last > index
   --decimals <N>      Number of decimal places for price display (default: 2)
   --help              Show this help and exit
 `;
@@ -115,6 +116,7 @@ const HISTOGRAM = hasFlag("--histogram");
 const HISTOGRAM_BUCKETS = Number(getArg("--histogramBuckets") ?? 100);
 // --decimals <N>: number of decimal places for price display (default: 2).
 const DECIMALS = Number(getArg("--decimals") ?? 2);
+const VERDICT = hasFlag("--verdict");
 
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
@@ -961,7 +963,16 @@ function processTicker(data: Record<string, unknown>): void {
             : padRight(s, widths.get(k)!);
         })
         .join(" ");
-      console.log(`[${tsToHMS(Date.now())}] ${line}`);
+      let outputLine = `[${tsToHMS(Date.now())}] ${line}`;
+      if (VERDICT) {
+        const lastVal = Number(data.lastRp);
+        const indexVal = Number(data.indexRp);
+        if (Number.isFinite(lastVal) && Number.isFinite(indexVal)) {
+          const verdict = lastVal < indexVal ? "LONG" : lastVal > indexVal ? "SHORT" : "NEUTRAL";
+          outputLine += ` ${verdict}`;
+        }
+      }
+      console.log(outputLine);
       rowCounter++;
     }
   }
