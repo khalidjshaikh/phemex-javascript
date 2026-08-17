@@ -189,6 +189,20 @@ async function evaluate(ticker: TickerData): Promise<void> {
   const spread = ticker.index - ticker.last;
 
   if (state === "IDLE") {
+    // Verify no existing position before opening
+    try {
+      const positions = await fetchPositions(apiKey, secretRaw);
+      const existing = positions.find((p) => p.symbol === SYMBOL && parseFloat(p.size || "0") !== 0);
+      if (existing) {
+        const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
+        entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
+        state = posSide as State;
+        console.log(`   ℹ  Found existing ${posSide} position, syncing state`);
+        return;
+      }
+    } catch {
+      // Ignore position check errors, proceed with signal
+    }
     if (spread > THRESHOLD) {
       console.log(`\n   ▲  SIGNAL: index-last (${spread.toFixed(4)}) > ${THRESHOLD} → OPEN LONG`);
       await openLong();
@@ -203,16 +217,38 @@ async function evaluate(ticker: TickerData): Promise<void> {
   } else if (state === "LONG") {
     if (ticker.bid > entryPrice) {
       console.log(`\n   ▲  TAKE PROFIT: bid (${ticker.bid.toFixed(4)}) > entry (${entryPrice.toFixed(4)}) → CLOSE LONG`);
-      await closeLong();
-      state = "IDLE";
-      entryPrice = 0;
+      try {
+        await closeLong();
+        state = "IDLE";
+        entryPrice = 0;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("REDUCE_ONLY_ABORT")) {
+          console.log(`   ℹ  Position already closed, resetting to IDLE`);
+          state = "IDLE";
+          entryPrice = 0;
+        } else {
+          console.error(`   ✗  Failed to close long, keeping state LONG: ${msg}`);
+        }
+      }
     }
   } else if (state === "SHORT") {
     if (ticker.ask < entryPrice) {
       console.log(`\n   ▼  TAKE PROFIT: ask (${ticker.ask.toFixed(4)}) < entry (${entryPrice.toFixed(4)}) → CLOSE SHORT`);
-      await closeShort();
-      state = "IDLE";
-      entryPrice = 0;
+      try {
+        await closeShort();
+        state = "IDLE";
+        entryPrice = 0;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("REDUCE_ONLY_ABORT")) {
+          console.log(`   ℹ  Position already closed, resetting to IDLE`);
+          state = "IDLE";
+          entryPrice = 0;
+        } else {
+          console.error(`   ✗  Failed to close short, keeping state SHORT: ${msg}`);
+        }
+      }
     }
   }
 }
