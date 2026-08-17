@@ -66,19 +66,17 @@
     "hedge": true,
     "leverage": 100,
     "profit": 0,
-    "size": 0.01, /* this is a test */
+    "size": 0.01, 
     "bias": -0.01753,
     "threshold": 0.3
-    // This is a test
   },
   "XRPUSDT": {
     "hedge": true,
     "leverage": 50,
     "profit": 0,
-    "size": 0.01, /* this is a test */
+    "size": 0.01,
     "bias": -0.000474535,
     "threshold": 0.001286745
-    // This is a test
   },
   "XTIUSDT": {
     "hedge": true,
@@ -86,6 +84,6 @@
     "profit": 0,
     "size": 0.01,
     "bias": -0.1,
-    "threshold": 0.2
+    "threshold": 0.3
   }
 }
