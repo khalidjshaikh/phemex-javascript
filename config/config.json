@@ -68,7 +68,7 @@
     "profit": 0,
     "size": 0.01, /* this is a test */
     "bias": -0.01753,
-    "threshold": 0.2
+    "threshold": 0.3
     // This is a test
   },
   "XRPUSDT": {
