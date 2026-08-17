@@ -4,7 +4,8 @@
     "leverage": 50,
     "profit": 0,
     "size": 0.01,
-    "threshold": 0.7
+    "bias": 0.3,
+    "threshold": 0.35
   },
   "BTCUSDT": {
     "hedge": true,
@@ -12,7 +13,7 @@
     "profit": 35,
     "size": 0.001,
     "bias": -30,
-    "threshold": 50
+    "threshold": 40
   },
   "DOGEUSDT": {
     "hedge": true,
@@ -28,7 +29,7 @@
     "profit": 0,
     "size": 0.01,
     "bias": -0.85,
-    "threshold": 1.5
+    "threshold": 1.25
   },
   "LINKUSDT": {
     "hedge": true,
