@@ -42,9 +42,8 @@ const SAVE_INTERVAL = 30_000;
 /* ------------------------------------------------------------------ */
 
 const RESOLUTION_MAP: Record<string, number> = {
-  '1m': 1, '5m': 5, '15m': 15, '30m': 30,
-  '1h': 60, '2h': 120, '4h': 240, '6h': 360,
-  '12h': 720, '1D': 1440, '1W': 10080, '1M': 7200,
+  '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+  '1h': 3600, '4h': 14400, '1D': 86400, '1W': 604800, '1M': 2592000,
 };
 const KLINE_CACHE = new Map<string, { data: unknown[]; ts: number }>();
 const KLINE_TTL_SHORT = 60_000;   // 60s for intervals ≤ 1h
@@ -58,8 +57,10 @@ async function fetchKlines(sym: string, resolution: number, limit = 500): Promis
   const ttl = resolution > 60 ? KLINE_TTL_LONG : KLINE_TTL_SHORT;
   if (cached && Date.now() - cached.ts < ttl) return cached.data;
 
-  const query = `symbol=${sym}&resolution=${resolution}&limit=${limit}`;
-  const resp = await publicGet("/exchange/public/md/v2/kline/last", query);
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - (resolution * limit);
+  const query = `symbol=${sym}&resolution=${resolution}&limit=${limit}&from=${from}&to=${now}`;
+  const resp = await publicGet("/exchange/public/md/v2/kline/list", query);
   const rows = (resp as any)?.data?.rows ?? [];
   KLINE_CACHE.set(key, { data: rows, ts: Date.now() });
   return rows;
@@ -429,9 +430,9 @@ function buildDashboard(): string {
 
 <script>
 const SYMBOLS = ${symList};
-const FIELDS = ['ask','bid','index','mark','last'];
+const FIELDS = ['ask','bid','index','mark','last','open','high','low','close'];
+const FIELD_COLORS = { ask:'#f85149', bid:'#3fb950', index:'#d29922', mark:'#58a6ff', last:'#bc8cff', open:'#d29922', high:'#f85149', low:'#3fb950', close:'#bc8cff' };
 const DELTA_FIELDS = ['ask','bid','index','mark','last'];
-const FIELD_COLORS = { ask: '#f85149', bid: '#3fb950', index: '#d29922', mark: '#58a6ff', last: '#bc8cff' };
 const LS_KEY = 'phemex_ticker_data';
 const LS_FIELDS_KEY = 'phemex_ticker_fields';
 const LS_SYMBOL_KEY = 'phemex_ticker_symbol';
@@ -439,8 +440,8 @@ const LS_ROTATE_KEY = 'phemex_ticker_rotate';
 const LS_RESOLUTION_KEY = 'phemex_ticker_resolution';
 const MAX_TICKS = 180;
 
-const RESOLUTIONS = ['1m','5m','15m','30m','1h','2h','4h','6h','12h','1D','1W','1M'];
-const RESOLUTION_VALUES = { '1m':1, '5m':5, '15m':15, '30m':30, '1h':60, '2h':120, '4h':240, '6h':360, '12h':720, '1D':1440, '1W':10080, '1M':7200 };
+const RESOLUTIONS = ['1m','5m','15m','30m','1h','4h','1D','1W','1M'];
+const RESOLUTION_VALUES = { '1m':60, '5m':300, '15m':900, '30m':1800, '1h':3600, '4h':14400, '1D':86400, '1W':604800, '1M':2592000 };
 const KLINE_FIELDS = ['open','high','low','close','volume'];
 
 function loadData() {
@@ -642,13 +643,14 @@ function buildResSelector() {
       saveResolution(activeResolution);
       buildResSelector();
       startKlineRefresh();
+      buildFieldSelector();
       render();
     };
   });
 }
 
 function isLiveMode() {
-  return RESOLUTION_VALUES[activeResolution] < 15;
+  return RESOLUTION_VALUES[activeResolution] < 1800;
 }
 
 async function fetchKlinesForActive() {
@@ -705,15 +707,24 @@ function render() {
   const indEl = document.getElementById('indicators');
   if (d.indicators) {
     const ind = d.indicators;
+    const lastVal = t?.last ?? 0;
+    const deltaLast = {
+      'A-L': (t?.ask ?? 0) - lastVal,
+      'B-L': (t?.bid ?? 0) - lastVal,
+      'I-L': (t?.index ?? 0) - lastVal,
+      'M-L': (t?.mark ?? 0) - lastVal,
+      'L-L': 0,
+    };
     indEl.innerHTML = [
       { title: 'Std Dev', data: ind.stdDev },
       { title: 'Velocity /s', data: ind.velocity },
       { title: 'EMA-9', data: ind.ema9 },
       { title: 'EMA-21', data: ind.ema21 },
+      { title: 'Δlast', data: deltaLast },
     ].map(card =>
       '<div class="ind-card"><div class="label">' + card.title + '</div>'
-      + FIELDS.map(f =>
-        '<div class="row"><span class="k">' + f + '</span><span>' + fmtSig(card.data[f]) + '</span></div>'
+      + Object.entries(card.data).map(([k, v]) =>
+        '<div class="row"><span class="k">' + k + '</span><span>' + fmtDelta(Number(v)) + '</span></div>'
       ).join('') + '</div>'
     ).join('');
   }
@@ -765,11 +776,25 @@ function renderKlinesChart(pad, cw, ch, W, H) {
   }
 
   // rows: [timestamp, interval, last_close, open, high, low, close, volume, turnover]
-  const closes = rows.map(r => Number(r[6]));
   const times = rows.map(r => Number(r[0]));
+  const allFieldData = {
+    open: rows.map(r => Number(r[3])),
+    high: rows.map(r => Number(r[4])),
+    low: rows.map(r => Number(r[5])),
+    close: rows.map(r => Number(r[6])),
+  };
+  const fields = [...activeFields].filter(f => f in allFieldData);
+  if (fields.length === 0) fields.push('close');
+  const fieldData = {};
+  for (const f of fields) fieldData[f] = allFieldData[f];
 
-  let minV = Math.min(...closes);
-  let maxV = Math.max(...closes);
+  let minV = Infinity, maxV = -Infinity;
+  for (const f of fields) {
+    for (const v of fieldData[f]) {
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+  }
   const range = maxV - minV || 1;
   const margin = range * 0.08;
   minV -= margin;
@@ -802,26 +827,30 @@ function renderKlinesChart(pad, cw, ch, W, H) {
   for (let i = 0; i < labelCount; i++) {
     const idx = Math.floor(i * (rows.length - 1) / (labelCount - 1));
     const x = pad.left + ((times[idx] - tMin) / tRange) * cw;
-    const d2 = new Date(times[idx]);
+    const d2 = new Date(times[idx] * 1000);
     const label = d2.getMonth() + 1 + '/' + d2.getDate() + ' ' + d2.getHours() + ':' + String(d2.getMinutes()).padStart(2, '0');
     chartCtx.fillText(label, x, H - 4);
   }
 
-  // Line
-  chartCtx.strokeStyle = '#3fb950';
-  chartCtx.lineWidth = 1.5;
-  chartCtx.beginPath();
-  for (let i = 0; i < rows.length; i++) {
-    const x = pad.left + ((times[i] - tMin) / tRange) * cw;
-    const y = pad.top + ((maxV - closes[i]) / vRange) * ch;
-    if (i === 0) chartCtx.moveTo(x, y);
-    else chartCtx.lineTo(x, y);
+  // Lines
+  for (const f of fields) {
+    chartCtx.strokeStyle = FIELD_COLORS[f];
+    chartCtx.lineWidth = 1.5;
+    chartCtx.beginPath();
+    for (let i = 0; i < rows.length; i++) {
+      const x = pad.left + ((times[i] - tMin) / tRange) * cw;
+      const y = pad.top + ((maxV - fieldData[f][i]) / vRange) * ch;
+      if (i === 0) chartCtx.moveTo(x, y);
+      else chartCtx.lineTo(x, y);
+    }
+    chartCtx.stroke();
   }
-  chartCtx.stroke();
 
   // Legend
   const leg = document.getElementById('legend');
-  leg.innerHTML = '<span><span class="swatch" style="background:#3fb950"></span>close (' + activeResolution + ')</span>';
+  leg.innerHTML = fields.map(f =>
+    '<span><span class="swatch" style="background:' + FIELD_COLORS[f] + '"></span>' + f + '</span>'
+  ).join('');
 }
 
 function renderLiveChart(d, pad, cw, ch, W, H) {
