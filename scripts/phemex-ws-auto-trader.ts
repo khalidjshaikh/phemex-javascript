@@ -40,6 +40,7 @@ Options:
   --qty <num>         Contract quantity per trade (default: 0.01)
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
+  --bias <num>        Index-last spread bias (default: 0)
   --dry-run           Show signals without placing orders
   --debug             Print raw WebSocket messages
   --help              Show this help and exit
@@ -53,10 +54,19 @@ if (hasFlag("--help")) {
 const SYMBOL = getArg("--symbol") ?? "XTIUSDT";
 const QTY = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
-const THRESHOLD = parseFloat(getArg("--threshold") ?? "0.2");
 const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
+
+const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number }> = {
+  XTRUSDT: { bias: -0.1, threshold: 0.3 },
+  XBRUSDT: { bias: -0.01753, threshold: 0.4 },
+};
+
+const config = SYMBOL_CONFIG[SYMBOL] ?? {
+  bias: parseFloat(getArg("--bias") ?? "0"),
+  threshold: parseFloat(getArg("--threshold") ?? "0.2"),
+};
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -194,7 +204,7 @@ async function closeShort(): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 async function evaluate(ticker: TickerData): Promise<void> {
-  const spread = ticker.index - ticker.last;
+  const spread = ticker.index - ticker.last + config.bias;
 
   if (state === "IDLE") {
     // Verify no existing position before opening
@@ -213,14 +223,14 @@ async function evaluate(ticker: TickerData): Promise<void> {
     } catch {
       // Ignore position check errors, proceed with signal
     }
-    if (spread > THRESHOLD) {
-      console.log(`\n   ▲  SIGNAL: index-last (${spread.toFixed(4)}) > ${THRESHOLD} → OPEN LONG`);
+    if (spread > config.threshold) {
+      console.log(`\n   ▲  SIGNAL: index-last+bias (${spread.toFixed(4)}) > ${config.threshold} → OPEN LONG`);
       state = "LONG";
       entryPrice = ticker.ask;
       bestBid = ticker.bid;
       await openLong();
-    } else if (spread < -THRESHOLD) {
-      console.log(`\n   ▼  SIGNAL: index-last (${spread.toFixed(4)}) < -${THRESHOLD} → OPEN SHORT`);
+    } else if (spread < -config.threshold) {
+      console.log(`\n   ▼  SIGNAL: index-last+bias (${spread.toFixed(4)}) < -${config.threshold} → OPEN SHORT`);
       state = "SHORT";
       entryPrice = ticker.bid;
       bestAsk = ticker.ask;
@@ -372,7 +382,7 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${QTY}  leverage: ${LEVERAGE}x  threshold: ${THRESHOLD}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
+  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${QTY}  leverage: ${LEVERAGE}x  threshold: ${config.threshold}  bias: ${config.bias}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
 }
