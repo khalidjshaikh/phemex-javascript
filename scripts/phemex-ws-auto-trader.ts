@@ -207,12 +207,12 @@ async function evaluate(ticker: TickerData): Promise<void> {
       console.log(`\n   ▲  SIGNAL: index-last (${spread.toFixed(4)}) > ${THRESHOLD} → OPEN LONG`);
       await openLong();
       state = "LONG";
-      entryPrice = ticker.last;
+      entryPrice = ticker.ask;
     } else if (spread < -THRESHOLD) {
       console.log(`\n   ▼  SIGNAL: index-last (${spread.toFixed(4)}) < -${THRESHOLD} → OPEN SHORT`);
       await openShort();
       state = "SHORT";
-      entryPrice = ticker.last;
+      entryPrice = ticker.bid;
     }
   } else if (state === "LONG") {
     if (ticker.bid > entryPrice) {
