@@ -120,6 +120,10 @@ function printTicker(t: TickerData, deltas: Deltas | null): void {
   }
 
   line += `  [${state}${state !== "IDLE" ? ` @${entryPrice.toFixed(4)}` : ""}]`;
+
+  const inProfit = (state === "LONG" && t.bid > entryPrice) || (state === "SHORT" && t.ask < entryPrice);
+  if (inProfit) line += " *";
+
   console.log(line);
 }
 
