@@ -201,6 +201,8 @@ async function evaluate(ticker: TickerData): Promise<void> {
         const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
         entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
         state = posSide as State;
+        bestAsk = Infinity;
+        bestBid = 0;
         console.log(`   ℹ  Found existing ${posSide} position, syncing state`);
         return;
       }
