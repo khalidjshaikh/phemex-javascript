@@ -411,6 +411,7 @@ function buildDashboard(): string {
   <h1>Phemex Ticker</h1>
   <div class="status"><span class="dot off" id="statusDot"></span><span id="statusText">connecting…</span></div>
   <button class="rotate-btn${rotateClass}" id="rotateBtn" onclick="toggleRotate()">${rotateLabel}</button>
+  <button class="rotate-btn" id="klineBtn" onclick="toggleKlineMode()">Live</button>
 </div>
 
 <div class="tabs" id="tabs"></div>
@@ -525,6 +526,15 @@ const ROTATE_INTERVAL = 15000;
 let activeResolution = loadResolution();
 let klineData = {};  // symbol -> rows from klines API
 let klineRefreshTimer = null;
+let klineModeOverride = null;  // null = use default, true = force kline, false = force live
+
+function loadKlineMode() {
+  try { return localStorage.getItem('phemex_ticker_kline_mode'); } catch { return null; }
+}
+function saveKlineMode(val) {
+  try { localStorage.setItem('phemex_ticker_kline_mode', val ?? ''); } catch {}
+  fetch('/api/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ klineMode: val }) });
+}
 
 const saved = loadData();
 SYMBOLS.forEach(s => {
@@ -557,6 +567,25 @@ function toggleRotate() {
     btn.textContent = '▶ Rotate';
     if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
   }
+}
+
+// Kline/Live toggle
+function updateKlineBtn() {
+  const btn = document.getElementById('klineBtn');
+  const saved = loadKlineMode();
+  klineModeOverride = saved === 'true' ? true : saved === 'false' ? false : null;
+  const isKline = klineModeOverride === true || (klineModeOverride === null && RESOLUTION_VALUES[activeResolution] >= 3600);
+  btn.textContent = isKline ? 'Kline' : 'Live';
+  btn.classList.toggle('active', isKline);
+}
+
+function toggleKlineMode() {
+  const isKline = klineModeOverride === true || (klineModeOverride === null && RESOLUTION_VALUES[activeResolution] >= 3600);
+  klineModeOverride = isKline ? false : true;
+  saveKlineMode(klineModeOverride);
+  updateKlineBtn();
+  startKlineRefresh();
+  render();
 }
 
 // SSE
@@ -644,13 +673,16 @@ function buildResSelector() {
       buildResSelector();
       startKlineRefresh();
       buildFieldSelector();
+      updateKlineBtn();
       render();
     };
   });
 }
 
 function isLiveMode() {
-  return RESOLUTION_VALUES[activeResolution] < 1800;
+  if (klineModeOverride === true) return false;
+  if (klineModeOverride === false) return true;
+  return RESOLUTION_VALUES[activeResolution] < 3600;
 }
 
 async function fetchKlinesForActive() {
@@ -939,6 +971,7 @@ buildResSelector();
 initChart();
 render();
 startKlineRefresh();
+updateKlineBtn();
 
 // Start rotate if it was active
 if (rotateActive) {
@@ -1054,6 +1087,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         if (prefs.symbol !== undefined) current.symbol = prefs.symbol;
         if (prefs.rotate !== undefined) current.rotate = prefs.rotate;
         if (prefs.resolution !== undefined) current.resolution = prefs.resolution;
+        if (prefs.klineMode !== undefined) current.klineMode = prefs.klineMode;
         savePrefs(current);
         res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
         res.end('{"ok":true}');
