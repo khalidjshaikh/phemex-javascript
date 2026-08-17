@@ -87,6 +87,8 @@ type State = "IDLE" | "LONG" | "SHORT";
 
 let state: State = "IDLE";
 let entryPrice = 0;
+let bestAsk = Infinity;
+let bestBid = 0;
 let lastTicker: TickerData | null = null;
 let prevTicker: TickerData | null = null;
 
@@ -209,44 +211,52 @@ async function evaluate(ticker: TickerData): Promise<void> {
       console.log(`\n   ▲  SIGNAL: index-last (${spread.toFixed(4)}) > ${THRESHOLD} → OPEN LONG`);
       state = "LONG";
       entryPrice = ticker.ask;
+      bestBid = ticker.bid;
       await openLong();
     } else if (spread < -THRESHOLD) {
       console.log(`\n   ▼  SIGNAL: index-last (${spread.toFixed(4)}) < -${THRESHOLD} → OPEN SHORT`);
       state = "SHORT";
       entryPrice = ticker.bid;
+      bestAsk = ticker.ask;
       await openShort();
     }
   } else if (state === "LONG") {
-    if (ticker.bid > entryPrice) {
-      console.log(`\n   ▲  TAKE PROFIT: bid (${ticker.bid.toFixed(4)}) > entry (${entryPrice.toFixed(4)}) → CLOSE LONG`);
+    bestBid = Math.max(bestBid, ticker.bid);
+    if (ticker.bid < bestBid) {
+      console.log(`\n   ▲  TAKE PROFIT: bid (${ticker.bid.toFixed(4)}) < best (${bestBid.toFixed(4)}) → CLOSE LONG`);
       try {
         await closeLong();
         state = "IDLE";
         entryPrice = 0;
+        bestBid = 0;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("REDUCE_ONLY_ABORT")) {
           console.log(`   ℹ  Position already closed, resetting to IDLE`);
           state = "IDLE";
           entryPrice = 0;
+          bestBid = 0;
         } else {
           console.error(`   ✗  Failed to close long, keeping state LONG: ${msg}`);
         }
       }
     }
   } else if (state === "SHORT") {
-    if (ticker.ask < entryPrice) {
-      console.log(`\n   ▼  TAKE PROFIT: ask (${ticker.ask.toFixed(4)}) < entry (${entryPrice.toFixed(4)}) → CLOSE SHORT`);
+    bestAsk = Math.min(bestAsk, ticker.ask);
+    if (ticker.ask > bestAsk) {
+      console.log(`\n   ▼  TAKE PROFIT: ask (${ticker.ask.toFixed(4)}) > best (${bestAsk.toFixed(4)}) → CLOSE SHORT`);
       try {
         await closeShort();
         state = "IDLE";
         entryPrice = 0;
+        bestAsk = Infinity;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("REDUCE_ONLY_ABORT")) {
           console.log(`   ℹ  Position already closed, resetting to IDLE`);
           state = "IDLE";
           entryPrice = 0;
+          bestAsk = Infinity;
         } else {
           console.error(`   ✗  Failed to close short, keeping state SHORT: ${msg}`);
         }
@@ -318,6 +328,8 @@ async function main(): Promise<void> {
     const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
     entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
     state = posSide as State;
+    bestAsk = Infinity;
+    bestBid = 0;
     console.log(`⟐  Found existing ${posSide} position on ${SYMBOL}  entry: ${entryPrice}  size: ${existing.size}`);
   }
 
