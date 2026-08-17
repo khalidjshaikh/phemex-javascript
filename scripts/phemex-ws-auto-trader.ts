@@ -52,21 +52,22 @@ if (hasFlag("--help")) {
 }
 
 const SYMBOL = getArg("--symbol") ?? "XTIUSDT";
-const QTY = parseFloat(getArg("--qty") ?? "0.01");
+const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
-const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number }> = {
-  XTRUSDT: { bias: -0.1, threshold: 0.2 },
-  XBRUSDT: { bias: -0.01753, threshold: 0.2 },
-  XAUUSDT: { bias: -2.3, threshold: 7 },
+const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number; qty: number }> = {
+  XTRUSDT: { bias: -0.1, threshold: 0.2, qty: QTY_DEFAULT },
+  XBRUSDT: { bias: -0.01753, threshold: 0.2, qty: QTY_DEFAULT },
+  XAUUSDT: { bias: -2.3, threshold: 7, qty: 0.001 },
 };
 
 const config = SYMBOL_CONFIG[SYMBOL] ?? {
   bias: parseFloat(getArg("--bias") ?? "0"),
   threshold: parseFloat(getArg("--threshold") ?? "0.2"),
+  qty: QTY_DEFAULT,
 };
 
 /* ------------------------------------------------------------------ */
@@ -144,13 +145,13 @@ function printTicker(t: TickerData, deltas: Deltas | null): void {
 
 async function openLong(): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open long ${SYMBOL} qty:${QTY} at ask`);
+    console.log(`   DRY RUN: open long ${SYMBOL} qty:${config.qty} at ask`);
     return;
   }
-  console.log(`   ⟐  Opening long ${SYMBOL}  qty: ${QTY}  at ask`);
+  console.log(`   ⟐  Opening long ${SYMBOL}  qty: ${config.qty}  at ask`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", apiKey, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: 0, qty: QTY, posSide: "Long" },
+    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: 0, qty: config.qty, posSide: "Long" },
     apiKey,
     secretRaw,
   );
@@ -159,12 +160,12 @@ async function openLong(): Promise<void> {
 
 async function closeLong(): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: close long ${SYMBOL} qty:${QTY} at bid`);
+    console.log(`   DRY RUN: close long ${SYMBOL} qty:${config.qty} at bid`);
     return;
   }
-  console.log(`   ⟐  Closing long ${SYMBOL}  qty: ${QTY}  at bid`);
+  console.log(`   ⟐  Closing long ${SYMBOL}  qty: ${config.qty}  at bid`);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: "Sell", price: 0, qty: QTY, posSide: "Long", reduceOnly: true },
+    { account: "usdt-m", symbol: SYMBOL, side: "Sell", price: 0, qty: config.qty, posSide: "Long", reduceOnly: true },
     apiKey,
     secretRaw,
   );
@@ -173,13 +174,13 @@ async function closeLong(): Promise<void> {
 
 async function openShort(): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open short ${SYMBOL} qty:${QTY} at bid`);
+    console.log(`   DRY RUN: open short ${SYMBOL} qty:${config.qty} at bid`);
     return;
   }
-  console.log(`   ⟐  Opening short ${SYMBOL}  qty: ${QTY}  at bid`);
+  console.log(`   ⟐  Opening short ${SYMBOL}  qty: ${config.qty}  at bid`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Short", apiKey, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: "Sell", price: 0, qty: QTY, posSide: "Short" },
+    { account: "usdt-m", symbol: SYMBOL, side: "Sell", price: 0, qty: config.qty, posSide: "Short" },
     apiKey,
     secretRaw,
   );
@@ -188,12 +189,12 @@ async function openShort(): Promise<void> {
 
 async function closeShort(): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: close short ${SYMBOL} qty:${QTY} at ask`);
+    console.log(`   DRY RUN: close short ${SYMBOL} qty:${config.qty} at ask`);
     return;
   }
-  console.log(`   ⟐  Closing short ${SYMBOL}  qty: ${QTY}  at ask`);
+  console.log(`   ⟐  Closing short ${SYMBOL}  qty: ${config.qty}  at ask`);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: 0, qty: QTY, posSide: "Short", reduceOnly: true },
+    { account: "usdt-m", symbol: SYMBOL, side: "Buy", price: 0, qty: config.qty, posSide: "Short", reduceOnly: true },
     apiKey,
     secretRaw,
   );
@@ -383,7 +384,7 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${QTY}  leverage: ${LEVERAGE}x  threshold: ${config.threshold}  bias: ${config.bias}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
+  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${config.qty}  leverage: ${LEVERAGE}x  threshold: ${config.threshold}  bias: ${config.bias}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
 }
