@@ -514,8 +514,11 @@ function algoMomentumVolume(price: number, ind: Indicators): AlgorithmSignal {
 }
 
 function algoIndexTrade(indexLast: number): AlgorithmSignal {
-  const bias = -0.1;
-  const threshold = 0.1;
+  const SYMBOL_CONFIG: Record<string, { bias: number; threshold: number }> = {
+    XTRUSDT: { bias: -0.1, threshold: 0.3 },
+    XBRUSDT: { bias: -0.01753, threshold: 0.4 },
+  };
+  const { bias, threshold } = SYMBOL_CONFIG[SYMBOL] ?? { bias: 0, threshold: 0.2 };
 
   if (!Number.isFinite(indexLast)) {
     return { name: "Index Trade (trader2)", signal: 0, confidence: 0, reason: "no data" };
