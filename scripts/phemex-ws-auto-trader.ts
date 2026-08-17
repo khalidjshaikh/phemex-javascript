@@ -40,6 +40,7 @@ Options:
   --qty <num>         Contract quantity per trade (default: 0.01)
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
+  --reversal-bps <num>  Reversal threshold in bps to trigger exit (default: 5)
   --dry-run           Show signals without placing orders
   --debug             Print raw WebSocket messages
   --help              Show this help and exit
@@ -54,6 +55,7 @@ const SYMBOL = getArg("--symbol") ?? "XTIUSDT";
 const QTY = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 const THRESHOLD = parseFloat(getArg("--threshold") ?? "0.2");
+const REVERSAL_BPS = parseFloat(getArg("--reversal-bps") ?? "5");
 const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
@@ -87,6 +89,8 @@ type State = "IDLE" | "LONG" | "SHORT";
 
 let state: State = "IDLE";
 let entryPrice = 0;
+let bestAsk = Infinity;
+let bestBid = 0;
 let lastTicker: TickerData | null = null;
 let prevTicker: TickerData | null = null;
 
@@ -199,6 +203,8 @@ async function evaluate(ticker: TickerData): Promise<void> {
         const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
         entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
         state = posSide as State;
+        bestAsk = Infinity;
+        bestBid = 0;
         console.log(`   ℹ  Found existing ${posSide} position, syncing state`);
         return;
       }
@@ -209,44 +215,54 @@ async function evaluate(ticker: TickerData): Promise<void> {
       console.log(`\n   ▲  SIGNAL: index-last (${spread.toFixed(4)}) > ${THRESHOLD} → OPEN LONG`);
       state = "LONG";
       entryPrice = ticker.ask;
+      bestBid = ticker.bid;
       await openLong();
     } else if (spread < -THRESHOLD) {
       console.log(`\n   ▼  SIGNAL: index-last (${spread.toFixed(4)}) < -${THRESHOLD} → OPEN SHORT`);
       state = "SHORT";
       entryPrice = ticker.bid;
+      bestAsk = ticker.ask;
       await openShort();
     }
   } else if (state === "LONG") {
-    if (ticker.bid > entryPrice) {
-      console.log(`\n   ▲  TAKE PROFIT: bid (${ticker.bid.toFixed(4)}) > entry (${entryPrice.toFixed(4)}) → CLOSE LONG`);
+    bestBid = Math.max(bestBid, ticker.bid);
+    const reversalThreshold = bestBid * (1 - REVERSAL_BPS / 10000);
+    if (ticker.bid < reversalThreshold) {
+      console.log(`\n   ▲  TAKE PROFIT: bid (${ticker.bid.toFixed(4)}) < best (${bestBid.toFixed(4)}) - ${REVERSAL_BPS} bps → CLOSE LONG`);
       try {
         await closeLong();
         state = "IDLE";
         entryPrice = 0;
+        bestBid = 0;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("REDUCE_ONLY_ABORT")) {
           console.log(`   ℹ  Position already closed, resetting to IDLE`);
           state = "IDLE";
           entryPrice = 0;
+          bestBid = 0;
         } else {
           console.error(`   ✗  Failed to close long, keeping state LONG: ${msg}`);
         }
       }
     }
   } else if (state === "SHORT") {
-    if (ticker.ask < entryPrice) {
-      console.log(`\n   ▼  TAKE PROFIT: ask (${ticker.ask.toFixed(4)}) < entry (${entryPrice.toFixed(4)}) → CLOSE SHORT`);
+    bestAsk = Math.min(bestAsk, ticker.ask);
+    const reversalThreshold = bestAsk * (1 + REVERSAL_BPS / 10000);
+    if (ticker.ask > reversalThreshold) {
+      console.log(`\n   ▼  TAKE PROFIT: ask (${ticker.ask.toFixed(4)}) > best (${bestAsk.toFixed(4)}) + ${REVERSAL_BPS} bps → CLOSE SHORT`);
       try {
         await closeShort();
         state = "IDLE";
         entryPrice = 0;
+        bestAsk = Infinity;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("REDUCE_ONLY_ABORT")) {
           console.log(`   ℹ  Position already closed, resetting to IDLE`);
           state = "IDLE";
           entryPrice = 0;
+          bestAsk = Infinity;
         } else {
           console.error(`   ✗  Failed to close short, keeping state SHORT: ${msg}`);
         }
@@ -318,6 +334,8 @@ async function main(): Promise<void> {
     const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
     entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
     state = posSide as State;
+    bestAsk = Infinity;
+    bestBid = 0;
     console.log(`⟐  Found existing ${posSide} position on ${SYMBOL}  entry: ${entryPrice}  size: ${existing.size}`);
   }
 
@@ -354,7 +372,7 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${QTY}  leverage: ${LEVERAGE}x  threshold: ${THRESHOLD}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
+  console.log(`⟐  Auto-trading ${SYMBOL}  qty: ${QTY}  leverage: ${LEVERAGE}x  threshold: ${THRESHOLD}  reversal: ${REVERSAL_BPS} bps  ${DRY_RUN ? "(DRY RUN)" : ""}`);
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
 }
