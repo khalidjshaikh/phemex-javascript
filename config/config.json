@@ -60,7 +60,7 @@
     "profit": 0,
     "size": 0.001,
     "bias": -2.3,
-    "threshold": 7
+    "threshold": 6
   },
   "XBRUSDT": {
     "hedge": true,
