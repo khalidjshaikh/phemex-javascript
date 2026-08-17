@@ -11,7 +11,8 @@
   body { display: flex; flex-direction: column; }
   #header { padding: 8px 16px; border-bottom: 1px solid #222; display: flex;
             align-items: center; gap: 16px; flex-wrap: wrap; background: #0e0e14; flex-shrink: 0; }
-  #header h1 { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; }
+   #header h1 { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; }
+   .version { font-size: 10px; color: #555; background: #1a1a24; padding: 2px 6px; border-radius: 3px; border: 1px solid #333; }
   select { background: #1a1a24; color: #ccc; border: 1px solid #333; border-radius: 4px;
            padding: 4px 8px; font-size: 12px; font-family: inherit; cursor: pointer; }
   select:focus { outline: 1px solid #555; }
@@ -29,7 +30,8 @@
   .v.mrk { color: #1f77b4; }
   .v.lst { color: #9467bd; }
   .spread-val { color: #888; font-weight: 400; }
-  #canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+  #canvas-wrap { flex: 1; min-height: 0; position: relative; }
+  #canvas { display: block; width: 100%; height: 100%; }
   #legend { position: fixed; bottom: 12px; left: 16px; display: flex; gap: 16px;
             font-size: 10px; background: rgba(10,10,15,0.85); padding: 6px 12px;
             border-radius: 4px; border: 1px solid #222; pointer-events: none; }
@@ -43,6 +45,7 @@
 <body>
 <div id="header">
   <h1>phemex ticker</h1>
+  <span class="version">v0.1.0</span>
   <select id="symbol-select">
     <option value="BTCUSDT">BTCUSDT</option>
     <option value="ETHUSDT">ETHUSDT</option>
@@ -62,7 +65,9 @@
     <div class="val"><span class="lbl">Spread</span><span class="v spread-val" id="v-spread">—</span></div>
   </div>
 </div>
-<canvas id="canvas"></canvas>
+<div id="canvas-wrap">
+  <canvas id="canvas"></canvas>
+</div>
 <div id="legend">
   <div class="leg"><div class="leg-dot" style="background:#d62728"></div>Ask</div>
   <div class="leg"><div class="leg-dot" style="background:#2ca02c"></div>Bid</div>
@@ -93,6 +98,7 @@
   let symbol = 'BTCUSDT';
   let buf = []; // [{ts, vals:[5]}]
   let lastVals = [null, null, null, null, null];
+  let askBidData = {}; // symbol -> {ask, bid} from market24h
 
   const canvas = document.getElementById('canvas');
   const dot = document.getElementById('dot');
@@ -116,9 +122,12 @@
     uniform float uMaxY;
     uniform float uCount;
     uniform vec2  uRes;
+    uniform float uLeftPad;
+    uniform float uRightPad;
     out vec3 vColor;
     void main() {
-      float x = (aIdx / max(uCount - 1.0, 1.0)) * 2.0 - 1.0;
+      float t = aIdx / max(uCount - 1.0, 1.0);
+      float x = mix(uLeftPad, 1.0 - uRightPad, t) * 2.0 - 1.0;
       float y;
       if (uMaxY - uMinY < 1e-12) {
         y = 0.0;
@@ -166,6 +175,8 @@
   const uMaxY = gl.getUniformLocation(prog, 'uMaxY');
   const uCount = gl.getUniformLocation(prog, 'uCount');
   const uRes = gl.getUniformLocation(prog, 'uRes');
+  const uLeftPad = gl.getUniformLocation(prog, 'uLeftPad');
+  const uRightPad = gl.getUniformLocation(prog, 'uRightPad');
 
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -245,26 +256,30 @@
     if (textCanvas) return;
     textCanvas = document.createElement('canvas');
     textCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
-    canvas.parentElement.style.position = 'relative';
-    canvas.parentElement.appendChild(textCanvas);
+    const wrap = document.getElementById('canvas-wrap');
+    wrap.appendChild(textCanvas);
     textCtx = textCanvas.getContext('2d');
   }
 
   function resizeTextLayer() {
     if (!textCanvas) return;
     const dpr = window.devicePixelRatio || 1;
-    textCanvas.width = canvas.clientWidth * dpr;
-    textCanvas.height = canvas.clientHeight * dpr;
-    textCanvas.style.width = canvas.clientWidth + 'px';
-    textCanvas.style.height = canvas.clientHeight + 'px';
+    const wrap = document.getElementById('canvas-wrap');
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    textCanvas.width = w * dpr;
+    textCanvas.height = h * dpr;
+    textCanvas.style.width = w + 'px';
+    textCanvas.style.height = h + 'px';
     textCtx.scale(dpr, dpr);
   }
 
   // ─── Resize ───
   function resize() {
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    const wrap = document.getElementById('canvas-wrap');
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -294,24 +309,27 @@
       return;
     }
 
-    let allMin = Infinity, allMax = -Infinity;
+    let sum = 0, cnt = 0;
+    let maxDev = 0;
+    for (const pt of buf) {
+      for (let i = 0; i < 5; i++) {
+        const v = pt.vals[i];
+        if (v != null) { sum += v; cnt++; }
+      }
+    }
+    const center = cnt > 0 ? sum / cnt : 0;
     for (const pt of buf) {
       for (let i = 0; i < 5; i++) {
         const v = pt.vals[i];
         if (v != null) {
-          if (v < allMin) allMin = v;
-          if (v > allMax) allMax = v;
+          const dev = Math.abs(v - center);
+          if (dev > maxDev) maxDev = dev;
         }
       }
     }
-
-    if (allMin === allMax) {
-      allMin -= 1;
-      allMax += 1;
-    }
-    const range = allMax - allMin;
-    const yMin = allMin - range * PAD;
-    const yMax = allMax + range * PAD;
+    if (maxDev < 1) maxDev = 1;
+    const yMin = center - maxDev * (1 + PAD);
+    const yMax = center + maxDev * (1 + PAD);
 
     drawGrid(yMin, yMax);
 
@@ -320,15 +338,18 @@
     gl.uniform1f(uMaxY, yMax);
     gl.uniform1f(uCount, n);
     gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uLeftPad, LEFT_PAD);
+    gl.uniform1f(uRightPad, RIGHT_PAD);
 
-    const totalPts = n * 5;
+    const FIELD_COUNT = 5;
+    const totalPts = n * FIELD_COUNT;
     const idxArr = new Float32Array(totalPts);
     const valArr = new Float32Array(totalPts);
     const clrArr = new Float32Array(totalPts * 3);
 
     for (let t = 0; t < n; t++) {
-      for (let s = 0; s < 5; s++) {
-        const base = t * 5 + s;
+      for (let s = 0; s < FIELD_COUNT; s++) {
+        const base = s * n + t;
         idxArr[base] = t;
         valArr[base] = buf[t].vals[s] ?? buf[t].vals[s === 4 ? 3 : s === 3 ? 1 : s];
         clrArr[base * 3] = COLORS[s][0];
@@ -346,8 +367,8 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, bufClr);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, clrArr);
 
-    for (let s = 0; s < 5; s++) {
-      gl.drawArrays(gl.LINE_STRIP, s, n);
+    for (let s = 0; s < FIELD_COUNT; s++) {
+      gl.drawArrays(gl.LINE_STRIP, s * n, n);
     }
 
     gl.bindVertexArray(null);
@@ -392,8 +413,9 @@
   function drawLabels(yMin, yMax) {
     ensureTextLayer();
     if (!textCtx) return;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
+    const wrap = document.getElementById('canvas-wrap');
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
     textCtx.clearRect(0, 0, w, h);
 
     const left = LEFT_PAD * w;
@@ -486,37 +508,45 @@
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
+
+        // Handle market24h for real ask/bid
+        if (msg.market24h) {
+          const t = msg.market24h;
+          const sym = t.symbol;
+          if (sym === symbol) {
+            const askVal = parseFloat(t.askRp) || null;
+            const bidVal = parseFloat(t.bidRp) || null;
+            if (askVal != null && bidVal != null) {
+              askBidData[symbol] = { ask: askVal, bid: bidVal };
+              // Update last tick with real ask/bid if we have other values
+              if (buf.length > 0) {
+                const last = buf[buf.length - 1];
+                last.vals[0] = askVal;
+                last.vals[1] = bidVal;
+                lastVals[0] = askVal;
+                lastVals[1] = bidVal;
+              }
+            }
+          }
+        }
+
+        // Handle pack data for index/mark/last
         if (msg.data && Array.isArray(msg.data)) {
           for (const row of msg.data) {
             if (!Array.isArray(row) || row.length < 12) continue;
             const sym = row[0];
             if (sym !== symbol) continue;
-            const vals = [
-              parseFloat(row[3]) || null,
-              parseFloat(row[4]) || null,
-              parseFloat(row[8]) || null,
-              parseFloat(row[9]) || null,
-              parseFloat(row[3]) || null,
-            ];
-            // row layout: [symbol, openRp, highRp, lowRp, lastRp, volumeRq, turnoverRv, openInterestRv, indexRp, markRp, fundingRateRr, predFundingRateRr]
-            // ask/bid not in the pack, use last for both markers; compute from index if needed
-            // Actually the perp pack may not have ask/bid. Let's use lastRp for all and derive.
-            // Better: check if fields exist
+
             const lastVal = parseFloat(row[4]) || null;
             const indexVal = parseFloat(row[8]) || null;
             const markVal = parseFloat(row[9]) || null;
 
-            // Use mark as proxy for ask/bid spread display if actual ask/bid not available
-            // The pack message format: [symbol, open, high, low, last, volume, turnover, openInterest, index, mark, fundingRate, predFundingRate]
-            // We'll display: ask≈mark+halfSpread, bid≈mark-halfSpread, but since we don't have spread,
-            // we show index, mark, last as distinct, and ask/bid as last±epsilon
-            const spread = markVal && indexVal ? Math.abs(markVal - indexVal) : 0.5;
-            vals[0] = lastVal != null ? lastVal + spread * 0.5 : null; // ask proxy
-            vals[1] = lastVal != null ? lastVal - spread * 0.5 : null; // bid proxy
-            vals[2] = indexVal;
-            vals[3] = markVal;
-            vals[4] = lastVal;
+            // Use real ask/bid if available, otherwise use proxies
+            const ab = askBidData[symbol];
+            const askVal = ab?.ask ?? (lastVal != null ? lastVal + 10 : null);
+            const bidVal = ab?.bid ?? (lastVal != null ? lastVal - 10 : null);
 
+            const vals = [askVal, bidVal, indexVal, markVal, lastVal];
             const ts = Date.now();
             buf.push({ ts, vals });
             if (buf.length > WINDOW) buf.shift();
@@ -546,6 +576,11 @@
       id: 1,
       method: 'perp_market24h_pack_p.subscribe',
       params: []
+    }));
+    ws.send(JSON.stringify({
+      id: 2,
+      method: 'market24h.subscribe',
+      params: [symbol]
     }));
   }
 
