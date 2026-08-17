@@ -157,7 +157,7 @@ const SIG_FIELDS = ["askRp", "bidRp", "indexRp", "markRp", "lastRp"] as const;
 // listed in that order; anything not listed keeps its API order.
 // --addSymbol inserts a symbol column as the 1st column.
 const COLUMN_ORDER_BASE = [
-  "askRp", "bidRp", "fundingRateRr", "highRp",
+  "askRp", "bidRp", "askBidSpread", "fundingRateRr", "highRp",
   "indexRp", "markRp", "lastRp",
   "lowRp", "openInterestRv", "openRp", "predFundingRateRr", "symbol",
   "timestamp", "turnoverRv", "volumeRq",
@@ -246,6 +246,7 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   askRp:             { label: "ask",      full: "ask price" },
   symCol:            { label: "symbol",   full: "symbol (--addSymbol)" },
   bidRp:             { label: "bid",      full: "bid price" },
+  askBidSpread:      { label: "ab",       full: "ask-bid spread" },
   fundingRateRr:     { label: "fundRate", full: "funding rate" },
   highRp:            { label: "high",     full: "24h high" },
   indexRp:           { label: "index",    full: "index price" },
@@ -300,6 +301,7 @@ function colWidth(key: string): number {
   if (key === "timestamp") return Math.max(label, 12); // HH:MM:SS.mmm
   if (key === "markRp") return Math.max(label, DECIMALS + 4); // sign + "0." + decimals
   if (key === "markRpDelta") return Math.max(label, DECIMALS + 4);
+  if (key === "askBidSpread") return Math.max(label, DECIMALS + 3); // spread
   if (key === "dt") return Math.max(label, 12);
   // Cumulative counters can grow; everything else is a small price/delta.
   if (key === "volumeRq" || key === "turnoverRv" || key === "openInterestRv")
@@ -737,6 +739,10 @@ function processTicker(data: Record<string, unknown>): void {
       data[`${f}Delta`] =
         Number.isFinite(v) && Number.isFinite(last) ? v - last : null;
     }
+    // ask-bid spread
+    const ask = Number(data.askRp);
+    const bid = Number(data.bidRp);
+    data.askBidSpread = Number.isFinite(ask) && Number.isFinite(bid) ? ask - bid : null;
   }
 
   // --prevDelta: ΔaskPrev, ΔbidPrev, ΔindexPrev and ΔlastPrev — change from prior tick.
