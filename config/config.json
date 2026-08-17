@@ -69,7 +69,7 @@
     "profit": 0,
     "size": 0.01, 
     "bias": -0.01753,
-    "threshold": 0.3
+    "threshold": 0.4
   },
   "XRPUSDT": {
     "hedge": true,
@@ -85,6 +85,6 @@
     "profit": 0,
     "size": 0.01,
     "bias": -0.1,
-    "threshold": 0.3
+    "threshold": 0.35
   }
 }

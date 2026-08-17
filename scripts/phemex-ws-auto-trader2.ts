@@ -67,9 +67,9 @@ const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: num
   SOLUSDT: { bias: -0.03157761, threshold: 0.10902483, qty: 0.01 },
   SUIUSDT: { bias: -0.000231545, threshold: 0.000987975, qty: 1 },
   XAUUSDT: { bias: -2.3, threshold: 6, qty: 0.001 },
-  XBRUSDT: { bias: -0.01753, threshold: 0.3, qty: 0.01 },
+  XBRUSDT: { bias: -0.01753, threshold: 0.4, qty: 0.01 },
   XRPUSDT: { bias: -0.000474535, threshold: 0.001286745, qty: 0.01 },
-  XTIUSDT: { bias: -0.1, threshold: 0.3, qty: 0.01 },
+  XTIUSDT: { bias: -0.1, threshold: 0.35, qty: 0.01 },
 };
 
 function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number } {
