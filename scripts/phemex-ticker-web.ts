@@ -721,8 +721,9 @@ function render() {
 
   // Price cards
   const row = document.getElementById('priceRow');
+  const PRICE_CARD_FIELDS = ['ask','bid','index','mark','last'];
   if (t) {
-    row.innerHTML = FIELDS.map(f => {
+    row.innerHTML = PRICE_CARD_FIELDS.map(f => {
       const val = t[f];
       const ind = d.indicators;
       const vel = ind ? ind.velocity[f] : null;
