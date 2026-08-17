@@ -59,9 +59,17 @@ const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
 const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number }> = {
-  XTIUSDT: { bias: -0.1, threshold: 0.3, qty: QTY_DEFAULT },
-  XBRUSDT: { bias: -0.01753, threshold: 0.3, qty: QTY_DEFAULT },
+  BNBUSDT: { bias: 0.3, threshold: 0.35, qty: 0.01 },
+  BTCUSDT: { bias: -30, threshold: 40, qty: 0.001 },
+  DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1 },
+  ETHUSDT: { bias: -0.85, threshold: 1.25, qty: 0.01 },
+  LINKUSDT: { bias: 0.000405155, threshold: 0.020279195, qty: 0.01 },
+  SOLUSDT: { bias: -0.03157761, threshold: 0.10902483, qty: 0.01 },
+  SUIUSDT: { bias: -0.000231545, threshold: 0.000987975, qty: 1 },
   XAUUSDT: { bias: -2.3, threshold: 6, qty: 0.001 },
+  XBRUSDT: { bias: -0.01753, threshold: 0.3, qty: 0.01 },
+  XRPUSDT: { bias: -0.000474535, threshold: 0.001286745, qty: 0.01 },
+  XTIUSDT: { bias: -0.1, threshold: 0.3, qty: 0.01 },
 };
 
 function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number } {
