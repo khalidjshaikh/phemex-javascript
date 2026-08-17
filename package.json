@@ -10,7 +10,8 @@
     "xti-trader-live": "tsx scripts/phemex-ws-xtiusdt-trader.ts --live",
     "closed-positions": "tsx scripts/phemex-closed-positions.ts",
     "graph": "tsx scripts/graph-ticker.ts",
-    "number-line": "tsx scripts/number-line.ts"
+    "number-line": "tsx scripts/number-line.ts",
+    "log-viewer": "tsx scripts/log-viewer.ts"
   },
   "dependencies": {
     "@types/node": "^26.2.0",
