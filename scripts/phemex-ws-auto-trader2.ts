@@ -59,9 +59,9 @@ const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
 const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number }> = {
-  XTRUSDT: { bias: -0.1, threshold: 0.2, qty: QTY_DEFAULT },
-  XBRUSDT: { bias: -0.01753, threshold: 0.2, qty: QTY_DEFAULT },
-  XAUUSDT: { bias: -2.3, threshold: 7, qty: 0.001 },
+  XTIUSDT: { bias: -0.1, threshold: 0.2, qty: QTY_DEFAULT },
+  XBRUSDT: { bias: -0.01753, threshold: 0.3, qty: QTY_DEFAULT },
+  XAUUSDT: { bias: -2.3, threshold: 6, qty: 0.001 },
 };
 
 function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number } {
