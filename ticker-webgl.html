@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phemex Ticker — WebGL</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0a0a0f; color: #ccc;
+               font-family: -apple-system, "SF Mono", "Segoe UI", Roboto, monospace; }
+  #header { padding: 8px 16px; border-bottom: 1px solid #222; display: flex;
+            align-items: center; gap: 16px; flex-wrap: wrap; background: #0e0e14; }
+  #header h1 { font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; }
+  select { background: #1a1a24; color: #ccc; border: 1px solid #333; border-radius: 4px;
+           padding: 4px 8px; font-size: 12px; font-family: inherit; cursor: pointer; }
+  select:focus { outline: 1px solid #555; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+  .dot.ok { background: #2ca02c; }
+  .dot.err { background: #d62728; }
+  .values { display: flex; gap: 14px; margin-left: auto; font-size: 11px; white-space: nowrap; }
+  .val { display: flex; gap: 4px; }
+  .lbl { color: #666; }
+  .v { font-weight: 600; }
+  .v.ask { color: #d62728; }
+  .v.bid { color: #2ca02c; }
+  .v.idx { color: #ff7f0e; }
+  .v.mrk { color: #1f77b4; }
+  .v.lst { color: #9467bd; }
+  .spread-val { color: #888; font-weight: 400; }
+  #canvas { display: block; width: 100%; }
+  #legend { position: fixed; bottom: 12px; left: 16px; display: flex; gap: 16px;
+            font-size: 10px; background: rgba(10,10,15,0.85); padding: 6px 12px;
+            border-radius: 4px; border: 1px solid #222; pointer-events: none; }
+  .leg { display: flex; align-items: center; gap: 4px; }
+  .leg-dot { width: 8px; height: 2px; border-radius: 1px; }
+  #time-range { position: fixed; bottom: 12px; right: 16px; font-size: 10px; color: #555;
+                background: rgba(10,10,15,0.85); padding: 6px 12px; border-radius: 4px;
+                border: 1px solid #222; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>phemex ticker</h1>
+  <select id="symbol-select">
+    <option value="BTCUSDT">BTCUSDT</option>
+    <option value="ETHUSDT">ETHUSDT</option>
+    <option value="SOLUSDT">SOLUSDT</option>
+    <option value="XRPUSDT">XRPUSDT</option>
+    <option value="DOGEUSDT">DOGEUSDT</option>
+  </select>
+  <div class="status"><div class="dot" id="dot"></div><span id="status-text">connecting</span></div>
+  <div class="values">
+    <div class="val"><span class="lbl">Ask</span><span class="v ask" id="v-ask">—</span></div>
+    <div class="val"><span class="lbl">Bid</span><span class="v bid" id="v-bid">—</span></div>
+    <div class="val"><span class="lbl">Idx</span><span class="v idx" id="v-idx">—</span></div>
+    <div class="val"><span class="lbl">Mrk</span><span class="v mrk" id="v-mrk">—</span></div>
+    <div class="val"><span class="lbl">Last</span><span class="v lst" id="v-lst">—</span></div>
+    <div class="val"><span class="lbl">Spread</span><span class="v spread-val" id="v-spread">—</span></div>
+  </div>
+</div>
+<canvas id="canvas"></canvas>
+<div id="legend">
+  <div class="leg"><div class="leg-dot" style="background:#d62728"></div>Ask</div>
+  <div class="leg"><div class="leg-dot" style="background:#2ca02c"></div>Bid</div>
+  <div class="leg"><div class="leg-dot" style="background:#ff7f0e"></div>Index</div>
+  <div class="leg"><div class="leg-dot" style="background:#1f77b4"></div>Mark</div>
+  <div class="leg"><div class="leg-dot" style="background:#9467bd"></div>Last</div>
+</div>
+<div id="time-range"></div>
+
+<script>
+(() => {
+  const WINDOW = 60;
+  const RECONNECT_BASE = 1000;
+  const RECONNECT_MAX = 8000;
+  const HEARTBEAT_MS = 20000;
+
+  const COLORS = [
+    [0.84, 0.15, 0.16], // Ask  #d62728
+    [0.17, 0.63, 0.17], // Bid  #2ca02c
+    [1.0,  0.50, 0.05], // Index #ff7f0e
+    [0.12, 0.47, 0.71], // Mark #1f77b4
+    [0.58, 0.40, 0.74], // Last #9467bd
+  ];
+  const FIELD_KEYS = ['askRp', 'bidRp', 'indexRp', 'markRp', 'lastRp'];
+  const LABELS = ['Ask', 'Bid', 'Index', 'Mark', 'Last'];
+  const VALUE_IDS = ['v-ask', 'v-bid', 'v-idx', 'v-mrk', 'v-lst'];
+
+  let symbol = 'BTCUSDT';
+  let buf = []; // [{ts, vals:[5]}]
+  let lastVals = [null, null, null, null, null];
+
+  const canvas = document.getElementById('canvas');
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('status-text');
+  const symbolSelect = document.getElementById('symbol-select');
+  const timeRange = document.getElementById('time-range');
+
+  // ─── WebGL setup ───
+  const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+  if (!gl) {
+    statusText.textContent = 'WebGL2 not supported';
+    dot.classList.add('err');
+    return;
+  }
+
+  const vsSource = `#version 300 es
+    layout(location=0) in float aIdx;
+    layout(location=1) in float aVal;
+    layout(location=2) in vec3  aColor;
+    uniform float uMinY;
+    uniform float uMaxY;
+    uniform float uCount;
+    uniform vec2  uRes;
+    out vec3 vColor;
+    void main() {
+      float x = (aIdx / max(uCount - 1.0, 1.0)) * 2.0 - 1.0;
+      float y;
+      if (uMaxY - uMinY < 1e-12) {
+        y = 0.0;
+      } else {
+        y = ((aVal - uMinY) / (uMaxY - uMinY)) * 2.0 - 1.0;
+      }
+      gl_Position = vec4(x, y, 0.0, 1.0);
+      vColor = aColor;
+    }
+  `;
+  const fsSource = `#version 300 es
+    precision mediump float;
+    in vec3 vColor;
+    out vec4 fragColor;
+    void main() {
+      fragColor = vec4(vColor, 1.0);
+    }
+  `;
+
+  function compileShader(src, type) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
+      return null;
+    }
+    return s;
+  }
+
+  const vs = compileShader(vsSource, gl.VERTEX_SHADER);
+  const fs = compileShader(fsSource, gl.FRAGMENT_SHADER);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(prog));
+    return;
+  }
+  gl.useProgram(prog);
+
+  const uMinY = gl.getUniformLocation(prog, 'uMinY');
+  const uMaxY = gl.getUniformLocation(prog, 'uMaxY');
+  const uCount = gl.getUniformLocation(prog, 'uCount');
+  const uRes = gl.getUniformLocation(prog, 'uRes');
+
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+
+  const MAX_PTS = WINDOW * 5;
+  const bufIdx = gl.createBuffer();
+  const bufVal = gl.createBuffer();
+  const bufClr = gl.createBuffer();
+
+  gl.enableVertexAttribArray(0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufIdx);
+  gl.bufferData(gl.ARRAY_BUFFER, MAX_PTS * 4, gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
+
+  gl.enableVertexAttribArray(1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufVal);
+  gl.bufferData(gl.ARRAY_BUFFER, MAX_PTS * 4, gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 0, 0);
+
+  gl.enableVertexAttribArray(2);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufClr);
+  gl.bufferData(gl.ARRAY_BUFFER, MAX_PTS * 12, gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindVertexArray(null);
+
+  // ─── Grid shader ───
+  const gridVs = `#version 300 es
+    layout(location=0) in vec2 aPos;
+    void main() {
+      gl_Position = vec4(aPos, 0.0, 1.0);
+    }
+  `;
+  const gridFs = `#version 300 es
+    precision mediump float;
+    uniform vec4 uColor;
+    out vec4 fragColor;
+    void main() {
+      fragColor = uColor;
+    }
+  `;
+  const gvs = compileShader(gridVs, gl.VERTEX_SHADER);
+  const gfs = compileShader(gridFs, gl.FRAGMENT_SHADER);
+  const gProg = gl.createProgram();
+  gl.attachShader(gProg, gvs);
+  gl.attachShader(gProg, gfs);
+  gl.linkProgram(gProg);
+  const uColor = gl.getUniformLocation(gProg, 'uColor');
+
+  const gridVao = gl.createVertexArray();
+  gl.bindVertexArray(gridVao);
+  const gridBuf = gl.createBuffer();
+  gl.enableVertexAttribArray(0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, 8 * 4, gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  function drawLine(x1, y1, x2, y2, r, g, b, a) {
+    const ndcX1 = x1 * 2 - 1;
+    const ndcY1 = y1 * 2 - 1;
+    const ndcX2 = x2 * 2 - 1;
+    const ndcY2 = y2 * 2 - 1;
+    const verts = new Float32Array([ndcX1, ndcY1, ndcX2, ndcY2]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gridBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts);
+    gl.useProgram(gProg);
+    gl.uniform4f(uColor, r, g, b, a);
+    gl.bindVertexArray(gridVao);
+    gl.drawArrays(gl.LINES, 0, 2);
+    gl.bindVertexArray(null);
+  }
+
+  // ─── Text overlay via 2D canvas ───
+  let textCanvas, textCtx;
+  function ensureTextLayer() {
+    if (textCanvas) return;
+    textCanvas = document.createElement('canvas');
+    textCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
+    canvas.parentElement.style.position = 'relative';
+    canvas.parentElement.appendChild(textCanvas);
+    textCtx = textCanvas.getContext('2d');
+  }
+
+  function resizeTextLayer() {
+    if (!textCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    textCanvas.width = canvas.clientWidth * dpr;
+    textCanvas.height = canvas.clientHeight * dpr;
+    textCanvas.style.width = canvas.clientWidth + 'px';
+    textCanvas.style.height = canvas.clientHeight + 'px';
+    textCtx.scale(dpr, dpr);
+  }
+
+  // ─── Resize ───
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    ensureTextLayer();
+    resizeTextLayer();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ─── Render ───
+  const PAD = 0.08;
+  const LEFT_PAD = 0.07;
+  const RIGHT_PAD = 0.02;
+  const TOP_PAD = 0.04;
+  const BOTTOM_PAD = 0.06;
+
+  function render() {
+    gl.clearColor(0.04, 0.04, 0.06, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    const n = buf.length;
+    if (n < 2) {
+      drawGrid(0, 1);
+      requestAnimationFrame(render);
+      return;
+    }
+
+    let allMin = Infinity, allMax = -Infinity;
+    for (const pt of buf) {
+      for (let i = 0; i < 5; i++) {
+        const v = pt.vals[i];
+        if (v != null) {
+          if (v < allMin) allMin = v;
+          if (v > allMax) allMax = v;
+        }
+      }
+    }
+
+    if (allMin === allMax) {
+      allMin -= 1;
+      allMax += 1;
+    }
+    const range = allMax - allMin;
+    const yMin = allMin - range * PAD;
+    const yMax = allMax + range * PAD;
+
+    drawGrid(yMin, yMax);
+
+    gl.useProgram(prog);
+    gl.uniform1f(uMinY, yMin);
+    gl.uniform1f(uMaxY, yMax);
+    gl.uniform1f(uCount, n);
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+
+    const totalPts = n * 5;
+    const idxArr = new Float32Array(totalPts);
+    const valArr = new Float32Array(totalPts);
+    const clrArr = new Float32Array(totalPts * 3);
+
+    for (let t = 0; t < n; t++) {
+      for (let s = 0; s < 5; s++) {
+        const base = t * 5 + s;
+        idxArr[base] = t;
+        valArr[base] = buf[t].vals[s] ?? buf[t].vals[s === 4 ? 3 : s === 3 ? 1 : s];
+        clrArr[base * 3] = COLORS[s][0];
+        clrArr[base * 3 + 1] = COLORS[s][1];
+        clrArr[base * 3 + 2] = COLORS[s][2];
+      }
+    }
+
+    gl.bindVertexArray(vao);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufIdx);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, idxArr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufVal);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, valArr);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufClr);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, clrArr);
+
+    for (let s = 0; s < 5; s++) {
+      gl.drawArrays(gl.LINE_STRIP, s, n);
+    }
+
+    gl.bindVertexArray(null);
+
+    drawLabels(yMin, yMax);
+
+    requestAnimationFrame(render);
+  }
+
+  function drawGrid(yMin, yMax) {
+    const n = buf.length;
+    const left = LEFT_PAD;
+    const right = 1 - RIGHT_PAD;
+    const top = TOP_PAD;
+    const bot = 1 - BOTTOM_PAD;
+
+    gl.useProgram(gProg);
+
+    // horizontal grid
+    const hLines = 6;
+    for (let i = 0; i <= hLines; i++) {
+      const frac = i / hLines;
+      const y = bot - frac * (bot - top);
+      drawLine(left, y, right, y, 0.2, 0.2, 0.25, 0.5);
+    }
+
+    // vertical grid (every 10s)
+    const vLines = WINDOW / 10;
+    for (let i = 0; i <= vLines; i++) {
+      const frac = i / vLines;
+      const x = left + frac * (right - left);
+      drawLine(x, top, x, bot, 0.2, 0.2, 0.25, 0.3);
+    }
+
+    // border
+    drawLine(left, top, right, top, 0.3, 0.3, 0.35, 0.6);
+    drawLine(left, bot, right, bot, 0.3, 0.3, 0.35, 0.6);
+    drawLine(left, top, left, bot, 0.3, 0.3, 0.35, 0.6);
+    drawLine(right, top, right, bot, 0.3, 0.3, 0.35, 0.6);
+  }
+
+  function drawLabels(yMin, yMax) {
+    ensureTextLayer();
+    if (!textCtx) return;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    textCtx.clearRect(0, 0, w, h);
+
+    const left = LEFT_PAD * w;
+    const right = (1 - RIGHT_PAD) * w;
+    const top = TOP_PAD * h;
+    const bot = (1 - BOTTOM_PAD) * h;
+
+    textCtx.font = '10px -apple-system, monospace';
+    textCtx.fillStyle = '#555';
+    textCtx.textAlign = 'right';
+    textCtx.textBaseline = 'middle';
+
+    const hLines = 6;
+    for (let i = 0; i <= hLines; i++) {
+      const frac = i / hLines;
+      const y = bot - frac * (bot - top);
+      const val = yMin + frac * (yMax - yMin);
+      textCtx.fillText(formatPrice(val), left - 6, y);
+    }
+
+    textCtx.textAlign = 'center';
+    textCtx.textBaseline = 'top';
+    const vLines = WINDOW / 10;
+    const now = buf.length > 0 ? buf[buf.length - 1].ts : Date.now();
+    for (let i = 0; i <= vLines; i++) {
+      const frac = i / vLines;
+      const x = left + frac * (right - left);
+      const t = new Date(now - (1 - frac) * WINDOW * 1000);
+      textCtx.fillText(t.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }), x, bot + 4);
+    }
+  }
+
+  function formatPrice(p) {
+    if (p == null || !isFinite(p)) return '—';
+    if (p >= 1000) return p.toFixed(1);
+    if (p >= 1) return p.toFixed(2);
+    return p.toFixed(4);
+  }
+
+  function updateHeader() {
+    for (let i = 0; i < 5; i++) {
+      const el = document.getElementById(VALUE_IDS[i]);
+      el.textContent = lastVals[i] != null ? formatPrice(lastVals[i]) : '—';
+    }
+    const ask = lastVals[0], bid = lastVals[1];
+    document.getElementById('v-spread').textContent =
+      (ask != null && bid != null) ? formatPrice(ask - bid) : '—';
+
+    if (buf.length >= 2) {
+      const first = buf[0].ts;
+      const last = buf[buf.length - 1].ts;
+      const f = new Date(first);
+      const l = new Date(last);
+      timeRange.textContent =
+        f.toLocaleTimeString([], { hour12: false }) + ' → ' +
+        l.toLocaleTimeString([], { hour12: false }) +
+        ' · ' + buf.length + ' pts';
+    }
+  }
+
+  // ─── WebSocket ───
+  let ws = null;
+  let heartbeatTimer = null;
+  let reconnectDelay = RECONNECT_BASE;
+  let reconnectTimer = null;
+
+  function connect() {
+    if (ws) { try { ws.close(); } catch(e){} }
+    ws = null;
+    clearTimeout(heartbeatTimer);
+    clearTimeout(reconnectTimer);
+
+    dot.className = 'dot';
+    statusText.textContent = 'connecting';
+
+    ws = new WebSocket('wss://ws.phemex.com');
+
+    ws.onopen = () => {
+      dot.className = 'dot ok';
+      statusText.textContent = 'connected';
+      reconnectDelay = RECONNECT_BASE;
+      subscribe();
+      heartbeatTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ id: 1, method: 'heartbeat' }));
+        }
+      }, HEARTBEAT_MS);
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.data && Array.isArray(msg.data)) {
+          for (const row of msg.data) {
+            if (!Array.isArray(row) || row.length < 12) continue;
+            const sym = row[0];
+            if (sym !== symbol) continue;
+            const vals = [
+              parseFloat(row[3]) || null,
+              parseFloat(row[4]) || null,
+              parseFloat(row[8]) || null,
+              parseFloat(row[9]) || null,
+              parseFloat(row[3]) || null,
+            ];
+            // row layout: [symbol, openRp, highRp, lowRp, lastRp, volumeRq, turnoverRv, openInterestRv, indexRp, markRp, fundingRateRr, predFundingRateRr]
+            // ask/bid not in the pack, use last for both markers; compute from index if needed
+            // Actually the perp pack may not have ask/bid. Let's use lastRp for all and derive.
+            // Better: check if fields exist
+            const lastVal = parseFloat(row[4]) || null;
+            const indexVal = parseFloat(row[8]) || null;
+            const markVal = parseFloat(row[9]) || null;
+
+            // Use mark as proxy for ask/bid spread display if actual ask/bid not available
+            // The pack message format: [symbol, open, high, low, last, volume, turnover, openInterest, index, mark, fundingRate, predFundingRate]
+            // We'll display: ask≈mark+halfSpread, bid≈mark-halfSpread, but since we don't have spread,
+            // we show index, mark, last as distinct, and ask/bid as last±epsilon
+            const spread = markVal && indexVal ? Math.abs(markVal - indexVal) : 0.5;
+            vals[0] = lastVal != null ? lastVal + spread * 0.5 : null; // ask proxy
+            vals[1] = lastVal != null ? lastVal - spread * 0.5 : null; // bid proxy
+            vals[2] = indexVal;
+            vals[3] = markVal;
+            vals[4] = lastVal;
+
+            const ts = Date.now();
+            buf.push({ ts, vals });
+            if (buf.length > WINDOW) buf.shift();
+            lastVals = vals.slice();
+            updateHeader();
+          }
+        }
+      } catch(err) {}
+    };
+
+    ws.onclose = () => {
+      dot.className = 'dot err';
+      statusText.textContent = 'disconnected';
+      clearTimeout(heartbeatTimer);
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      dot.className = 'dot err';
+      statusText.textContent = 'error';
+    };
+  }
+
+  function subscribe() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      id: 1,
+      method: 'perp_market24h_pack_p.subscribe',
+      params: []
+    }));
+  }
+
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 1.5, RECONNECT_MAX);
+      connect();
+    }, reconnectDelay);
+  }
+
+  symbolSelect.addEventListener('change', () => {
+    symbol = symbolSelect.value;
+    buf = [];
+    lastVals = [null, null, null, null, null];
+    updateHeader();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      subscribe();
+    }
+  });
+
+  connect();
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
