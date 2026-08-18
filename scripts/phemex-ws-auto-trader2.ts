@@ -150,7 +150,7 @@ function roundTo(v: number, decimals: number): number {
   return Math.round(v * factor) / factor;
 }
 
-const PRICE_PRECISION = 4;
+const PRICE_PRECISION = 6;
 
 function printTicker(symbol: string, t: TickerData, deltas: Deltas | null, symState: SymbolState): void {
   const tsMs = t.timestamp > 1e12 ? t.timestamp / 1_000_000 : t.timestamp;
