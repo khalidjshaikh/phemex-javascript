@@ -44,6 +44,7 @@ Options:
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
   --bias <num>        Index-last spread bias (default: 0)
+  --error-budget <n>  Consecutive take-profit violations to ignore before forcing close (default: 0)
   --config <JSON>     Inline JSON5 config (overrides --symbol and internal presets)
   --configfile <path> Config file path in JSON5 (overrides --symbol and internal presets)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
@@ -53,8 +54,8 @@ Options:
 
 Config format (JSON5):
   {
-    XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100 },
-    BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100 }
+    XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100, errorBudget: 1 },
+    BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100, errorBudget: 2 }
   }
 `;
 
@@ -68,6 +69,7 @@ interface SymbolConfig {
   bias?: number;
   qty?: number;
   leverage?: number;
+  errorBudget?: number;
 }
 
 const DRY_RUN = hasFlag("--dry-run");
@@ -115,7 +117,7 @@ const SYMBOLS = externalConfig
 const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 
-function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number } {
+function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number } {
   const preset = SYMBOL_PRESETS[symbol] ?? {};
   const external = externalConfig?.[symbol] ?? {};
   const fallback = {
@@ -123,6 +125,7 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     threshold: parseFloat(getArg("--threshold") ?? "0.2"),
     qty: QTY_DEFAULT,
     leverage: LEVERAGE,
+    errorBudget: parseInt(getArg("--error-budget") ?? "0", 10),
   };
   // External config overrides preset, CLI flags override both
   return {
@@ -130,6 +133,7 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     threshold:  "threshold" in external ? external.threshold!   : "threshold" in preset ? preset.threshold!     : fallback.threshold,
     qty:        "qty" in external ? external.qty!               : "qty" in preset ? preset.qty!               : fallback.qty,
     leverage:   "leverage" in external ? external.leverage!     : "leverage" in preset ? preset.leverage!       : fallback.leverage,
+    errorBudget:"errorBudget" in external ? external.errorBudget! : "errorBudget" in preset ? preset.errorBudget! : fallback.errorBudget,
   };
 }
 
@@ -162,7 +166,9 @@ interface SymbolState {
   entryIL: number;
   bestAsk: number;
   bestBid: number;
-  config: { bias: number; threshold: number; qty: number; leverage: number };
+  bestBidErrors: number;
+  bestAskErrors: number;
+  config: { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number };
 }
 
 /* ------------------------------------------------------------------ */
@@ -179,6 +185,8 @@ for (const sym of SYMBOLS) {
     entryIL: 0,
     bestAsk: Infinity,
     bestBid: 0,
+    bestBidErrors: 0,
+    bestAskErrors: 0,
     config: resolveConfig(sym),
   });
 }
@@ -323,6 +331,8 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
         symState.entryIL = ticker.index - ticker.last;
         symState.bestAsk = Infinity;
         symState.bestBid = 0;
+        symState.bestBidErrors = 0;
+        symState.bestAskErrors = 0;
         console.log(`   ℹ  Found existing ${posSide} position on ${symbol}, syncing state`);
         return;
       }
@@ -336,6 +346,8 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       symState.entryPrice = ticker.ask;
       symState.entryIL = ticker.index - ticker.last;
       symState.bestBid = ticker.bid;
+      symState.bestBidErrors = 0;
+      symState.bestAskErrors = 0;
       await openLong(symbol, symState.config.qty, symState.config.leverage);
     } else if (spread < -symState.config.threshold) {
       const il = ticker.index - ticker.last;
@@ -344,6 +356,8 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       symState.entryPrice = ticker.bid;
       symState.entryIL = ticker.index - ticker.last;
       symState.bestAsk = ticker.ask;
+      symState.bestBidErrors = 0;
+      symState.bestAskErrors = 0;
       await openShort(symbol, symState.config.qty, symState.config.leverage);
     }
   } else if (symState.state === "LONG") {
@@ -376,27 +390,42 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       const roundedBestBid = roundTo(symState.bestBid, PRICE_PRECISION);
       symState.bestBid = Math.max(symState.bestBid, ticker.bid);
       if (roundedBid < roundedBestBid) {
-        const closeIL = (ticker.index - ticker.last).toFixed(4);
-        const pnl = symState.entryPrice - ticker.bid;
-        console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
-        try {
-          await closeLong(symbol, symState.config.qty);
-          symState.state = "IDLE";
-          symState.entryPrice = 0;
-          symState.entryIL = 0;
-          symState.bestBid = 0;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("REDUCE_ONLY_ABORT")) {
-            console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+        symState.bestBidErrors++;
+        const remaining = symState.config.errorBudget - symState.bestBidErrors + 1;
+        if (symState.bestBidErrors > symState.config.errorBudget) {
+          const closeIL = (ticker.index - ticker.last).toFixed(4);
+          const pnl = symState.entryPrice - ticker.bid;
+          console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
+          try {
+            await closeLong(symbol, symState.config.qty);
             symState.state = "IDLE";
             symState.entryPrice = 0;
             symState.entryIL = 0;
             symState.bestBid = 0;
-          } else {
-            console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
+            symState.bestBidErrors = 0;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("REDUCE_ONLY_ABORT")) {
+              console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+              symState.state = "IDLE";
+              symState.entryPrice = 0;
+              symState.entryIL = 0;
+              symState.bestBid = 0;
+              symState.bestBidErrors = 0;
+            } else {
+              console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
+            }
           }
+        } else {
+          const closeIL = (ticker.index - ticker.last).toFixed(4);
+          console.log(`   ▲  TP BUDGET [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
         }
+      } else {
+        // Price recovered — reset error counter
+        if (symState.bestBidErrors > 0) {
+          console.log(`   ▲  TP BUDGET RESET [${symbol}]: bid recovered to ${ticker.bid.toFixed(4)} >= best ${symState.bestBid.toFixed(4)}  errors:${symState.bestBidErrors} → 0`);
+        }
+        symState.bestBidErrors = 0;
       }
     }
   } else if (symState.state === "SHORT") {
@@ -429,27 +458,42 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       const roundedBestAsk = roundTo(symState.bestAsk, PRICE_PRECISION);
       symState.bestAsk = Math.min(symState.bestAsk, ticker.ask);
       if (roundedAsk > roundedBestAsk) {
-        const closeIL = (ticker.index - ticker.last).toFixed(4);
-        const pnl = ticker.ask - symState.entryPrice;
-        console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
-        try {
-          await closeShort(symbol, symState.config.qty);
-          symState.state = "IDLE";
-          symState.entryPrice = 0;
-          symState.entryIL = 0;
-          symState.bestAsk = Infinity;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("REDUCE_ONLY_ABORT")) {
-            console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+        symState.bestAskErrors++;
+        const remaining = symState.config.errorBudget - symState.bestAskErrors + 1;
+        if (symState.bestAskErrors > symState.config.errorBudget) {
+          const closeIL = (ticker.index - ticker.last).toFixed(4);
+          const pnl = ticker.ask - symState.entryPrice;
+          console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
+          try {
+            await closeShort(symbol, symState.config.qty);
             symState.state = "IDLE";
             symState.entryPrice = 0;
             symState.entryIL = 0;
             symState.bestAsk = Infinity;
-          } else {
-            console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+            symState.bestAskErrors = 0;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("REDUCE_ONLY_ABORT")) {
+              console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+              symState.state = "IDLE";
+              symState.entryPrice = 0;
+              symState.entryIL = 0;
+              symState.bestAsk = Infinity;
+              symState.bestAskErrors = 0;
+            } else {
+              console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+            }
           }
+        } else {
+          const closeIL = (ticker.index - ticker.last).toFixed(4);
+          console.log(`   ▼  TP BUDGET [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
         }
+      } else {
+        // Price recovered — reset error counter
+        if (symState.bestAskErrors > 0) {
+          console.log(`   ▼  TP BUDGET RESET [${symbol}]: ask recovered to ${ticker.ask.toFixed(4)} <= best ${symState.bestAsk.toFixed(4)}  errors:${symState.bestAskErrors} → 0`);
+        }
+        symState.bestAskErrors = 0;
       }
     }
   }
@@ -540,6 +584,8 @@ async function main(): Promise<void> {
       symState.entryIL = 0;
       symState.bestAsk = Infinity;
       symState.bestBid = 0;
+      symState.bestBidErrors = 0;
+      symState.bestAskErrors = 0;
       console.log(`⟐  Found existing ${posSide} position on ${sym}  entry: ${symState.entryPrice}  size: ${existing.size}`);
     }
   }
@@ -621,7 +667,7 @@ async function main(): Promise<void> {
   console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
   for (const sym of SYMBOLS) {
     const s = symbolStates.get(sym)!;
-    console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}`);
+    console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}  errorBudget: ${s.config.errorBudget}`);
   }
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
