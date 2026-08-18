@@ -493,13 +493,14 @@ async function main(): Promise<void> {
           cachedFields = msg.fields as string[];
         }
         if (!cachedFields) return;
+        const fields = cachedFields;
 
         for (const sym of symbolStates.keys()) {
           const row = (msg.data as unknown[][]).find((r) => String(r[0]) === sym);
           if (!row) continue;
           const obj: Record<string, unknown> = {};
-          for (let i = 0; i < cachedFields.length && i < row.length; i++) {
-            obj[cachedFields[i]] = row[i];
+          for (let i = 0; i < fields.length && i < row.length; i++) {
+            obj[fields[i]] = row[i];
           }
 
           const ticker: TickerData = {
