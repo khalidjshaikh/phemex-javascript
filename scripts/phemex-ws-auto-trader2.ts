@@ -64,12 +64,12 @@ const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: num
   BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100 },
   DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1, leverage: 50 },
   ETHUSDT: { bias: -0.85, threshold: 1.25, qty: 0.01, leverage: 100 },
-  LINKUSDT: { bias: 0.000405155, threshold: 0.020279195, qty: 0.01, leverage: 50 },
+  LINKUSDT: { bias: 0.0004, threshold: 0.02, qty: 0.01, leverage: 50 },
   SOLUSDT: { bias: -0.04, threshold: 0.11, qty: 0.01, leverage: 50 },
   SUIUSDT: { bias: -0.0004, threshold: 0.0013, qty: 1, leverage: 50 },
   XAUUSDT: { bias: -2.3, threshold: 7, qty: 0.001, leverage: 100 },
   XBRUSDT: { bias: -0.02, threshold: 0.5, qty: 0.01, leverage: 100 },
-  XRPUSDT: { bias: -0.000474535, threshold: 0.001286745, qty: 0.01, leverage: 50 },
+  XRPUSDT: { bias: -0.0005, threshold: 0.0013, qty: 0.01, leverage: 50 },
   XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100 },
 };
 
