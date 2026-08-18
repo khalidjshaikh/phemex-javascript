@@ -25,6 +25,9 @@ import {
   fetchFills,
   reconstructClosedPositions,
 } from "../src/closed-positions.js";
+import JSON5 from "json5";
+import fs from "node:fs";
+import path from "node:path";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -41,6 +44,7 @@ Options:
   --symbol <symbol>   Restrict to one symbol (e.g. XBRUSDT, BTCUSDT)
   --days <n>          Look-back window in days (default 7)
   --limit <n>         Max fills to fetch (default 200; pages of 200)
+  --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --json              Output raw JSON instead of the table
   --color             Color rows red when net PnL is negative
   --decimals <N>      Decimal places for numbers (default 2)
@@ -86,6 +90,20 @@ function fmtDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
+}
+
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,8 +212,9 @@ async function main(): Promise<void> {
   const asJson = hasFlag("--json");
   const useColor = hasFlag("--color");
   const decimals = Math.max(parseInt(getArg("--decimals") || "2", 10) || 2, 0);
+  const credential = getArg("--credential");
 
-  const creds = loadCredentialsLocal();
+  const creds = credential ? loadCredentialProfile(credential) : loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const label = symbol ? ` for ${symbol.toUpperCase()}` : "";

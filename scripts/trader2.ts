@@ -16,7 +16,7 @@
  */
 
 import fs from "node:fs";
-import { resolve } from "node:path";
+import path from "node:path";
 import JSON5 from "json5";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
@@ -45,17 +45,38 @@ type Config = Record<string, SymbolConfig>;
 /*  Config & credentials                                               */
 /* ------------------------------------------------------------------ */
 
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
+
 const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
+const credential = getArg("--credential");
 const verbose = hasFlag("--verbose");
 if (!rawConfig && !configFile) {
   console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json5");
   console.error("       npx tsx scripts/trader.ts --config '<JSON>'");
+  console.error("");
+  console.error("Options:");
+  console.error("  --config <JSON>       Inline JSON5 config");
+  console.error("  --configfile <path>   Config file path (JSON5)");
+  console.error("  --credential <name>   Credential profile from .credentials.json (e.g. A02, meta, gmail)");
+  console.error("  --verbose             Log signals");
   process.exit(1);
 }
 
 const config: Config = configFile
-  ? JSON5.parse(fs.readFileSync(resolve(process.cwd(), configFile), "utf8"))
+  ? JSON5.parse(fs.readFileSync(path.resolve(process.cwd(), configFile), "utf8"))
   : JSON5.parse(rawConfig!);
 const symbols = Object.keys(config);
 if (symbols.length === 0) {
@@ -63,7 +84,7 @@ if (symbols.length === 0) {
   process.exit(1);
 }
 
-const creds = loadCredentials();
+const creds = credential ? loadCredentialProfile(credential) : loadCredentials();
 const secretRaw = Buffer.from(creds.PHEMEX_API_SECRET, "base64");
 
 /* ------------------------------------------------------------------ */
@@ -219,11 +240,11 @@ function cfg(symbol: string): Required<SymbolConfig> {
 /*  Value files (data/${symbol}-*.txt)                                 */
 /* ------------------------------------------------------------------ */
 
-const DATA_DIR = resolve(__dirname, "..", "data");
+const DATA_DIR = path.resolve(__dirname, "..", "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function valuePath(symbol: string, name: string): string {
-  return resolve(DATA_DIR, `${symbol}-${name}`);
+  return path.resolve(DATA_DIR, `${symbol}-${name}`);
 }
 
 function fmtExact(v: unknown): string {
