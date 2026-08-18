@@ -44,10 +44,18 @@ Options:
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
   --bias <num>        Index-last spread bias (default: 0)
+  --config <JSON>     Inline JSON5 config (overrides --symbol and internal presets)
+  --configfile <path> Config file path in JSON5 (overrides --symbol and internal presets)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --dry-run           Show signals without placing orders
   --debug             Print raw WebSocket messages
   --help              Show this help and exit
+
+Config format (JSON5):
+  {
+    XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100 },
+    BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100 }
+  }
 `;
 
 if (hasFlag("--help")) {
@@ -55,16 +63,19 @@ if (hasFlag("--help")) {
   process.exit(0);
 }
 
-const SYMBOLS = (getArg("--symbol") ?? "XTIUSDT").split(",").map((s) => s.trim().toUpperCase());
-const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
-const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
+interface SymbolConfig {
+  threshold?: number;
+  bias?: number;
+  qty?: number;
+  leverage?: number;
+}
+
 const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
 const CREDENTIAL = getArg("--credential");
 const WS_URL = "wss://ws.phemex.com";
 
-const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number; leverage: number }> = 
-{
+const SYMBOL_PRESETS: Record<string, SymbolConfig> = {
   BNBUSDT: { bias: 0.3, threshold: 0.35, qty: 0.01, leverage: 50 },
   BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100 },
   DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1, leverage: 50 },
@@ -78,13 +89,47 @@ const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: num
   XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100 },
 };
 
+// Load external config from --config or --configfile (overrides SYMBOL_PRESETS)
+const rawConfig = getArg("--config");
+const configFile = getArg("--configfile");
+const externalConfig: Record<string, SymbolConfig> | null = (() => {
+  if (configFile) {
+    const filePath = path.resolve(process.cwd(), configFile);
+    if (!fs.existsSync(filePath)) {
+      console.error(`✗  Config file not found: ${filePath}`);
+      process.exit(1);
+    }
+    return JSON5.parse(fs.readFileSync(filePath, "utf8")) as Record<string, SymbolConfig>;
+  }
+  if (rawConfig) {
+    return JSON5.parse(rawConfig) as Record<string, SymbolConfig>;
+  }
+  return null;
+})();
+
+// If external config is provided, derive symbols from its keys
+const SYMBOLS = externalConfig
+  ? Object.keys(externalConfig).map((s) => s.trim().toUpperCase())
+  : (getArg("--symbol") ?? "XTIUSDT").split(",").map((s) => s.trim().toUpperCase());
+
+const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
+const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
+
 function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number } {
-  if (SYMBOL_PRESETS[symbol]) return { ...SYMBOL_PRESETS[symbol] };
-  return {
+  const preset = SYMBOL_PRESETS[symbol] ?? {};
+  const external = externalConfig?.[symbol] ?? {};
+  const fallback = {
     bias: parseFloat(getArg("--bias") ?? "0"),
     threshold: parseFloat(getArg("--threshold") ?? "0.2"),
     qty: QTY_DEFAULT,
     leverage: LEVERAGE,
+  };
+  // External config overrides preset, CLI flags override both
+  return {
+    bias:       "bias" in external ? external.bias!             : "bias" in preset ? preset.bias!             : fallback.bias,
+    threshold:  "threshold" in external ? external.threshold!   : "threshold" in preset ? preset.threshold!     : fallback.threshold,
+    qty:        "qty" in external ? external.qty!               : "qty" in preset ? preset.qty!               : fallback.qty,
+    leverage:   "leverage" in external ? external.leverage!     : "leverage" in preset ? preset.leverage!       : fallback.leverage,
   };
 }
 
