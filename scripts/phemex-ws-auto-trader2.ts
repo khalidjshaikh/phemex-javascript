@@ -109,6 +109,7 @@ type State = "IDLE" | "LONG" | "SHORT";
 interface SymbolState {
   state: State;
   entryPrice: number;
+  entryIL: number;
   bestAsk: number;
   bestBid: number;
   config: { bias: number; threshold: number; qty: number; leverage: number };
@@ -125,6 +126,7 @@ for (const sym of SYMBOLS) {
   symbolStates.set(sym, {
     state: "IDLE",
     entryPrice: 0,
+    entryIL: 0,
     bestAsk: Infinity,
     bestBid: 0,
     config: resolveConfig(sym),
@@ -252,6 +254,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
         const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
         symState.entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
         symState.state = posSide as State;
+        symState.entryIL = ticker.index - ticker.last;
         symState.bestAsk = Infinity;
         symState.bestBid = 0;
         console.log(`   ℹ  Found existing ${posSide} position on ${symbol}, syncing state`);
@@ -265,6 +268,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       console.log(`\n   ▲  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} > ${symState.config.threshold} → OPEN LONG`);
       symState.state = "LONG";
       symState.entryPrice = ticker.ask;
+      symState.entryIL = ticker.index - ticker.last;
       symState.bestBid = ticker.bid;
       await openLong(symbol, symState.config.qty, symState.config.leverage);
     } else if (spread < -symState.config.threshold) {
@@ -272,21 +276,22 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       console.log(`\n   ▼  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} < -${symState.config.threshold} → OPEN SHORT`);
       symState.state = "SHORT";
       symState.entryPrice = ticker.bid;
+      symState.entryIL = ticker.index - ticker.last;
       symState.bestAsk = ticker.ask;
       await openShort(symbol, symState.config.qty, symState.config.leverage);
     }
   } else if (symState.state === "LONG") {
-    const roundedBid = roundTo(ticker.bid, PRICE_PRECISION);
-    const roundedBestBid = roundTo(symState.bestBid, PRICE_PRECISION);
-    symState.bestBid = Math.max(symState.bestBid, ticker.bid);
-    if (roundedBid < roundedBestBid) {
-      const closeIL = (ticker.index - ticker.last).toFixed(4);
+    const currentIL = ticker.index - ticker.last;
+    const reversalThreshold = symState.config.threshold * 0.5;
+    if (currentIL < symState.entryIL - reversalThreshold) {
+      const closeIL = currentIL.toFixed(4);
       const pnl = symState.entryPrice - ticker.bid;
-      console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
+      console.log(`\n   ▲  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
       try {
         await closeLong(symbol, symState.config.qty);
         symState.state = "IDLE";
         symState.entryPrice = 0;
+        symState.entryIL = 0;
         symState.bestBid = 0;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -294,24 +299,52 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
           console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
           symState.state = "IDLE";
           symState.entryPrice = 0;
+          symState.entryIL = 0;
           symState.bestBid = 0;
         } else {
           console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
         }
       }
+    } else {
+      const roundedBid = roundTo(ticker.bid, PRICE_PRECISION);
+      const roundedBestBid = roundTo(symState.bestBid, PRICE_PRECISION);
+      symState.bestBid = Math.max(symState.bestBid, ticker.bid);
+      if (roundedBid < roundedBestBid) {
+        const closeIL = (ticker.index - ticker.last).toFixed(4);
+        const pnl = symState.entryPrice - ticker.bid;
+        console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
+        try {
+          await closeLong(symbol, symState.config.qty);
+          symState.state = "IDLE";
+          symState.entryPrice = 0;
+          symState.entryIL = 0;
+          symState.bestBid = 0;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("REDUCE_ONLY_ABORT")) {
+            console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+            symState.state = "IDLE";
+            symState.entryPrice = 0;
+            symState.entryIL = 0;
+            symState.bestBid = 0;
+          } else {
+            console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
+          }
+        }
+      }
     }
   } else if (symState.state === "SHORT") {
-    const roundedAsk = roundTo(ticker.ask, PRICE_PRECISION);
-    const roundedBestAsk = roundTo(symState.bestAsk, PRICE_PRECISION);
-    symState.bestAsk = Math.min(symState.bestAsk, ticker.ask);
-    if (roundedAsk > roundedBestAsk) {
-      const closeIL = (ticker.index - ticker.last).toFixed(4);
+    const currentIL = ticker.index - ticker.last;
+    const reversalThreshold = symState.config.threshold * 0.5;
+    if (currentIL > symState.entryIL + reversalThreshold) {
+      const closeIL = currentIL.toFixed(4);
       const pnl = ticker.ask - symState.entryPrice;
-      console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
+      console.log(`\n   ▼  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
       try {
         await closeShort(symbol, symState.config.qty);
         symState.state = "IDLE";
         symState.entryPrice = 0;
+        symState.entryIL = 0;
         symState.bestAsk = Infinity;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -319,9 +352,37 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
           console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
           symState.state = "IDLE";
           symState.entryPrice = 0;
+          symState.entryIL = 0;
           symState.bestAsk = Infinity;
         } else {
           console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+        }
+      }
+    } else {
+      const roundedAsk = roundTo(ticker.ask, PRICE_PRECISION);
+      const roundedBestAsk = roundTo(symState.bestAsk, PRICE_PRECISION);
+      symState.bestAsk = Math.min(symState.bestAsk, ticker.ask);
+      if (roundedAsk > roundedBestAsk) {
+        const closeIL = (ticker.index - ticker.last).toFixed(4);
+        const pnl = ticker.ask - symState.entryPrice;
+        console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
+        try {
+          await closeShort(symbol, symState.config.qty);
+          symState.state = "IDLE";
+          symState.entryPrice = 0;
+          symState.entryIL = 0;
+          symState.bestAsk = Infinity;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("REDUCE_ONLY_ABORT")) {
+            console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+            symState.state = "IDLE";
+            symState.entryPrice = 0;
+            symState.entryIL = 0;
+            symState.bestAsk = Infinity;
+          } else {
+            console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+          }
         }
       }
     }
@@ -410,6 +471,7 @@ async function main(): Promise<void> {
       const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
       symState.entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
       symState.state = posSide as State;
+      symState.entryIL = 0;
       symState.bestAsk = Infinity;
       symState.bestBid = 0;
       console.log(`⟐  Found existing ${posSide} position on ${sym}  entry: ${symState.entryPrice}  size: ${existing.size}`);
