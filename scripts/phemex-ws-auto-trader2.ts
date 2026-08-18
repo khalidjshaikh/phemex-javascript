@@ -282,7 +282,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
     }
   } else if (symState.state === "LONG") {
     const currentIL = ticker.index - ticker.last;
-    const reversalThreshold = symState.config.threshold * 0.5;
+    const reversalThreshold = symState.config.threshold * 0.8;
     if (currentIL < symState.entryIL - reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
       const pnl = symState.entryPrice - ticker.bid;
@@ -335,7 +335,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
     }
   } else if (symState.state === "SHORT") {
     const currentIL = ticker.index - ticker.last;
-    const reversalThreshold = symState.config.threshold * 0.5;
+    const reversalThreshold = symState.config.threshold * 0.8;
     if (currentIL > symState.entryIL + reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
       const pnl = ticker.ask - symState.entryPrice;
