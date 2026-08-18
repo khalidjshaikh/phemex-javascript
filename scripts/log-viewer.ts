@@ -222,10 +222,11 @@ const server = http.createServer((req, res) => {
 
     let entries = getAllEntries()
     if (symbol) {
-      entries = entries.filter((e) => e.symbol === symbol)
+      entries = entries.filter((e) => e.symbol === symbol || e.line.includes('[' + symbol + ']'))
     }
     if (today) {
-      const todayStr = new Date().toISOString().slice(0, 10)
+      const now = new Date()
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
       entries = entries.filter((e) => e.timestamp.startsWith(todayStr))
     }
 
