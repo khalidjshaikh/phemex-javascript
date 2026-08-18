@@ -128,7 +128,7 @@ async function loadSignals() {
     return;
   }
   container.innerHTML = data.signals.map(block => {
-    return block.split('\n').map(l => {
+    return block.split('\\n').map(l => {
       if (l.includes('▲ SIGNAL')) {
         return '<div class="log-line header-line">' + escHtml(l) + '</div>';
       }
