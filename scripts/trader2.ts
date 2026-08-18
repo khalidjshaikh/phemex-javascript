@@ -63,15 +63,21 @@ const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
 const credential = getArg("--credential");
 const verbose = hasFlag("--verbose");
+if (hasFlag("--help") || hasFlag("-h")) {
+  console.log(`Usage: npx tsx scripts/trader.ts --configfile config/config.json5
+       npx tsx scripts/trader.ts --config '<JSON>'
+
+Options:
+  --config <JSON>       Inline JSON5 config
+  --configfile <path>   Config file path (JSON5)
+  --credential <name>   Credential profile from .credentials.json (e.g. A02, meta, gmail)
+  --verbose             Log signals
+  --help, -h            Show this help message`);
+  process.exit(0);
+}
 if (!rawConfig && !configFile) {
-  console.error("Usage: npx tsx scripts/trader.ts --configfile config/config.json5");
-  console.error("       npx tsx scripts/trader.ts --config '<JSON>'");
-  console.error("");
-  console.error("Options:");
-  console.error("  --config <JSON>       Inline JSON5 config");
-  console.error("  --configfile <path>   Config file path (JSON5)");
-  console.error("  --credential <name>   Credential profile from .credentials.json (e.g. A02, meta, gmail)");
-  console.error("  --verbose             Log signals");
+  console.error("Error: --config or --configfile required");
+  console.error("Run with --help for usage information");
   process.exit(1);
 }
 
