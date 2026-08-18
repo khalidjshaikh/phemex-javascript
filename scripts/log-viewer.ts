@@ -233,7 +233,7 @@ const server = http.createServer((req, res) => {
     const signals: string[][] = []
     let current: string[] | null = null
     for (const e of entries) {
-      if (e.line.includes('▲ SIGNAL')) {
+      if (e.line.includes('▲') && e.line.includes('SIGNAL')) {
         if (current) signals.push(current)
         current = [e.line]
       } else if (current) {
