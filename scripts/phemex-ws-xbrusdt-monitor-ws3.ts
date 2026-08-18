@@ -64,6 +64,27 @@ function parseArg(name: string): string | undefined {
 
 const SYMBOL = parseArg("symbol") ?? SYMBOL_DEFAULT;
 const PRICE_FILE = `${(parseArg("symbol") ?? "xbrusdt").toLowerCase()}-last-price.txt`;
+const DECIMALS = Number(parseArg("decimals") ?? "2");
+
+if (parseArg("help") !== undefined) {
+  console.log(`
+Usage: ${process.argv[1]} [OPTIONS]
+
+XBRUSDT WebSocket monitor with live ticker, trade feed, orderbook bid/ask,
+and delta-rule auto-trader.
+
+Options:
+  --symbol <SYMBOL>   Trading pair (default: ${SYMBOL_DEFAULT})
+  --decimals <N>      Decimal places for displayed values (default: 2)
+  --help              Show this help message
+
+Examples:
+  ${process.argv[1]}
+  ${process.argv[1]} --symbol XTIUSDT
+  ${process.argv[1]} --decimals 4
+`);
+  process.exit(0);
+}
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -73,7 +94,7 @@ function fmtTime(): string {
   return new Date().toLocaleString();
 }
 
-function fmtNum(n: number, d: number = 2): string {
+function fmtNum(n: number, d: number = DECIMALS): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
@@ -93,6 +114,9 @@ let botMaxPnlPct: number | null = null;
 let maxPnlPct: number | null = null;
 /** Previous arrow direction — used to detect flips and close the bot position */
 let prevDirection: "↑" | "↓" = "↑";
+/** Best bid/ask from orderbook WebSocket */
+let bestBid = 0;
+let bestAsk = 0;
 /** API credentials, set once in main() */
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
@@ -143,18 +167,20 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
 
   const now = fmtTime();
   const sign = changePct >= 0 ? "+" : "";
-  const priceStr = `$${last.toFixed(2)}`;
-  const highStr = `H: $${high.toFixed(2)}`;
-  const lowStr = `L: $${low.toFixed(2)}`;
-  const chgStr = `Chg: ${sign}${changePct.toFixed(2)}%`;
+  const priceStr = `$${last.toFixed(DECIMALS)}`;
+  const highStr = `H: $${high.toFixed(DECIMALS)}`;
+  const lowStr = `L: $${low.toFixed(DECIMALS)}`;
+  const chgStr = `Chg: ${sign}${changePct.toFixed(DECIMALS)}%`;
   const volStr = `Vol: ${volume.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const bidStr = bestBid > 0 ? `Bid: $${bestBid.toFixed(DECIMALS)}` : "";
+  const askStr = bestAsk > 0 ? `Ask: $${bestAsk.toFixed(DECIMALS)}` : "";
 
-  const line = `${now}  ${symbol}  ${priceStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
+  const line = `${now}  ${symbol}  ${priceStr}  ${bidStr}  ${askStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
 
   // if (last !== lastTickerPrice) {
     updateDirection(last, lastTickerPrice);
     const delta = last - streakStartPrice;
-    const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(2)}` : `Δ-$${Math.abs(delta).toFixed(2)}`;
+    const deltaStr = delta >= 0 ? `Δ+$${delta.toFixed(DECIMALS)}` : `Δ-$${Math.abs(delta).toFixed(DECIMALS)}`;
     const streakStr = ` (${direction}×${streak}, ${deltaStr})`;
     console.log(line + streakStr);
     lastTickerPrice = last;
@@ -288,13 +314,16 @@ class TradeBatchProcessor {
       this.streakStartPrice = p;
       this.prevDirection = '→';
     }
-    const deltaStr = `${sign}${delta.toFixed(2)}`.padStart(5);
+    const deltaStr = `${sign}${delta.toFixed(DECIMALS)}`.padStart(5);
     const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
-    const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(2) : '';
+    const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(DECIMALS) : '';
     const bigMove = Math.abs(lastDelta) >= 0.15 ? '≥0.15' : '';
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
+    const bidStr = bestBid > 0 ? `$${bestBid.toFixed(DECIMALS)}` : '';
+    const askStr = bestAsk > 0 ? `$${bestAsk.toFixed(DECIMALS)}` : '';
+    const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(DECIMALS) : '';
     console.log(
-      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(2)).padStart(6)} ${Number(quantity).toFixed(2).padStart(5)} ${lastDeltaStr.padStart(5)} ${arrow.padEnd(6)} ${bigMove.padEnd(3)}`
+      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)} ${bigMove.padEnd(3)}`
     );
     this.prevPrice = p;
   }
@@ -340,7 +369,7 @@ class TradeBatchProcessor {
       if (pos) {
         console.log(
           `[${fmtTime()}]  ⟐  ${botPosition.side} Δ<0 → closing bot ${symbol} ` +
-          `(entry $${botPosition.entryPrice} → $${price}) …`,
+          `(entry $${botPosition.entryPrice.toFixed(DECIMALS)} → $${price.toFixed(DECIMALS)}) …`,
         );
         await closePosition(pos, apiKey, secretRaw);
       }
@@ -359,7 +388,7 @@ class TradeBatchProcessor {
     // A flip to ↑ starts a fresh up-leg (streakStartPrice = the pivot where
     // the previous leg ended), so Δ = price − pivot > 0. Buy, then HOLD while
     // the leg keeps making progress — the exit is the next flip to ↓ (Δ < 0).
-    if (this.directionChanged && this.prevDirection === "↑" && delta >= ENTRY_DELTA_MIN) {
+    if (this.prevDirection === "↑" && delta >= ENTRY_DELTA_MIN) {
       // if (this.lastLongPrice && price < this.lastLongPrice) return; // don't chase a lower price
       console.log(`[${fmtTime()}]  🟢  Rise detected (Δ+$${delta.toFixed(2)} from pivot $${this.streakStartPrice?.toFixed(2)}) — opening Long ${symbol} @ $${price} …`);
       await setLeverageUsdtM(symbol, AUTO_TRADE_LEVERAGE, "Long", apiKey, secretRaw);
@@ -413,6 +442,7 @@ async function main(): Promise<void> {
     onOpen: () => {
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [SYMBOL], id: 1 });
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
+      ws.send({ method: "orderbook_p.subscribe", params: [SYMBOL, 5], id: 3 });
     },
     onMessage: async (msg) => {
       const m = msg as Record<string, unknown>;
@@ -446,6 +476,16 @@ async function main(): Promise<void> {
         if (ticker) {
           printTicker(SYMBOL, ticker);
         }
+        return;
+      }
+
+      // Orderbook — best bid/ask
+      if (m.orderbook_p) {
+        const book = m.orderbook_p as Record<string, unknown>;
+        const asks = book.asks as unknown[][] | undefined;
+        const bids = book.bids as unknown[][] | undefined;
+        if (asks && asks.length > 0) bestAsk = Number(asks[0][0]);
+        if (bids && bids.length > 0) bestBid = Number(bids[0][0]);
         return;
       }
 
