@@ -60,7 +60,7 @@ const WS_URL = "wss://ws.phemex.com";
 
 const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number; leverage: number }> = {
   BNBUSDT: { bias: 0.3, threshold: 0.35, qty: 0.01, leverage: 50 },
-  BTCUSDT: { bias: -30, threshold: 40, qty: 0.001, leverage: 100 },
+  BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100 },
   DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1, leverage: 50 },
   ETHUSDT: { bias: -0.85, threshold: 1.25, qty: 0.01, leverage: 100 },
   LINKUSDT: { bias: 0.000405155, threshold: 0.020279195, qty: 0.01, leverage: 50 },
