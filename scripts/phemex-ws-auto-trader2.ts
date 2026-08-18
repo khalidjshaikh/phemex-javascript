@@ -141,6 +141,13 @@ function fmt(v: number): string {
   return v >= 0 ? `+${v.toFixed(4)}` : v.toFixed(4);
 }
 
+function roundTo(v: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(v * factor) / factor;
+}
+
+const PRICE_PRECISION = 4;
+
 function printTicker(symbol: string, t: TickerData, deltas: Deltas | null, symState: SymbolState): void {
   const tsMs = t.timestamp > 1e12 ? t.timestamp / 1_000_000 : t.timestamp;
   const d = new Date(tsMs);
@@ -251,22 +258,28 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       // Ignore position check errors, proceed with signal
     }
     if (spread > symState.config.threshold) {
-      console.log(`\n   ▲  SIGNAL [${symbol}]: index-last+bias (${spread.toFixed(4)}) > ${symState.config.threshold} → OPEN LONG`);
+      const il = ticker.index - ticker.last;
+      console.log(`\n   ▲  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} > ${symState.config.threshold} → OPEN LONG`);
       symState.state = "LONG";
       symState.entryPrice = ticker.ask;
       symState.bestBid = ticker.bid;
       await openLong(symbol, symState.config.qty);
     } else if (spread < -symState.config.threshold) {
-      console.log(`\n   ▼  SIGNAL [${symbol}]: index-last+bias (${spread.toFixed(4)}) < -${symState.config.threshold} → OPEN SHORT`);
+      const il = ticker.index - ticker.last;
+      console.log(`\n   ▼  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} < -${symState.config.threshold} → OPEN SHORT`);
       symState.state = "SHORT";
       symState.entryPrice = ticker.bid;
       symState.bestAsk = ticker.ask;
       await openShort(symbol, symState.config.qty);
     }
   } else if (symState.state === "LONG") {
+    const roundedBid = roundTo(ticker.bid, PRICE_PRECISION);
+    const roundedBestBid = roundTo(symState.bestBid, PRICE_PRECISION);
     symState.bestBid = Math.max(symState.bestBid, ticker.bid);
-    if (ticker.bid < symState.bestBid) {
-      console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)}) → CLOSE LONG`);
+    if (roundedBid < roundedBestBid) {
+      const closeIL = (ticker.index - ticker.last).toFixed(4);
+      const pnl = symState.entryPrice - ticker.bid;
+      console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
       try {
         await closeLong(symbol, symState.config.qty);
         symState.state = "IDLE";
@@ -285,9 +298,13 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       }
     }
   } else if (symState.state === "SHORT") {
+    const roundedAsk = roundTo(ticker.ask, PRICE_PRECISION);
+    const roundedBestAsk = roundTo(symState.bestAsk, PRICE_PRECISION);
     symState.bestAsk = Math.min(symState.bestAsk, ticker.ask);
-    if (ticker.ask > symState.bestAsk) {
-      console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)}) → CLOSE SHORT`);
+    if (roundedAsk > roundedBestAsk) {
+      const closeIL = (ticker.index - ticker.last).toFixed(4);
+      const pnl = ticker.ask - symState.entryPrice;
+      console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
       try {
         await closeShort(symbol, symState.config.qty);
         symState.state = "IDLE";
