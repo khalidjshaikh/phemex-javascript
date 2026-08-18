@@ -72,6 +72,7 @@ const HTML = `<!DOCTYPE html>
   .log-line .ts { color: #8b949e; }
   .log-line .sym { color: #d2a8ff; font-weight: 600; }
   .loading { text-align: center; padding: 40px; color: #8b949e; }
+  .signal-sep { border-top: 1px solid #30363d; margin: 8px 0; }
 </style>
 </head>
 <body>
@@ -79,11 +80,10 @@ const HTML = `<!DOCTYPE html>
   <h1>Log Viewer</h1>
   <div class="symbol-bar" id="symbols"></div>
   <div class="controls">
-    <button onclick="loadFirst()">|&lt;</button>
-    <button onclick="loadPrev()">&lt;</button>
-    <span id="page-info">-</span>
-    <button onclick="loadNext()">&gt;</button>
-    <button onclick="loadLast()">&gt;|</button>
+    <button onclick="toggleToday()" id="today-btn">Today: Off</button>
+    <button onclick="loadPrevSignal()">&lt;</button>
+    <span id="signal-info">-</span>
+    <button onclick="loadNextSignal()">&gt;</button>
     <button onclick="toggleAutoRefresh()" id="auto-btn">Auto: Off</button>
   </div>
 </header>
@@ -91,8 +91,8 @@ const HTML = `<!DOCTYPE html>
 <script>
 let symbols = [];
 let active = null;
-let page = 0;
-const PAGE_SIZE = 500;
+let todayOnly = false;
+let signalOffset = 0;
 let autoRefresh = false;
 let autoTimer = null;
 
@@ -108,59 +108,62 @@ async function init() {
     bar.querySelectorAll('.symbol-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     active = btn.dataset.sym === '__all__' ? null : btn.dataset.sym;
-    page = 0;
-    loadPage();
+    signalOffset = 0;
+    loadSignals();
   });
-  loadPage();
+  loadSignals();
 }
 
-async function loadPage() {
+async function loadSignals() {
   const container = document.getElementById('log-container');
-  const params = new URLSearchParams({ page, size: PAGE_SIZE });
+  const params = new URLSearchParams({ offset: signalOffset, limit: 1 });
   if (active) params.set('symbol', active);
-  const res = await fetch('/api/logs?' + params);
+  if (todayOnly) params.set('today', 'true');
+  const res = await fetch('/api/signals?' + params);
   const data = await res.json();
-  document.getElementById('page-info').textContent =
-    'Page ' + (page + 1) + ' / ' + Math.max(1, data.totalPages) + ' (' + data.total + ' lines)';
-  if (data.lines.length === 0) {
-    container.innerHTML = '<div class="loading">No log entries</div>';
+  document.getElementById('signal-info').textContent =
+    data.total === 0 ? 'No signals' : 'Signal ' + (signalOffset + 1) + ' of ' + data.total;
+  if (data.signals.length === 0) {
+    container.innerHTML = '<div class="loading">No signals</div>';
     return;
   }
-  container.innerHTML = data.lines.map(l => {
-    if (l.startsWith('_HEADER_')) {
-      return '<div class="log-line header-line">' + escHtml(l.slice(8)) + '</div>';
-    }
-    const m = l.match(/^(\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\.\\d+)\\s+(\\w+)(.*)/);
-    if (m) {
-      return '<div class="log-line"><span class="ts">' + m[1] + '</span>  <span class="sym">' + m[2] + '</span>' + escHtml(m[3]) + '</div>';
-    }
-    return '<div class="log-line">' + escHtml(l) + '</div>';
-  }).join('');
-  if (autoRefresh) {
-    container.scrollTop = container.scrollHeight;
-  } else {
-    container.scrollTop = 0;
-  }
-  return data.totalPages;
+  container.innerHTML = data.signals.map(block => {
+    return block.split('\n').map(l => {
+      if (l.includes('▲ SIGNAL')) {
+        return '<div class="log-line header-line">' + escHtml(l) + '</div>';
+      }
+      const m = l.match(/^(\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\.\\d+)\\s+(\\w+)(.*)/);
+      if (m) {
+        return '<div class="log-line"><span class="ts">' + m[1] + '</span>  <span class="sym">' + m[2] + '</span>' + escHtml(m[3]) + '</div>';
+      }
+      return '<div class="log-line">' + escHtml(l) + '</div>';
+    }).join('');
+  }).join('<div style="border-top: 1px solid #30363d; margin: 8px 0;"></div>');
+  container.scrollTop = 0;
+  return data.total;
 }
 
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function loadFirst() { page = 0; loadPage(); }
-function loadPrev() { if (page > 0) { page--; loadPage(); } }
-function loadNext() { page++; loadPage(); }
-function loadLast() { page = 999999; loadPage(); }
+function toggleToday() {
+  todayOnly = !todayOnly;
+  document.getElementById('today-btn').textContent = 'Today: ' + (todayOnly ? 'On' : 'Off');
+  signalOffset = 0;
+  loadSignals();
+}
+function loadPrevSignal() { if (signalOffset > 0) { signalOffset--; loadSignals(); } }
+function loadNextSignal() { signalOffset++; loadSignals(); }
 async function toggleAutoRefresh() {
   autoRefresh = !autoRefresh;
   document.getElementById('auto-btn').textContent = 'Auto: ' + (autoRefresh ? 'On' : 'Off');
   if (autoRefresh) {
-    // Jump to last page immediately
-    page = 999999;
-    const totalPages = await loadPage();
-    if (totalPages > 0) page = totalPages - 1;
+    // Jump to last signal immediately
+    const total = await loadSignals();
+    if (total > 0) signalOffset = total - 1;
+    await loadSignals();
     autoTimer = setInterval(async () => {
-      page = 999999;
-      const tp = await loadPage();
-      if (tp > 0) page = tp - 1;
+      const t = await loadSignals();
+      if (t > 0) signalOffset = t - 1;
+      await loadSignals();
     }, 2000);
   } else {
     clearInterval(autoTimer);
@@ -208,6 +211,43 @@ const server = http.createServer((req, res) => {
     )
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ lines, total, totalPages, page: clampedPage }))
+    return
+  }
+
+  if (url.pathname === '/api/signals') {
+    const symbol = url.searchParams.get('symbol')
+    const today = url.searchParams.get('today') === 'true'
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10)
+    const limit = parseInt(url.searchParams.get('limit') || '1', 10)
+
+    let entries = getAllEntries()
+    if (symbol) {
+      entries = entries.filter((e) => e.symbol === symbol)
+    }
+    if (today) {
+      const todayStr = new Date().toISOString().slice(0, 10)
+      entries = entries.filter((e) => e.timestamp.startsWith(todayStr))
+    }
+
+    // Group into signals
+    const signals: string[][] = []
+    let current: string[] | null = null
+    for (const e of entries) {
+      if (e.line.includes('▲ SIGNAL')) {
+        if (current) signals.push(current)
+        current = [e.line]
+      } else if (current) {
+        current.push(e.line)
+      }
+    }
+    if (current) signals.push(current)
+
+    const total = signals.length
+    const sliced = signals.slice(offset, offset + limit)
+    const blocks = sliced.map((s) => s.join('\n'))
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ signals: blocks, total, offset, limit }))
     return
   }
 
