@@ -220,17 +220,15 @@ const server = http.createServer((req, res) => {
     const offset = parseInt(url.searchParams.get('offset') || '0', 10)
     const limit = parseInt(url.searchParams.get('limit') || '1', 10)
 
+    const now = new Date()
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
     let entries = getAllEntries()
     if (symbol) {
       entries = entries.filter((e) => e.symbol === symbol || e.line.includes('[' + symbol + ']'))
     }
-    if (today) {
-      const now = new Date()
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-      entries = entries.filter((e) => e.timestamp.startsWith(todayStr))
-    }
 
-    // Group into signals
+    // Group into signals (before today filter, since signal lines lack timestamps)
     const signals: string[][] = []
     let current: string[] | null = null
     for (const e of entries) {
@@ -243,8 +241,17 @@ const server = http.createServer((req, res) => {
     }
     if (current) signals.push(current)
 
-    const total = signals.length
-    const sliced = signals.slice(offset, offset + limit)
+    // Further filter: only keep signals whose first timestamped line matches today
+    const filtered = today ? signals.filter(block => {
+      for (const line of block) {
+        const m = line.match(/^(\d{4}-\d{2}-\d{2})/)
+        if (m) return m[1] === todayStr
+      }
+      return false
+    }) : signals
+
+    const total = filtered.length
+    const sliced = filtered.slice(offset, offset + limit)
     const blocks = sliced.map((s) => s.join('\n'))
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
