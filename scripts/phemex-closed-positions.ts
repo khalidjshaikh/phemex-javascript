@@ -101,6 +101,27 @@ function printTable(positions: ClosedPosition[], color = false, decimals = 2): v
   // Sort: most recently closed first
   const rows = [...positions].sort((a, b) => b.closedAt - a.closedAt);
 
+  // Pre-compute formatted values and max widths for numeric columns
+  type Row = { p: ClosedPosition; qty: string; entry: string; exit: string; spread: string; realized: string; net: string; fee: string };
+  const formatted: Row[] = rows.map((p) => ({
+    p,
+    qty: fmtQty(p.qty, decimals),
+    entry: p.avgEntryPrice.toFixed(decimals),
+    exit: p.avgExitPrice.toFixed(decimals),
+    spread: Math.abs(p.avgExitPrice - p.avgEntryPrice).toFixed(decimals),
+    realized: fmtUsd(p.realizedPnl, decimals),
+    net: fmtUsd(p.netPnl, decimals),
+    fee: fmtUsd(-(p.entryFee + p.exitFee), decimals),
+  }));
+
+  const wQty = Math.max("Qty".length, ...formatted.map((r) => r.qty.length));
+  const wEntry = Math.max("Entry".length, ...formatted.map((r) => r.entry.length));
+  const wExit = Math.max("Exit".length, ...formatted.map((r) => r.exit.length));
+  const wSpread = Math.max("Spread".length, ...formatted.map((r) => r.spread.length));
+  const wRealized = Math.max("Realized".length, ...formatted.map((r) => r.realized.length));
+  const wNet = Math.max("Net".length, ...formatted.map((r) => r.net.length));
+  const wFee = Math.max("Fee".length, ...formatted.map((r) => r.fee.length));
+
   const hdr =
     `${"#".padStart(3)} ` +
     `${"Opened At".padEnd(19)} ` +
@@ -108,13 +129,13 @@ function printTable(positions: ClosedPosition[], color = false, decimals = 2): v
     `${"Duration".padEnd(9)} ` +
     `${"Symbol".padEnd(8)} ` +
     `${"Side".padEnd(6)}` +
-    `${"Qty".padStart(7)} ` +
-    `${"Entry".padStart(9)} ` +
-    `${"Exit".padStart(9)} ` +
-    `${"Spread".padStart(7)} ` +
-    `${"Realized".padStart(10)} ` +
-    `${"Net".padStart(10)} ` +
-    `${"Fee".padStart(10)}`;
+    `${"Qty".padStart(wQty)} ` +
+    `${"Entry".padStart(wEntry)} ` +
+    `${"Exit".padStart(wExit)} ` +
+    `${"Spread".padStart(wSpread)} ` +
+    `${"Realized".padStart(wRealized)} ` +
+    `${"Net".padStart(wNet)} ` +
+    `${"Fee".padStart(wFee)}`;
   console.log(`\n${hdr}`);
   console.log("─".repeat(hdr.length));
 
@@ -123,15 +144,10 @@ function printTable(positions: ClosedPosition[], color = false, decimals = 2): v
   let fees = 0;
   let winners = 0;
 
-  for (let i = 0; i < rows.length; i++) {
-    const p = rows[i];
-    const realized = p.realizedPnl;
-    if (realized >= 0) winners++;
-    const pnlFmt = fmtUsd(realized, decimals).padStart(10);
-    const netFmt = fmtUsd(p.netPnl, decimals).padStart(10);
-    const feeFmt = fmtUsd(-(p.entryFee + p.exitFee), decimals).padStart(10);
-    const spread = Math.abs(p.avgExitPrice - p.avgEntryPrice).toFixed(decimals).padStart(7);
-    const red = color && realized < 0 ? "\x1b[31m" : "";
+  for (let i = 0; i < formatted.length; i++) {
+    const { p, qty, entry, exit, spread, realized, net: netVal, fee } = formatted[i];
+    if (p.realizedPnl >= 0) winners++;
+    const red = color && p.realizedPnl < 0 ? "\x1b[31m" : "";
     const reset = red ? "\x1b[0m" : "";
     console.log(
       `${red}${String(i + 1).padStart(3)} ` +
@@ -140,21 +156,22 @@ function printTable(positions: ClosedPosition[], color = false, decimals = 2): v
       `${fmtDuration(p.closedAt - p.openedAt).padEnd(9)} ` +
       `${p.symbol.padEnd(8)} ` +
       `${p.posSide.padEnd(6)}` +
-      `${fmtQty(p.qty, decimals).padStart(7)} ` +
-      `${p.avgEntryPrice.toFixed(decimals).padStart(9)} ` +
-      `${p.avgExitPrice.toFixed(decimals).padStart(9)} ` +
-      `${spread} ` +
-      `${pnlFmt} ` +
-      `${netFmt} ` +
-      `${feeFmt}` +
+      `${qty.padStart(wQty)} ` +
+      `${entry.padStart(wEntry)} ` +
+      `${exit.padStart(wExit)} ` +
+      `${spread.padStart(wSpread)} ` +
+      `${realized.padStart(wRealized)} ` +
+      `${netVal.padStart(wNet)} ` +
+      `${fee.padStart(wFee)}` +
       `${p.realizedPnl >= 0 ? " *" : "  "}${p.netPnl >= 0 ? " *" : "  "}${reset}`
     );
-    gross += realized;
+    gross += p.realizedPnl;
     fees += p.entryFee + p.exitFee;
     net += p.netPnl;
   }
 
-  console.log("─".repeat(136));
+  const totalWidth = hdr.length;
+  console.log("─".repeat(totalWidth));
   console.log(
     `Positions: ${rows.length}   ` +
     `Winners: ${winners}   ` +
