@@ -21,6 +21,9 @@ import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
+import JSON5 from "json5";
+import fs from "node:fs";
+import path from "node:path";
 import {
   placeMarketOrder,
   setLeverageUsdtM,
@@ -41,6 +44,7 @@ Options:
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
   --bias <num>        Index-last spread bias (default: 0)
+  --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --dry-run           Show signals without placing orders
   --debug             Print raw WebSocket messages
   --help              Show this help and exit
@@ -56,6 +60,7 @@ const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
+const CREDENTIAL = getArg("--credential");
 const WS_URL = "wss://ws.phemex.com";
 
 const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number; leverage: number }> = 
@@ -133,7 +138,23 @@ for (const sym of SYMBOLS) {
   });
 }
 
-const credentials = loadCredentialsLocal();
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
+
+const credentials = CREDENTIAL
+  ? loadCredentialProfile(CREDENTIAL)
+  : loadCredentialsLocal();
 const secretRaw = base64UrlDecode(credentials.PHEMEX_API_SECRET);
 const apiKey = credentials.PHEMEX_API_KEY;
 
@@ -552,7 +573,7 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
+  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
   for (const sym of SYMBOLS) {
     const s = symbolStates.get(sym)!;
     console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}`);

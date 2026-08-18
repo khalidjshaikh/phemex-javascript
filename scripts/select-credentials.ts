@@ -21,6 +21,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import JSON5 from "json5";
 
 import { getArg, hasFlag } from "../src/cli-utils.js";
 
@@ -76,7 +77,7 @@ function loadVault(): Vault {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(VAULT_PATH, "utf8"));
+    parsed = JSON5.parse(fs.readFileSync(VAULT_PATH, "utf8"));
   } catch (err) {
     console.error(`✗  Invalid JSON in ${VAULT_PATH}: ${(err as Error).message}`);
     process.exit(1);
