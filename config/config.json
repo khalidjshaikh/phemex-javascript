@@ -4,7 +4,7 @@
   "DOGEUSDT": {"hedge": true, "leverage": 50, "profit": 0, "size": 1, "bias": -0.000020, "threshold": 0.000100},
   "ETHUSDT": {"hedge": true, "leverage": 100, "profit": 0, "size": 0.01, "bias": -0.85, "threshold": 1.25},
   "LINKUSDT": {"hedge": true, "leverage": 50, "profit": 0, "size": 0.01, "bias": 0.000405155, "threshold": 0.020279195},
-  "SOLUSDT": {"hedge": true, "leverage": 50, "profit": 0, "size": 0.01, "bias": -0.03157761, "threshold": 0.10902483},
+  "SOLUSDT": {"hedge": true, "leverage": 50, "profit": 0, "size": 0.01, "bias": -0.04, "threshold": 0.11},
   "SUIUSDT": {"hedge": true, "leverage": 50, "profit": 0, "size": 1, "bias": -0.0003, "threshold": 0.001},
   "XAUUSDT": {"hedge": true, "leverage": 100, "profit": 0, "size": 0.001, "bias": -2.3, "threshold": 6},
   "XBRUSDT": {"hedge": true, "leverage": 100, "profit": 0, "size": 0.01, "bias": -0.01753, "threshold": 0.4},
