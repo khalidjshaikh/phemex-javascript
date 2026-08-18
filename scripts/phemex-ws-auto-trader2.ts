@@ -154,11 +154,12 @@ function printTicker(symbol: string, t: TickerData, deltas: Deltas | null, symSt
   const d = new Date(tsMs);
   const now = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}.${String(d.getMilliseconds()).padStart(3, "0")}`;
   const spread = fmt(t.index - t.last);
+  const mSpread = fmt(t.mark - t.last);
   const aSpread = fmt(t.ask - t.last);
   const bSpread = fmt(t.bid - t.last);
   const abSpread = (t.ask - t.bid).toFixed(4);
 
-  let line = `${now}  ${symbol}  ask:${t.ask.toFixed(4)}  bid:${t.bid.toFixed(4)}  ab:${abSpread}  idx:${t.index.toFixed(4)}  mark:${t.mark.toFixed(4)}  last:${t.last.toFixed(4)}  I-L:${spread}  A-L:${aSpread}  B-L:${bSpread}`;
+  let line = `${now}  ${symbol}  ask:${t.ask.toFixed(4)}  bid:${t.bid.toFixed(4)}  ab:${abSpread}  idx:${t.index.toFixed(4)}  mark:${t.mark.toFixed(4)}  last:${t.last.toFixed(4)}  I-L:${spread}  M-L:${mSpread}  A-L:${aSpread}  B-L:${bSpread}`;
 
   if (deltas) {
     line += `  Δa:${fmt(deltas.ask)} Δb:${fmt(deltas.bid)} Δi:${fmt(deltas.index)} Δm:${fmt(deltas.mark)} Δl:${fmt(deltas.last)}`;
