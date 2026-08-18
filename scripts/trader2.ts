@@ -62,6 +62,7 @@ function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_A
 const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
 const credential = getArg("--credential");
+const signalExit = hasFlag("--signalExit");
 const verbose = hasFlag("--verbose");
 if (hasFlag("--help") || hasFlag("-h")) {
   console.log(`Usage: npx tsx scripts/trader.ts --configfile config/config.json5
@@ -71,6 +72,7 @@ Options:
   --config <JSON>       Inline JSON5 config
   --configfile <path>   Config file path (JSON5)
   --credential <name>   Credential profile from .credentials.json (e.g. A02, meta, gmail)
+  --signalExit          Exit positions when signal reverses
   --verbose             Log signals
   --help, -h            Show this help message`);
   process.exit(0);
@@ -99,6 +101,7 @@ const secretRaw = Buffer.from(creds.PHEMEX_API_SECRET, "base64");
 
 const WS_URL = "wss://ws.phemex.com";
 let cachedFields: string[] | null = null;
+const tickerCache = new Map<string, TickerData>();
 
 interface TickerData {
   symbol: string;
@@ -186,18 +189,6 @@ function handleCoinmTicker(msg: Record<string, unknown>): TickerData[] {
   return results;
 }
 
-function persistTickerFromWs(d: TickerData): void {
-  fs.writeFileSync(valuePath(d.symbol, "ask.txt"), fmtExact(d.ask), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "bid.txt"), fmtExact(d.bid), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "index.txt"), fmtExact(d.index), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "last.txt"), fmtExact(d.last), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "mark.txt"), fmtExact(d.mark), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "indexLast.txt"),
-    fmtExact(d.index - d.last), "utf8");
-  fs.writeFileSync(valuePath(d.symbol, "markLast.txt"),
-    fmtExact(d.mark - d.last), "utf8");
-}
-
 function startWebSocket(): ReconnectingWs {
   const isUsdtM = symbols.every((s) => s.endsWith("USDT"));
 
@@ -212,7 +203,7 @@ function startWebSocket(): ReconnectingWs {
     onMessage: (msg) => {
       const tickers = isUsdtM ? handleUsdtmTicker(msg) : handleCoinmTicker(msg);
       for (const d of tickers) {
-        persistTickerFromWs(d);
+        tickerCache.set(d.symbol, d);
       }
     },
     onReconnect: () => {
@@ -240,24 +231,6 @@ function cfg(symbol: string): Required<SymbolConfig> {
     hedge:           c.hedge ?? false,
     profit:          c.profit ?? 0,
   };
-}
-
-/* ------------------------------------------------------------------ */
-/*  Value files (data/${symbol}-*.txt)                                 */
-/* ------------------------------------------------------------------ */
-
-const DATA_DIR = path.resolve(__dirname, "..", "data");
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
-function valuePath(symbol: string, name: string): string {
-  return path.resolve(DATA_DIR, `${symbol}-${name}`);
-}
-
-function fmtExact(v: unknown): string {
-  if (v == null) return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  return String(Math.round(n * 1e8) / 1e8);
 }
 
 /* ------------------------------------------------------------------ */
@@ -308,15 +281,11 @@ async function indexTrade(
   longSize: number,
   shortSize: number,
 ): Promise<void> {
-  const s = cfg(symbol);
+  const ticker = tickerCache.get(symbol);
+  if (!ticker) return;
 
-  let signal: number;
-  try {
-    signal = parseFloat(fs.readFileSync(valuePath(symbol, "indexLast.txt"), "utf8").trim());
-  } catch {
-    return;
-  }
-  if (!Number.isFinite(signal)) return;
+  const s = cfg(symbol);
+  const signal = ticker.index - ticker.last;
 
   const pendingQ = pending.get(symbol) ?? 0;
 
@@ -342,32 +311,50 @@ async function indexTrade(
 /*  Ask/bid closing                                                    */
 /* ------------------------------------------------------------------ */
 
-function readVal(file: string): number | null {
-  try {
-    const v = parseFloat(fs.readFileSync(file, "utf8").trim());
-    return Number.isFinite(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 async function askBidClose(
   positions: Position[],
   symbol: string,
 ): Promise<void> {
+  const ticker = tickerCache.get(symbol);
+  if (!ticker) return;
+
   const s = cfg(symbol);
-  const ask = readVal(valuePath(symbol, "ask.txt"));
-  const bid = readVal(valuePath(symbol, "bid.txt"));
 
   for (const pos of positions) {
     if (pos.symbol !== symbol) continue;
     const entry = parseFloat(pos.avgEntryPriceRp || "0");
 
-    if (pos.side === "Buy" && bid !== null && bid >= entry + s.profit) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — bid ${bid} >= entry ${entry} + ${s.profit}`);
+    if (pos.side === "Buy" && ticker.bid >= entry + s.profit) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — bid ${ticker.bid} >= entry ${entry} + ${s.profit}`);
       await closePos(pos);
-    } else if (pos.side === "Sell" && ask !== null && ask <= entry - s.profit) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — ask ${ask} <= entry ${entry} - ${s.profit}`);
+    } else if (pos.side === "Sell" && ticker.ask <= entry - s.profit) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — ask ${ticker.ask} <= entry ${entry} - ${s.profit}`);
+      await closePos(pos);
+    }
+  }
+}
+
+async function signalClose(
+  positions: Position[],
+  symbol: string,
+): Promise<void> {
+  if (!signalExit) return;
+
+  const ticker = tickerCache.get(symbol);
+  if (!ticker) return;
+
+  const s = cfg(symbol);
+  const signal = ticker.index - ticker.last;
+  const adjusted = signal + s.bias;
+
+  for (const pos of positions) {
+    if (pos.symbol !== symbol) continue;
+
+    if (pos.side === "Buy" && adjusted < 0) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — signal ${adjusted} < 0`);
+      await closePos(pos);
+    } else if (pos.side === "Sell" && adjusted > 0) {
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — signal ${adjusted} > 0`);
       await closePos(pos);
     }
   }
@@ -415,6 +402,7 @@ async function main(): Promise<void> {
 
           await indexTrade(symbol, longSize, shortSize);
           await askBidClose(positions, symbol);
+          await signalClose(positions, symbol);
         } catch {
           // per-symbol error — continue with others
         }
