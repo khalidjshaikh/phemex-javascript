@@ -49,6 +49,7 @@ Options:
   --configfile <path> Config file path in JSON5 (overrides --symbol and internal presets)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --dry-run           Show signals without placing orders
+  --no-ticker-logs    Suppress per-tick ticker output
   --debug             Print raw WebSocket messages
   --help              Show this help and exit
 
@@ -73,6 +74,7 @@ interface SymbolConfig {
 }
 
 const DRY_RUN = hasFlag("--dry-run");
+const NO_TICKER_LOGS = hasFlag("--no-ticker-logs");
 const DEBUG = hasFlag("--debug");
 const CREDENTIAL = getArg("--credential");
 const WS_URL = "wss://ws.phemex.com";
@@ -628,7 +630,7 @@ async function main(): Promise<void> {
           const lastTicker = lastTickers.get(sym) ?? null;
           const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
 
-          printTicker(sym, ticker, deltas, symState);
+          if (!NO_TICKER_LOGS) printTicker(sym, ticker, deltas, symState);
           lastTickers.set(sym, ticker);
 
           try {
@@ -649,7 +651,7 @@ async function main(): Promise<void> {
       const lastTicker = lastTickers.get(symbol) ?? null;
       const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
 
-      printTicker(symbol, ticker, deltas, symState);
+      if (!NO_TICKER_LOGS) printTicker(symbol, ticker, deltas, symState);
       lastTickers.set(symbol, ticker);
 
       try {
@@ -664,7 +666,7 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
+  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}  ${NO_TICKER_LOGS ? "(NO TICKER LOGS)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
   for (const sym of SYMBOLS) {
     const s = symbolStates.get(sym)!;
     console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}  errorBudget: ${s.config.errorBudget}`);
