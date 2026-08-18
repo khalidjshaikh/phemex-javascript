@@ -58,26 +58,27 @@ const DRY_RUN = hasFlag("--dry-run");
 const DEBUG = hasFlag("--debug");
 const WS_URL = "wss://ws.phemex.com";
 
-const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number }> = {
-  BNBUSDT: { bias: 0.3, threshold: 0.35, qty: 0.01 },
-  BTCUSDT: { bias: -30, threshold: 40, qty: 0.001 },
-  DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1 },
-  ETHUSDT: { bias: -0.85, threshold: 1.25, qty: 0.01 },
-  LINKUSDT: { bias: 0.000405155, threshold: 0.020279195, qty: 0.01 },
-  SOLUSDT: { bias: -0.03157761, threshold: 0.10902483, qty: 0.01 },
-  SUIUSDT: { bias: -0.000231545, threshold: 0.000987975, qty: 1 },
-  XAUUSDT: { bias: -2.3, threshold: 6, qty: 0.001 },
-  XBRUSDT: { bias: -0.01753, threshold: 0.4, qty: 0.01 },
-  XRPUSDT: { bias: -0.000474535, threshold: 0.001286745, qty: 0.01 },
-  XTIUSDT: { bias: -0.1, threshold: 0.35, qty: 0.01 },
+const SYMBOL_PRESETS: Record<string, { bias: number; threshold: number; qty: number; leverage: number }> = {
+  BNBUSDT: { bias: 0.3, threshold: 0.35, qty: 0.01, leverage: 50 },
+  BTCUSDT: { bias: -30, threshold: 40, qty: 0.001, leverage: 100 },
+  DOGEUSDT: { bias: -0.000020, threshold: 0.000100, qty: 1, leverage: 50 },
+  ETHUSDT: { bias: -0.85, threshold: 1.25, qty: 0.01, leverage: 100 },
+  LINKUSDT: { bias: 0.000405155, threshold: 0.020279195, qty: 0.01, leverage: 50 },
+  SOLUSDT: { bias: -0.03157761, threshold: 0.10902483, qty: 0.01, leverage: 50 },
+  SUIUSDT: { bias: -0.000231545, threshold: 0.000987975, qty: 1, leverage: 50 },
+  XAUUSDT: { bias: -2.3, threshold: 6, qty: 0.001, leverage: 100 },
+  XBRUSDT: { bias: -0.01753, threshold: 0.4, qty: 0.01, leverage: 100 },
+  XRPUSDT: { bias: -0.000474535, threshold: 0.001286745, qty: 0.01, leverage: 50 },
+  XTIUSDT: { bias: -0.1, threshold: 0.35, qty: 0.01, leverage: 100 },
 };
 
-function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number } {
+function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number } {
   if (SYMBOL_PRESETS[symbol]) return { ...SYMBOL_PRESETS[symbol] };
   return {
     bias: parseFloat(getArg("--bias") ?? "0"),
     threshold: parseFloat(getArg("--threshold") ?? "0.2"),
     qty: QTY_DEFAULT,
+    leverage: LEVERAGE,
   };
 }
 
@@ -109,7 +110,7 @@ interface SymbolState {
   entryPrice: number;
   bestAsk: number;
   bestBid: number;
-  config: { bias: number; threshold: number; qty: number };
+  config: { bias: number; threshold: number; qty: number; leverage: number };
 }
 
 /* ------------------------------------------------------------------ */
@@ -175,13 +176,13 @@ function printTicker(symbol: string, t: TickerData, deltas: Deltas | null, symSt
 /*  Trading actions                                                    */
 /* ------------------------------------------------------------------ */
 
-async function openLong(symbol: string, qty: number): Promise<void> {
+async function openLong(symbol: string, qty: number, leverage: number): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open long ${symbol} qty:${qty} at ask`);
+    console.log(`   DRY RUN: open long ${symbol} qty:${qty} leverage:${leverage}x at ask`);
     return;
   }
-  console.log(`   ⟐  Opening long ${symbol}  qty: ${qty}  at ask`);
-  await setLeverageUsdtM(symbol, LEVERAGE, "Long", apiKey, secretRaw);
+  console.log(`   ⟐  Opening long ${symbol}  qty: ${qty}  leverage: ${leverage}x  at ask`);
+  await setLeverageUsdtM(symbol, leverage, "Long", apiKey, secretRaw);
   const result = await placeMarketOrder(
     { account: "usdt-m", symbol, side: "Buy", price: 0, qty, posSide: "Long" },
     apiKey,
@@ -204,13 +205,13 @@ async function closeLong(symbol: string, qty: number): Promise<void> {
   console.log(`   ✓  Long closed  OrderID: ${result.orderID ?? result.clOrdID ?? "—"}`);
 }
 
-async function openShort(symbol: string, qty: number): Promise<void> {
+async function openShort(symbol: string, qty: number, leverage: number): Promise<void> {
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open short ${symbol} qty:${qty} at bid`);
+    console.log(`   DRY RUN: open short ${symbol} qty:${qty} leverage:${leverage}x at bid`);
     return;
   }
-  console.log(`   ⟐  Opening short ${symbol}  qty: ${qty}  at bid`);
-  await setLeverageUsdtM(symbol, LEVERAGE, "Short", apiKey, secretRaw);
+  console.log(`   ⟐  Opening short ${symbol}  qty: ${qty}  leverage: ${leverage}x  at bid`);
+  await setLeverageUsdtM(symbol, leverage, "Short", apiKey, secretRaw);
   const result = await placeMarketOrder(
     { account: "usdt-m", symbol, side: "Sell", price: 0, qty, posSide: "Short" },
     apiKey,
@@ -263,14 +264,14 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       symState.state = "LONG";
       symState.entryPrice = ticker.ask;
       symState.bestBid = ticker.bid;
-      await openLong(symbol, symState.config.qty);
+      await openLong(symbol, symState.config.qty, symState.config.leverage);
     } else if (spread < -symState.config.threshold) {
       const il = ticker.index - ticker.last;
       console.log(`\n   ▼  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} < -${symState.config.threshold} → OPEN SHORT`);
       symState.state = "SHORT";
       symState.entryPrice = ticker.bid;
       symState.bestAsk = ticker.ask;
-      await openShort(symbol, symState.config.qty);
+      await openShort(symbol, symState.config.qty, symState.config.leverage);
     }
   } else if (symState.state === "LONG") {
     const roundedBid = roundTo(ticker.bid, PRICE_PRECISION);
@@ -486,10 +487,10 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  leverage: ${LEVERAGE}x  ${DRY_RUN ? "(DRY RUN)" : ""}`);
+  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}`);
   for (const sym of SYMBOLS) {
     const s = symbolStates.get(sym)!;
-    console.log(`   ${sym}  qty: ${s.config.qty}  threshold: ${s.config.threshold}  bias: ${s.config.bias}`);
+    console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}`);
   }
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
