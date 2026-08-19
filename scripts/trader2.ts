@@ -366,7 +366,10 @@ async function signalClose(
 
 async function main(): Promise<void> {
   console.log(`[${new Date().toLocaleTimeString()}] ═ Trader — ${symbols.join(", ")} ══════════════════`);
-  console.log(config);
+  for (const [sym, c] of Object.entries(config)) {
+    const s = cfg(sym);
+    console.log(`${sym}: threshold=${s.threshold}, bias=${s.bias}, longThreshold=${s.longThreshold}, shortThreshold=${s.shortThreshold}, size=${s.size}, leverage=${s.leverage}, hedge=${s.hedge}, profit=${s.profit}`);
+  }
 
   startWebSocket();
 
