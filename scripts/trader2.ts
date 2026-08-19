@@ -62,6 +62,7 @@ function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_A
 const rawConfig = getArg("--config");
 const configFile = getArg("--configfile");
 const credential = getArg("--credential");
+const symbolsFilter = getArg("--symbols");
 const signalExit = hasFlag("--signalExit");
 const verbose = hasFlag("--verbose");
 if (hasFlag("--help") || hasFlag("-h")) {
@@ -72,6 +73,7 @@ Options:
   --config <JSON>       Inline JSON5 config
   --configfile <path>   Config file path (JSON5)
   --credential <name>   Credential profile from .credentials.json (e.g. A02, meta, gmail)
+  --symbols <list>      Comma-separated list of symbols to trade (e.g. XBRUSDT,XTIUSDT,XAUUSDT)
   --signalExit          Exit positions when signal reverses
   --verbose             Log signals
   --help, -h            Show this help message`);
@@ -86,6 +88,14 @@ if (!rawConfig && !configFile) {
 const config: Config = configFile
   ? JSON5.parse(fs.readFileSync(path.resolve(process.cwd(), configFile), "utf8"))
   : JSON5.parse(rawConfig!);
+
+if (symbolsFilter) {
+  const allowed = symbolsFilter.split(",").map((s) => s.trim().toUpperCase());
+  for (const key of Object.keys(config)) {
+    if (!allowed.includes(key)) delete config[key];
+  }
+}
+
 const symbols = Object.keys(config);
 if (symbols.length === 0) {
   console.error("No symbols in config");
