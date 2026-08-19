@@ -47,102 +47,120 @@ function toHuman(val: unknown, scale: number): number {
 
 async function main() {
   // Read credentials
-  const credential = getArg("--credential");
-  const creds = credential ? loadCredentialProfile(credential) : loadCredentials();
-  const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+  // Parse credential names from --credential or --credentials
+  const credArg = getArg("--credential") ?? getArg("--credentials");
+  const credNames = credArg
+    ? credArg.split(",").map((s) => s.trim())
+    : [undefined];
 
-  const results: Array<{
-    account: string;
-    currency: string;
-    total: number;
-    locked: number;
-    available: number;
-    bonus?: number;
+  const allResults: Array<{
+    profile: string;
+    results: Array<{
+      account: string;
+      currency: string;
+      total: number;
+      locked: number;
+      available: number;
+      bonus?: number;
+    }>;
   }> = [];
 
-  // ── 1. Spot Wallet ──────────────────────────────────────
-  console.log("⟐ Spot Wallet ...");
-  try {
-    const spot = await httpGet("/spot/wallets", null, creds.PHEMEX_API_KEY, secretRaw) as Record<string, unknown>;
-    if (spot.code === 0 && Array.isArray(spot.data)) {
-      for (const w of spot.data as Record<string, unknown>[]) {
-        const currency = String(w.currency ?? "");
-        const totalEv = Number(w.totalEv || w.balanceEv || 0);
-        const lockedEv = Number(w.lockedEv || 0);
-        const scale = 10 ** (Number(w.scale) || 8);
-        results.push({
-          account: "Spot",
-          currency,
-          total: toHuman(totalEv, scale),
-          locked: toHuman(lockedEv, scale),
-          available: toHuman(totalEv - lockedEv, scale),
-        });
-      }
-    }
-  } catch (e) {
-    console.error("  ✗ Spot error:", (e as Error).message);
-  }
+  for (const name of credNames) {
+    const creds = name ? loadCredentialProfile(name) : loadCredentials();
+    const profileName = name ?? "default";
+    const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
-  // ── 2. USDT-M Perpetual (g-accounts) ────────────────────
-  console.log("⟐ USDT-M Perpetual ...");
-  for (const cur of ["USDT", "USD"]) {
+    const results: Array<{
+      account: string;
+      currency: string;
+      total: number;
+      locked: number;
+      available: number;
+      bonus?: number;
+    }> = [];
+
+    console.log(`\n── Profile: ${profileName} ──`);
+    console.log("⟐ Spot Wallet ...");
     try {
-      const resp = await httpGet(
-        "/g-accounts/accountPositions",
-        `currency=${cur}`,
-        creds.PHEMEX_API_KEY,
-        secretRaw,
-      ) as Record<string, unknown>;
-      const data = resp.data as Record<string, unknown> | undefined;
-      if (resp.code === 0 && data?.account) {
-        const a = data.account as Record<string, unknown>;
-        // USDT-M returns real-value strings (Rv) — no scaling needed
-        const total = Number(a.accountBalanceRv ?? 0);
-        const locked = Number(a.totalUsedBalanceRv ?? 0);
-        results.push({
-          account: `USDT-M (${cur})`,
-          currency: cur,
-          total,
-          locked,
-          available: total - locked,
-          bonus: Number(a.bonusBalanceRv ?? 0),
-        });
+      const spot = await httpGet("/spot/wallets", null, creds.PHEMEX_API_KEY, secretRaw) as Record<string, unknown>;
+      if (spot.code === 0 && Array.isArray(spot.data)) {
+        for (const w of spot.data as Record<string, unknown>[]) {
+          const currency = String(w.currency ?? "");
+          const totalEv = Number(w.totalEv || w.balanceEv || 0);
+          const lockedEv = Number(w.lockedEv || 0);
+          const scale = 10 ** (Number(w.scale) || 8);
+          results.push({
+            account: "Spot",
+            currency,
+            total: toHuman(totalEv, scale),
+            locked: toHuman(lockedEv, scale),
+            available: toHuman(totalEv - lockedEv, scale),
+          });
+        }
       }
     } catch (e) {
-      console.error(`  ✗ USDT-M (${cur}) error:`, (e as Error).message);
+      console.error("  ✗ Spot error:", (e as Error).message);
     }
-  }
 
-  // ── 3. Coin-M Perpetual ─────────────────────────────────
-  console.log("⟐ Coin-M Perpetual ...");
-  for (const cur of ["BTC", "ETH", "USD"]) {
-    try {
-      const resp = await httpGet(
-        "/accounts/accountPositions",
-        `currency=${cur}`,
-        creds.PHEMEX_API_KEY,
-        secretRaw,
-      ) as Record<string, unknown>;
-      const data = resp.data as Record<string, unknown> | undefined;
-      if (resp.code === 0 && data?.account) {
-        const a = data.account as Record<string, unknown>;
-        // Coin-M accountBalanceRv may be scaled by valueScale
-        const valScale = 10 ** (Number(a.valueScale) || 8);
-        results.push({
-          account: `Coin-M (${cur})`,
-          currency: cur,
-          total: toHuman(a.accountBalanceRv || 0, valScale),
-          locked: toHuman(a.totalUsedBalanceRv || 0, valScale),
-          available: toHuman(
-            (Number(a.accountBalanceRv) || 0) - (Number(a.totalUsedBalanceRv) || 0),
-            valScale,
-          ),
-        });
-        break; // Found a valid one, stop iterating
+    console.log("⟐ USDT-M Perpetual ...");
+    for (const cur of ["USDT", "USD"]) {
+      try {
+        const resp = await httpGet(
+          "/g-accounts/accountPositions",
+          `currency=${cur}`,
+          creds.PHEMEX_API_KEY,
+          secretRaw,
+        ) as Record<string, unknown>;
+        const data = resp.data as Record<string, unknown> | undefined;
+        if (resp.code === 0 && data?.account) {
+          const a = data.account as Record<string, unknown>;
+          const total = Number(a.accountBalanceRv ?? 0);
+          const locked = Number(a.totalUsedBalanceRv ?? 0);
+          results.push({
+            account: `USDT-M (${cur})`,
+            currency: cur,
+            total,
+            locked,
+            available: total - locked,
+            bonus: Number(a.bonusBalanceRv ?? 0),
+          });
+        }
+      } catch (e) {
+        console.error(`  ✗ USDT-M (${cur}) error:`, (e as Error).message);
       }
-    } catch (e) {
-      // Expected for currencies that don't exist for this account
     }
+
+    console.log("⟐ Coin-M Perpetual ...");
+    for (const cur of ["BTC", "ETH", "USD"]) {
+      try {
+        const resp = await httpGet(
+          "/accounts/accountPositions",
+          `currency=${cur}`,
+          creds.PHEMEX_API_KEY,
+          secretRaw,
+        ) as Record<string, unknown>;
+        const data = resp.data as Record<string, unknown> | undefined;
+        if (resp.code === 0 && data?.account) {
+          const a = data.account as Record<string, unknown>;
+          const valScale = 10 ** (Number(a.valueScale) || 8);
+          results.push({
+            account: `Coin-M (${cur})`,
+            currency: cur,
+            total: toHuman(a.accountBalanceRv || 0, valScale),
+            locked: toHuman(a.totalUsedBalanceRv || 0, valScale),
+            available: toHuman(
+              (Number(a.accountBalanceRv) || 0) - (Number(a.totalUsedBalanceRv) || 0),
+              valScale,
+            ),
+          });
+          break;
+        }
+      } catch (e) {
+        // Expected for currencies that don't exist for this account
+      }
+    }
+
+    allResults.push({ profile: profileName, results });
   }
 
   // ── Output ─────────────────────────────────────────────
@@ -150,12 +168,16 @@ async function main() {
   console.log("  Phemex Account Balances");
   console.log("═══════════════════════════════════════");
 
-  if (results.length === 0) {
-    console.log("  No balances found.");
-  } else {
-    // Table header
+  const grand = { total: 0, available: 0, locked: 0 };
+
+  for (const { profile, results } of allResults) {
+    if (results.length === 0) {
+      console.log(`\n  [${profile}] No balances found.`);
+      continue;
+    }
+    console.log(`\n  ── ${profile} ──`);
     console.log(
-      "  Account".padEnd(20) +
+      "  " + "Account".padEnd(20) +
         "Currency".padEnd(10) +
         "Total".padEnd(24) +
         "Available".padEnd(24) +
@@ -178,8 +200,6 @@ async function main() {
       );
     }
     console.log("  " + "─".repeat(86));
-    // Grand totals
-    const grand = { total: 0, available: 0, locked: 0 };
     for (const r of results) {
       if (r.currency === "USDT") {
         grand.total += r.total;
@@ -187,6 +207,10 @@ async function main() {
         grand.locked += r.locked;
       }
     }
+  }
+
+  if (allResults.length > 1) {
+    console.log("\n  ── Grand Total (all profiles) ──");
     if (grand.total > 0) {
       console.log(
         `  ${"TOTAL (USDT)".padEnd(18)} USDT     ` +
@@ -194,9 +218,11 @@ async function main() {
           `${grand.available.toFixed(2).padStart(12)} ` +
           `${grand.locked.toFixed(2).padStart(12)}`,
       );
+    } else {
+      console.log("  No USDT balances found.");
     }
   }
-  console.log("═══════════════════════════════════════\n");
+  console.log("\n═══════════════════════════════════════\n");
 }
 
 main().catch((e) => {
