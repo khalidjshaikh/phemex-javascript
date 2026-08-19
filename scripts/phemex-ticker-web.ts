@@ -24,6 +24,7 @@ import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 /*  Configuration                                                      */
 /* ------------------------------------------------------------------ */
 
+const VERSION = "1.0.0";
 const PORT = Number(getArg("--port") ?? 3200);
 const ALL_SYMBOLS = [
   "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
@@ -31,7 +32,7 @@ const ALL_SYMBOLS = [
 ];
 const SYMBOLS = (getArg("--symbols") ?? ALL_SYMBOLS.join(","))
   .split(",").filter(Boolean);
-const BUFFER_SECONDS = 300; // 5 minutes of ticks at ~2/sec = 600 slots
+const BUFFER_SECONDS = 1800; // 30 minutes of ticks at ~2/sec = 3600 slots
 const WS_URL = "wss://ws.phemex.com";
 const DISK_PATH = join(process.cwd(), ".phemex-ticker-cache.json");
 const PREFS_PATH = join(process.cwd(), ".phemex-ticker-prefs.json");
@@ -408,7 +409,7 @@ function buildDashboard(): string {
 <body>
 
 <div class="header">
-  <h1>Phemex Ticker</h1>
+  <h1>Phemex Ticker <span style="font-size:11px;font-weight:400;color:var(--text2)">v${VERSION}</span></h1>
   <div class="status"><span class="dot off" id="statusDot"></span><span id="statusText">connecting…</span></div>
   <button class="rotate-btn${rotateClass}" id="rotateBtn" onclick="toggleRotate()">${rotateLabel}</button>
   <button class="rotate-btn" id="klineBtn" onclick="toggleKlineMode()">Live</button>
@@ -895,11 +896,8 @@ function renderLiveChart(d, pad, cw, ch, W, H) {
     return;
   }
 
-  const ticks = activeResolution === '1m'
-    ? d.ticks.filter(t => t.t > Date.now() - 60000)
-    : activeResolution === '5m'
-    ? d.ticks.filter(t => t.t > Date.now() - 300000)
-    : d.ticks;
+  const resMs = RESOLUTION_VALUES[activeResolution] * 1000;
+  const ticks = d.ticks.filter(t => t.t > Date.now() - resMs);
   const fields = [...activeFields];
   if (fields.length === 0) fields.push('last');
 
@@ -1110,7 +1108,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 /* ------------------------------------------------------------------ */
 
 server.listen(PORT, "::", () => {
-  console.log(`\n  Phemex Ticker Dashboard`);
+  console.log(`\n  Phemex Ticker Dashboard v${VERSION}`);
   console.log(`  http://0.0.0.0:${PORT}`);
   console.log(`  http://[::]:${PORT}\n`);
   console.log(`  Tracking ${SYMBOLS.length} symbols: ${SYMBOLS.join(", ")}\n`);
