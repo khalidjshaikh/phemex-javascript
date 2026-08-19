@@ -6,7 +6,7 @@
   LINKUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.04},
   SOLUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.04, threshold: 0.3},
   SUIUSDT: {hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.0026},
-  XAUUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.001, bias: -2.3, threshold: 14, errorBudget: 2},
+  XAUUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.001, bias: -2, threshold: 16, errorBudget: 2},
   XBRUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.02, threshold: 1},
   XRPUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.0005, threshold: 0.0026},
   XTIUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.125, threshold: 0.8}
