@@ -19,6 +19,7 @@ Optionally trades based on index vs last price comparison.
 
 Options:
   --trade              Enable trading logic (disabled by default)
+  --no-ticker          Suppress ticker updates (quiet mode)
   --credential <name>  Credential profile (e.g. 67b)
   -h, --help           Show this help message
 
@@ -28,12 +29,14 @@ Trading Logic (when --trade is enabled):
 
 Examples:
   phemex-ws-last-price BTCUSDT
-  phemex-ws-last-price ETHUSDT --trade --credential 67b`);
+  phemex-ws-last-price ETHUSDT --trade --credential 67b
+  phemex-ws-last-price BTCUSDT --no-ticker --trade`);
   process.exit(0);
 }
 
 const credential = getArg("--credential");
 const enableTrade = hasFlag("--trade");
+const showTicker = !hasFlag("--no-ticker");
 const SYMBOL = process.argv.find(a => !a.startsWith("-") && a !== process.argv[0] && a !== process.argv[1] && a !== credential) || "BTCUSDT";
 
 function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
@@ -140,9 +143,11 @@ const ws = new ReconnectingWs(WS_URL, {
     const mark = Number(ticker.markRp ?? 0);
     const arrow = index < last ? "↓" : index > last ? "↑" : " ";
 
-    process.stdout.write(
-      `\r\x1b[K${now}  ${SYMBOL} ${arrow}  Last: $${last.toFixed(2)}  Ask: $${ask.toFixed(2)}  Bid: $${bid.toFixed(2)}  Index: $${index.toFixed(2)}  Mark: $${mark.toFixed(2)}  H: $${high.toFixed(2)}  L: $${low.toFixed(2)}  Chg: ${sign}${changePct.toFixed(2)}%  Vol: ${volume.toFixed(0)}`
-    );
+    if (showTicker) {
+      process.stdout.write(
+        `\r\x1b[K${now}  ${SYMBOL} ${arrow}  Last: $${last.toFixed(2)}  Ask: $${ask.toFixed(2)}  Bid: $${bid.toFixed(2)}  Index: $${index.toFixed(2)}  Mark: $${mark.toFixed(2)}  H: $${high.toFixed(2)}  L: $${low.toFixed(2)}  Chg: ${sign}${changePct.toFixed(2)}%  Vol: ${volume.toFixed(0)}`
+      );
+    }
 
     if (enableTrade && index !== last) {
       executeTrade(index, last).catch(err => {
