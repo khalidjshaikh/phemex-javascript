@@ -1109,9 +1109,10 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 /*  Start                                                              */
 /* ------------------------------------------------------------------ */
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, "::", () => {
   console.log(`\n  Phemex Ticker Dashboard`);
-  console.log(`  http://0.0.0.0:${PORT}\n`);
+  console.log(`  http://0.0.0.0:${PORT}`);
+  console.log(`  http://[::]:${PORT}\n`);
   console.log(`  Tracking ${SYMBOLS.length} symbols: ${SYMBOLS.join(", ")}\n`);
   console.log(`  [USDT-M] connecting…`);
   if (wsCoin) console.log(`  [Coin-M] connecting…`);
