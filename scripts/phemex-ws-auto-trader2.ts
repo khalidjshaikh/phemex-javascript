@@ -365,10 +365,13 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
   } else if (symState.state === "LONG") {
     const currentIL = ticker.index - ticker.last;
     const reversalThreshold = symState.config.threshold * 1.0;
+    if (currentIL > symState.entryIL + reversalThreshold) {
+      console.log(`   ▲  REVERSAL CHECK [${symbol}]: currentIL:${currentIL.toFixed(4)} > entryIL:${symState.entryIL.toFixed(4)} + threshold:${reversalThreshold.toFixed(4)} = ${(symState.entryIL + reversalThreshold).toFixed(4)}`);
+    }
     if (currentIL < symState.entryIL - reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
-      const pnl = symState.entryPrice - ticker.bid;
-      console.log(`\n   ▲  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
+      const pnl = ticker.bid - symState.entryPrice;
+      console.log(`\n   ▲  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  bid-entry:${pnl.toFixed(4)} → CLOSE LONG`);
       try {
         await closeLong(symbol, symState.config.qty);
         symState.state = "IDLE";
@@ -433,6 +436,9 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
   } else if (symState.state === "SHORT") {
     const currentIL = ticker.index - ticker.last;
     const reversalThreshold = symState.config.threshold * 1.0;
+    if (currentIL < symState.entryIL - reversalThreshold) {
+      console.log(`   ▼  REVERSAL CHECK [${symbol}]: currentIL:${currentIL.toFixed(4)} < entryIL:${symState.entryIL.toFixed(4)} - threshold:${reversalThreshold.toFixed(4)} = ${(symState.entryIL - reversalThreshold).toFixed(4)}`);
+    }
     if (currentIL > symState.entryIL + reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
       const pnl = ticker.ask - symState.entryPrice;
