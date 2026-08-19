@@ -20,10 +20,12 @@
  */
 import "../src/globals.js"
 import fs from "node:fs";
+import path from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
-import { findSymbolRow } from "../src/cli-utils.js";
+import { findSymbolRow, getArg, hasFlag } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
-import { loadCredentials } from "../src/credentials.js";
+import { loadCredentialsLocal } from "../src/credentials.js";
+import JSON5 from "json5";
 import { 
   placeLimitOrder, 
   cancelOrders, 
@@ -51,7 +53,6 @@ const POLL_INTERVAL_MS = 2_000;
 /* ── Auto-trader configuration (tune these) ───────────────────────── */
 const AUTO_TRADE_ENABLED = true;      // master switch for placing real orders
 const AUTO_TRADE_LEVERAGE = 100;      // leverage used for bot positions
-const AUTO_TRADE_QTY = 0.01;          // position size (also filters our own fills)
 const ENTRY_DELTA_MIN = 0.10;         // buy when the up-leg is ≥ this far ($) above its pivot; 0 = strict "Δ > 0" rule
 const TRAILING_PNL_PCT = 5;          // safety: close bot position if PnL% gives back this many points from peak
 const HARD_STOP_PNL_PCT = -10;        // close bot position if PnL% (margin-based) falls below this
@@ -62,11 +63,13 @@ function parseArg(name: string): string | undefined {
   return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
 }
 
+const AUTO_TRADE_QTY = Number(parseArg("size") ?? parseArg("qty") ?? "0.01");
 const SYMBOL = parseArg("symbol") ?? SYMBOL_DEFAULT;
 const PRICE_FILE = `${(parseArg("symbol") ?? "xbrusdt").toLowerCase()}-last-price.txt`;
-const DECIMALS = Number(parseArg("decimals") ?? "2");
+const DECIMALS = Number(parseArg("decimals") ?? "3");
+const CREDENTIAL = parseArg("credential");
 
-if (parseArg("help") !== undefined) {
+if (hasFlag("--help")) {
   console.log(`
 Usage: ${process.argv[1]} [OPTIONS]
 
@@ -74,14 +77,18 @@ XBRUSDT WebSocket monitor with live ticker, trade feed, orderbook bid/ask,
 and delta-rule auto-trader.
 
 Options:
-  --symbol <SYMBOL>   Trading pair (default: ${SYMBOL_DEFAULT})
-  --decimals <N>      Decimal places for displayed values (default: 2)
-  --help              Show this help message
+  --symbol <SYMBOL>       Trading pair (default: ${SYMBOL_DEFAULT})
+  --size/--qty <num>      Contract quantity per trade (default: 0.01)
+  --decimals <N>          Decimal places for displayed values (default: 2)
+  --credential <name>     Credential profile from .credentials.json (e.g. A02, meta, gmail)
+  --help                  Show this help message
 
 Examples:
   ${process.argv[1]}
   ${process.argv[1]} --symbol XTIUSDT
+  ${process.argv[1]} --size 0.001
   ${process.argv[1]} --decimals 4
+  ${process.argv[1]} --credential A02
 `);
   process.exit(0);
 }
@@ -89,6 +96,20 @@ Examples:
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
+
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
 
 function fmtTime(): string {
   return new Date().toLocaleString();
@@ -121,9 +142,13 @@ let bestAsk = 0;
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
 
-const creds = loadCredentials();
-apiKey = creds.PHEMEX_API_KEY;
-secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+const credentials = CREDENTIAL
+  ? loadCredentialProfile(CREDENTIAL)
+  : loadCredentialsLocal();
+const secretRawBuf = base64UrlDecode(credentials.PHEMEX_API_SECRET);
+const apiKeyVal = credentials.PHEMEX_API_KEY;
+apiKey = apiKeyVal;
+secretRaw = secretRawBuf;
 
 function updateDirection(last: number, prev: number): void {
   if (last > prev) {
@@ -317,13 +342,12 @@ class TradeBatchProcessor {
     const deltaStr = `${sign}${delta.toFixed(DECIMALS)}`.padStart(5);
     const lastDelta = this.prevPrice !== null ? p - this.prevPrice : 0;
     const lastDeltaStr = this.prevPrice !== null ? (lastDelta >= 0 ? '+' : '') + lastDelta.toFixed(DECIMALS) : '';
-    const bigMove = Math.abs(lastDelta) >= 0.15 ? '≥0.15' : '';
     arrow = arrow ? `${arrow.padEnd(3)} Δ${deltaStr.padEnd(5)}` : '';
     const bidStr = bestBid > 0 ? `$${bestBid.toFixed(DECIMALS)}` : '';
     const askStr = bestAsk > 0 ? `$${bestAsk.toFixed(DECIMALS)}` : '';
     const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(DECIMALS) : '';
     console.log(
-      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)} ${bigMove.padEnd(3)}`
+      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)}`
     );
     this.prevPrice = p;
   }
@@ -491,14 +515,16 @@ async function main(): Promise<void> {
 
       // Real-time trades
       if (m.trades_p && m.symbol === SYMBOL && m.trades_p.length != 1000) {
-        // console.log("Received")
-        // console.log(m.trades_p.length)
         const trades = m.trades_p as unknown[][];
         if (trades.length > 0) {
           for (const trade of trades) {
-            // console.log(trade)
             TradeBatchProcessor.process_trade(trade);
-            await TradeBatchProcessor.auto_trade(trade);
+            try {
+              await TradeBatchProcessor.auto_trade(trade);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`[${fmtTime()}]  ✗  auto_trade error: ${msg}`);
+            }
           }
         }
       }
@@ -528,7 +554,7 @@ async function main(): Promise<void> {
     if (!running) break;
 
     try {
-      const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+      const positions = await fetchPositions(apiKey, secretRaw);
       allPositions = positions;
       const pos = positions.find((p) => p.symbol === SYMBOL);
 
