@@ -1,13 +1,13 @@
 {
-  BNBUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.3, threshold: 0.7 },
-  BTCUSDT: { hedge: true, leverage: 100, profit: 35, size: 0.001, bias: -30, threshold: 100 },
-  DOGEUSDT: { hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.00002, threshold: 0.0002 },
-  ETHUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.85, threshold: 2.5 },
-  LINKUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.04 },
-  SOLUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.04, threshold: 0.22 },
-  SUIUSDT: { hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.0026 },
-  XAUUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.001, bias: -2.3, threshold: 14 },
-  XBRUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.02, threshold: 1 },
-  XRPUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.0005, threshold: 0.0026 },
-  XTIUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.125, threshold: 0.8 }
+  BNBUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.3, threshold: 1},
+  BTCUSDT: {hedge: true, leverage: 100, profit: 35, size: 0.001, bias: -30, threshold: 100},
+  DOGEUSDT: {hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.00002, threshold: 0.0002},
+  ETHUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.85, threshold: 2.5, errorBudget: 2},
+  LINKUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.04},
+  SOLUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.04, threshold: 0.3},
+  SUIUSDT: {hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.0026},
+  XAUUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.001, bias: -2.3, threshold: 14, errorBudget: 2},
+  XBRUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.02, threshold: 1},
+  XRPUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.0005, threshold: 0.0026},
+  XTIUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.125, threshold: 0.8}
 }
