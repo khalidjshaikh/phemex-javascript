@@ -129,7 +129,7 @@ async function loadSignals() {
   }
   container.innerHTML = data.signals.map(block => {
     return block.split('\\n').map(l => {
-      if (l.includes('▲ SIGNAL')) {
+      if (l.includes('▲ SIGNAL') || l.includes('▼ SIGNAL')) {
         return '<div class="log-line header-line">' + escHtml(l) + '</div>';
       }
       const m = l.match(/^(\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}\\.\\d+)\\s+(\\w+)(.*)/);
@@ -232,7 +232,7 @@ const server = http.createServer((req, res) => {
     const signals: string[][] = []
     let current: string[] | null = null
     for (const e of entries) {
-      if (e.line.includes('▲') && e.line.includes('SIGNAL')) {
+      if ((e.line.includes('▲') || e.line.includes('▼')) && e.line.includes('SIGNAL')) {
         if (current) signals.push(current)
         current = [e.line]
       } else if (current) {
