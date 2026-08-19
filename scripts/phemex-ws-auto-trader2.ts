@@ -45,6 +45,8 @@ Options:
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
   --bias <num>        Index-last spread bias (default: 0)
   --error-budget <n>  Consecutive take-profit violations to ignore before forcing close (default: 0)
+  --no-reversal-exit  Disable reversal-based exit (keeps position open)
+  --no-tp             Disable take-profit exit via error budget (keeps position open)
   --config <JSON>     Inline JSON5 config (overrides --symbol and internal presets)
   --configfile <path> Config file path in JSON5 (overrides --symbol and internal presets)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
@@ -71,10 +73,14 @@ interface SymbolConfig {
   qty?: number;
   leverage?: number;
   errorBudget?: number;
+  noReversalExit?: boolean;
+  noTp?: boolean;
 }
 
 const DRY_RUN = hasFlag("--dry-run");
 const NO_TICKER_LOGS = hasFlag("--no-ticker-logs");
+const NO_REVERSAL_EXIT = hasFlag("--no-reversal-exit");
+const NO_TP = hasFlag("--no-tp");
 const DEBUG = hasFlag("--debug");
 const CREDENTIAL = getArg("--credential");
 const WS_URL = "wss://ws.phemex.com";
@@ -119,7 +125,7 @@ const SYMBOLS = externalConfig
 const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 
-function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number } {
+function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean } {
   const preset = SYMBOL_PRESETS[symbol] ?? {};
   const external = externalConfig?.[symbol] ?? {};
   const fallback = {
@@ -128,6 +134,8 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     qty: QTY_DEFAULT,
     leverage: LEVERAGE,
     errorBudget: parseInt(getArg("--error-budget") ?? "0", 10),
+    noReversalExit: NO_REVERSAL_EXIT,
+    noTp: NO_TP,
   };
   // External config overrides preset, CLI flags override both
   return {
@@ -136,6 +144,8 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     qty:        "qty" in external ? external.qty!               : "qty" in preset ? preset.qty!               : fallback.qty,
     leverage:   "leverage" in external ? external.leverage!     : "leverage" in preset ? preset.leverage!       : fallback.leverage,
     errorBudget:"errorBudget" in external ? external.errorBudget! : "errorBudget" in preset ? preset.errorBudget! : fallback.errorBudget,
+    noReversalExit: "noReversalExit" in external ? external.noReversalExit! : "noReversalExit" in preset ? preset.noReversalExit! : fallback.noReversalExit,
+    noTp:           "noTp" in external ? external.noTp!         : "noTp" in preset ? preset.noTp!             : fallback.noTp,
   };
 }
 
@@ -170,7 +180,7 @@ interface SymbolState {
   bestBid: number;
   bestBidErrors: number;
   bestAskErrors: number;
-  config: { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number };
+  config: { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean };
 }
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +378,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
     if (currentIL > symState.entryIL + reversalThreshold) {
       console.log(`   ▲  REVERSAL CHECK [${symbol}]: currentIL:${currentIL.toFixed(4)} > entryIL:${symState.entryIL.toFixed(4)} + threshold:${reversalThreshold.toFixed(4)} = ${(symState.entryIL + reversalThreshold).toFixed(4)}`);
     }
-    if (currentIL < symState.entryIL - reversalThreshold) {
+    if (!symState.config.noReversalExit && currentIL < symState.entryIL - reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
       const pnl = ticker.bid - symState.entryPrice;
       console.log(`\n   ▲  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  bid-entry:${pnl.toFixed(4)} → CLOSE LONG`);
@@ -391,39 +401,42 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
         }
       }
     } else {
+      // Track best bid regardless of TP setting
       const roundedBid = roundTo(ticker.bid, PRICE_PRECISION);
       const roundedBestBid = roundTo(symState.bestBid, PRICE_PRECISION);
       symState.bestBid = Math.max(symState.bestBid, ticker.bid);
       if (roundedBid < roundedBestBid) {
         symState.bestBidErrors++;
-        const remaining = symState.config.errorBudget - symState.bestBidErrors + 1;
-        if (symState.bestBidErrors > symState.config.errorBudget) {
-          const closeIL = (ticker.index - ticker.last).toFixed(4);
-          const pnl = symState.entryPrice - ticker.bid;
-          console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
-          try {
-            await closeLong(symbol, symState.config.qty);
-            symState.state = "IDLE";
-            symState.entryPrice = 0;
-            symState.entryIL = 0;
-            symState.bestBid = 0;
-            symState.bestBidErrors = 0;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes("REDUCE_ONLY_ABORT")) {
-              console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+        if (!symState.config.noTp) {
+          const remaining = symState.config.errorBudget - symState.bestBidErrors + 1;
+          if (symState.bestBidErrors > symState.config.errorBudget) {
+            const closeIL = (ticker.index - ticker.last).toFixed(4);
+            const pnl = symState.entryPrice - ticker.bid;
+            console.log(`\n   ▲  TAKE PROFIT [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  entry-bid:${pnl.toFixed(4)} → CLOSE LONG`);
+            try {
+              await closeLong(symbol, symState.config.qty);
               symState.state = "IDLE";
               symState.entryPrice = 0;
               symState.entryIL = 0;
               symState.bestBid = 0;
               symState.bestBidErrors = 0;
-            } else {
-              console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (msg.includes("REDUCE_ONLY_ABORT")) {
+                console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+                symState.state = "IDLE";
+                symState.entryPrice = 0;
+                symState.entryIL = 0;
+                symState.bestBid = 0;
+                symState.bestBidErrors = 0;
+              } else {
+                console.error(`   ✗  Failed to close long on ${symbol}, keeping state LONG: ${msg}`);
+              }
             }
+          } else {
+            const closeIL = (ticker.index - ticker.last).toFixed(4);
+            console.log(`   ▲  TP BUDGET [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
           }
-        } else {
-          const closeIL = (ticker.index - ticker.last).toFixed(4);
-          console.log(`   ▲  TP BUDGET [${symbol}]: bid (${ticker.bid.toFixed(4)}) < best (${symState.bestBid.toFixed(4)})  errors:${symState.bestBidErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
         }
       } else {
         // Price recovered — reset error counter
@@ -439,7 +452,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
     if (currentIL < symState.entryIL - reversalThreshold) {
       console.log(`   ▼  REVERSAL CHECK [${symbol}]: currentIL:${currentIL.toFixed(4)} < entryIL:${symState.entryIL.toFixed(4)} - threshold:${reversalThreshold.toFixed(4)} = ${(symState.entryIL - reversalThreshold).toFixed(4)}`);
     }
-    if (currentIL > symState.entryIL + reversalThreshold) {
+    if (!symState.config.noReversalExit && currentIL > symState.entryIL + reversalThreshold) {
       const closeIL = currentIL.toFixed(4);
       const pnl = ticker.ask - symState.entryPrice;
       console.log(`\n   ▼  REVERSAL EXIT [${symbol}]: I-L (${closeIL}) reversed from entry (${symState.entryIL.toFixed(4)})  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
@@ -462,39 +475,42 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
         }
       }
     } else {
+      // Track best ask regardless of TP setting
       const roundedAsk = roundTo(ticker.ask, PRICE_PRECISION);
       const roundedBestAsk = roundTo(symState.bestAsk, PRICE_PRECISION);
       symState.bestAsk = Math.min(symState.bestAsk, ticker.ask);
       if (roundedAsk > roundedBestAsk) {
         symState.bestAskErrors++;
-        const remaining = symState.config.errorBudget - symState.bestAskErrors + 1;
-        if (symState.bestAskErrors > symState.config.errorBudget) {
-          const closeIL = (ticker.index - ticker.last).toFixed(4);
-          const pnl = ticker.ask - symState.entryPrice;
-          console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
-          try {
-            await closeShort(symbol, symState.config.qty);
-            symState.state = "IDLE";
-            symState.entryPrice = 0;
-            symState.entryIL = 0;
-            symState.bestAsk = Infinity;
-            symState.bestAskErrors = 0;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes("REDUCE_ONLY_ABORT")) {
-              console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+        if (!symState.config.noTp) {
+          const remaining = symState.config.errorBudget - symState.bestAskErrors + 1;
+          if (symState.bestAskErrors > symState.config.errorBudget) {
+            const closeIL = (ticker.index - ticker.last).toFixed(4);
+            const pnl = ticker.ask - symState.entryPrice;
+            console.log(`\n   ▼  TAKE PROFIT [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  I-L:${closeIL}  entry:${symState.entryPrice.toFixed(4)}  ask-entry:${pnl.toFixed(4)} → CLOSE SHORT`);
+            try {
+              await closeShort(symbol, symState.config.qty);
               symState.state = "IDLE";
               symState.entryPrice = 0;
               symState.entryIL = 0;
               symState.bestAsk = Infinity;
               symState.bestAskErrors = 0;
-            } else {
-              console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              if (msg.includes("REDUCE_ONLY_ABORT")) {
+                console.log(`   ℹ  Position already closed on ${symbol}, resetting to IDLE`);
+                symState.state = "IDLE";
+                symState.entryPrice = 0;
+                symState.entryIL = 0;
+                symState.bestAsk = Infinity;
+                symState.bestAskErrors = 0;
+              } else {
+                console.error(`   ✗  Failed to close short on ${symbol}, keeping state SHORT: ${msg}`);
+              }
             }
+          } else {
+            const closeIL = (ticker.index - ticker.last).toFixed(4);
+            console.log(`   ▼  TP BUDGET [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
           }
-        } else {
-          const closeIL = (ticker.index - ticker.last).toFixed(4);
-          console.log(`   ▼  TP BUDGET [${symbol}]: ask (${ticker.ask.toFixed(4)}) > best (${symState.bestAsk.toFixed(4)})  errors:${symState.bestAskErrors}/${symState.config.errorBudget}  remaining:${remaining}  I-L:${closeIL}`);
         }
       } else {
         // Price recovered — reset error counter
