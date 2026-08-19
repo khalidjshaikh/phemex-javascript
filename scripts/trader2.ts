@@ -366,9 +366,16 @@ async function signalClose(
 
 async function main(): Promise<void> {
   console.log(`[${new Date().toLocaleTimeString()}] ═ Trader — ${symbols.join(", ")} ══════════════════`);
-  for (const [sym, c] of Object.entries(config)) {
+  const rows = Object.keys(config).map((sym) => {
     const s = cfg(sym);
-    console.log(`${sym}: threshold=${s.threshold}, bias=${s.bias}, longThreshold=${s.longThreshold}, shortThreshold=${s.shortThreshold}, size=${s.size}, leverage=${s.leverage}, hedge=${s.hedge}, profit=${s.profit}`);
+    return { sym, ...s };
+  });
+  const cols = ["threshold", "bias", "longThreshold", "shortThreshold", "size", "leverage", "hedge", "profit"] as const;
+  const widths = cols.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
+  const symWidth = Math.max(...rows.map((r) => r.sym.length));
+  for (const r of rows) {
+    const vals = cols.map((k, i) => `${k}=${String(r[k]).padStart(widths[i])}`);
+    console.log(`${r.sym.padEnd(symWidth)}: ${vals.join(", ")}`);
   }
 
   startWebSocket();
