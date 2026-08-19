@@ -3,7 +3,7 @@
   BTCUSDT: { hedge: true, leverage: 100, profit: 35, size: 0.001, bias: -30, threshold: 50 },
   DOGEUSDT: { hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.000020, threshold: 0.000100 },
   ETHUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.85, threshold: 1.25, errorBudget: 2},
-  LINKUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.02 },
+  LINKUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.03 },
   SOLUSDT: { hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.04, threshold: 0.15 },
   SUIUSDT: { hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.0013 },
   XAUUSDT: { hedge: true, leverage: 100, profit: 0, size: 0.001, bias: -2, threshold: 8, errorBudget: 2 },
