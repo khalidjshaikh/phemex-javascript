@@ -12,12 +12,30 @@
  * Usage:  npx tsx phemex-balances.ts
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import JSON5 from "json5";
 import { httpGet, base64UrlDecode } from "../src/http-client.js";
 import { loadCredentials } from "../src/credentials.js";
+import { getArg, hasFlag } from "../src/cli-utils.js";
 
 const BASE = "api.phemex.com";
 
 // ── Helpers ────────────────────────────────────────────────
+
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
 
 /** Convert scaled Phemex values (Ev) to human-readable amounts */
 function toHuman(val: unknown, scale: number): number {
@@ -29,7 +47,8 @@ function toHuman(val: unknown, scale: number): number {
 
 async function main() {
   // Read credentials
-  const creds = loadCredentials();
+  const credential = getArg("--credential");
+  const creds = credential ? loadCredentialProfile(credential) : loadCredentials();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   const results: Array<{
