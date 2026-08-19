@@ -39,7 +39,9 @@ const USAGE = `Usage: npx tsx phemex-ws-auto-trader.ts [options]
 Autonomous trading bot for Phemex USDT-M perpetuals.
 
 Options:
-  --symbol <SYM>      Symbol(s) to trade, comma-separated (default: XTIUSDT)
+  --symbol <SYM>      Single symbol to trade (default: XTIUSDT)
+  --symbols <SYM>     Comma-separated symbols to trade (e.g. XTIUSDT,BTCUSDT)
+                      When used with --configfile, only trades these symbols from the config
   --qty <num>         Contract quantity per trade (default: 0.01)
   --leverage <num>    Leverage (default: 100)
   --threshold <num>   Index-last spread threshold for entry (default: 0.2)
@@ -117,10 +119,21 @@ const externalConfig: Record<string, SymbolConfig> | null = (() => {
   return null;
 })();
 
-// If external config is provided, derive symbols from its keys
-const SYMBOLS = externalConfig
-  ? Object.keys(externalConfig).map((s) => s.trim().toUpperCase())
-  : (getArg("--symbol") ?? "XTIUSDT").split(",").map((s) => s.trim().toUpperCase());
+// Prefer explicit --symbol / --symbols over config file keys
+const SYMBOLS = (getArg("--symbols") ?? getArg("--symbol"))
+  ? (getArg("--symbols") ?? getArg("--symbol")!).split(",").map((s) => s.trim().toUpperCase())
+  : externalConfig
+    ? Object.keys(externalConfig).map((s) => s.trim().toUpperCase())
+    : ["XTIUSDT"];
+
+if (externalConfig) {
+  for (const sym of SYMBOLS) {
+    if (!externalConfig[sym]) {
+      console.error(`\u2717  Symbol "${sym}" not found in config file (available: ${Object.keys(externalConfig).join(", ")})`);
+      process.exit(1);
+    }
+  }
+}
 
 const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
