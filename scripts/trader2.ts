@@ -366,6 +366,7 @@ async function signalClose(
 
 async function main(): Promise<void> {
   console.log(`[${new Date().toLocaleTimeString()}] ═ Trader — ${symbols.join(", ")} ══════════════════`);
+  console.log(config);
 
   startWebSocket();
 
