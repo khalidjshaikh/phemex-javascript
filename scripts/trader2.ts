@@ -370,7 +370,7 @@ async function main(): Promise<void> {
     const s = cfg(sym);
     return { sym, ...s };
   });
-  const cols = ["threshold", "bias", "longThreshold", "shortThreshold", "size", "leverage", "hedge", "profit"] as const;
+  const cols = ["threshold", "bias", "size", "leverage", "profit"] as const;
   const widths = cols.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
   const symWidth = Math.max(...rows.map((r) => r.sym.length));
   for (const r of rows) {
