@@ -32,7 +32,10 @@
 import { ReconnectingWs } from "../src/ws-client.js";
 import { findSymbolRow } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
-import { loadCredentials } from "../src/credentials.js";
+import { loadCredentialsLocal } from "../src/credentials.js";
+import JSON5 from "json5";
+import fs from "node:fs";
+import path from "node:path";
 import {
   placeMarketOrder,
   setLeverageUsdtM,
@@ -74,6 +77,7 @@ function hasFlag(name: string): boolean {
 }
 
 const DRY_RUN = !hasFlag("live");
+const CREDENTIAL = parseArg("credential");
 const HEDGE = hasFlag("hedge");
 const LEVERAGE = Number(parseArg("leverage")) || DEFAULT_LEVERAGE;
 const QTY = Number(parseArg("size")) || DEFAULT_SIZE;
@@ -92,6 +96,7 @@ Examines ask, bid, index, and last to manage all four actions. It runs in
 dry-run mode unless --live is explicitly supplied.
 
   --live                Place real orders (default: dry-run)
+  --credential <name>   Credential profile from .credentials.json (default: .phemex-credentials.json)
   --size <qty>          Position quantity (default: ${DEFAULT_SIZE})
   --leverage <n>        Leverage (default: ${DEFAULT_LEVERAGE})
   --threshold <price>   Last-price momentum required (default: ${DEFAULT_THRESHOLD})
@@ -120,9 +125,25 @@ for (const [name, value, allowZero] of [
 
 /* ── Credentials ────────────────────────────────────────────────────── */
 
-const creds = loadCredentials();
-const apiKey = creds.PHEMEX_API_KEY;
-const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
+
+const credentials = CREDENTIAL
+  ? loadCredentialProfile(CREDENTIAL)
+  : loadCredentialsLocal();
+const apiKey = credentials.PHEMEX_API_KEY;
+const secretRaw = base64UrlDecode(credentials.PHEMEX_API_SECRET);
 
 /* ── State ──────────────────────────────────────────────────────────── */
 
