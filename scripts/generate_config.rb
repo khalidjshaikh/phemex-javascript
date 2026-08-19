@@ -3,8 +3,8 @@ require 'json'
 require 'optparse'
 
 multiplier = 1.5
-input_file = File.join(__dir__, '..', 'config', 'config.json')
-output_file = File.join(__dir__, '..', 'config', 'config.json5')
+input_file = File.join(__dir__, '..', 'config', 'meta.json5')
+output_file = File.join(__dir__, '..', 'config', 'a02.json5')
 
 OptionParser.new do |opts|
   opts.banner = "Usage: #{$0} [options]"
@@ -50,9 +50,9 @@ output = "{\n" + config.map { |symbol, settings|
             end
           else v.to_s
           end
-    "\"#{k}\": #{val}"
+    "#{k}: #{val}"
   }.join(", ")
-  "  \"#{symbol}\": {#{inner}}"
+  "  #{symbol}: {#{inner}}"
 }.join(",\n") + "\n}\n"
 
 File.write(output_file, output)
