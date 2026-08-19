@@ -6,7 +6,7 @@ import JSON5 from "json5";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { findSymbolRow, getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentials } from "../src/credentials.js";
-import { placeMarketOrder } from "../src/place-limit-order.js";
+import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
 import { fetchPositions, closePosition } from "../src/positions.js";
 
 const WS_URL = "wss://ws.phemex.com";
@@ -62,36 +62,39 @@ if (enableTrade) {
 }
 
 const TRADE_SIZE = 0.001;
+const LEVERAGE = 100;
+
+let currentSide: "Long" | "Short" | null = null;
 
 async function executeTrade(index: number, last: number): Promise<void> {
   if (!creds || !secretRaw) return;
 
-  const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
-  const pos = positions.find(p => p.symbol === SYMBOL);
+  if (currentSide === null) {
+    const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+    const pos = positions.find(p => p.symbol === SYMBOL);
+    currentSide = pos?.side === "Buy" ? "Long" : pos?.side === "Sell" ? "Short" : null;
+  }
 
-  if (index < last) {
-    if (pos?.side === "Long") {
+  const desiredSide: "Long" | "Short" = index < last ? "Short" : "Long";
+
+  if (currentSide === desiredSide) return;
+
+  if (currentSide) {
+    const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+    const pos = positions.find(p => p.symbol === SYMBOL);
+    if (pos) {
       await closePosition(pos, creds.PHEMEX_API_KEY, secretRaw);
-    }
-    if (!pos || pos.side !== "Short") {
-      await placeMarketOrder(
-        { account: "usdt-m", symbol: SYMBOL, side: "Sell", qty: TRADE_SIZE, posSide: "Short", price: 0 },
-        creds.PHEMEX_API_KEY, secretRaw
-      );
-      console.log(`\n[${new Date().toLocaleString()}]  Sold short ${TRADE_SIZE} ${SYMBOL}`);
-    }
-  } else if (index > last) {
-    if (pos?.side === "Short") {
-      await closePosition(pos, creds.PHEMEX_API_KEY, secretRaw);
-    }
-    if (!pos || pos.side !== "Long") {
-      await placeMarketOrder(
-        { account: "usdt-m", symbol: SYMBOL, side: "Buy", qty: TRADE_SIZE, posSide: "Long", price: 0 },
-        creds.PHEMEX_API_KEY, secretRaw
-      );
-      console.log(`\n[${new Date().toLocaleString()}]  Bought long ${TRADE_SIZE} ${SYMBOL}`);
     }
   }
+
+  const posSide = desiredSide;
+  await setLeverageUsdtM(SYMBOL, LEVERAGE, posSide, creds.PHEMEX_API_KEY, secretRaw);
+  await placeMarketOrder(
+    { account: "usdt-m", symbol: SYMBOL, side: desiredSide === "Long" ? "Buy" : "Sell", qty: TRADE_SIZE, posSide, price: 0 },
+    creds.PHEMEX_API_KEY, secretRaw
+  );
+  console.log(`\n[${new Date().toLocaleString()}]  Opened ${desiredSide} ${TRADE_SIZE} ${SYMBOL} @ ${LEVERAGE}x`);
+  currentSide = desiredSide;
 }
 
 let lastSig = "";
