@@ -1,9 +1,9 @@
 #!/usr/bin/env ruby
-require 'json'
+require 'json5'
 require 'optparse'
 
 multiplier = 1.5
-input_file = File.join(__dir__, '..', 'config', 'meta.json5')
+input_file = File.join(__dir__, '..', 'config', 'gm.json5')
 output_file = File.join(__dir__, '..', 'config', 'a02.json5')
 
 OptionParser.new do |opts|
@@ -27,7 +27,7 @@ OptionParser.new do |opts|
   end
 end.parse!
 
-config = JSON.parse(File.read(input_file))
+config = JSON5.parse(File.read(input_file))
 
 config.each do |symbol, settings|
   next unless settings.key?("threshold")
