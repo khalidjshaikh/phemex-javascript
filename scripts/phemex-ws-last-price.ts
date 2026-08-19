@@ -1,10 +1,95 @@
 #!/usr/bin/env -S npx tsx
 
+import fs from "node:fs";
+import path from "node:path";
+import JSON5 from "json5";
 import { ReconnectingWs } from "../src/ws-client.js";
-import { findSymbolRow } from "../src/cli-utils.js";
+import { findSymbolRow, getArg, hasFlag } from "../src/cli-utils.js";
+import { loadCredentials } from "../src/credentials.js";
+import { placeMarketOrder } from "../src/place-limit-order.js";
+import { fetchPositions, closePosition } from "../src/positions.js";
 
 const WS_URL = "wss://ws.phemex.com";
-const SYMBOL = process.argv[2] || "BTCUSDT";
+
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`Usage: phemex-ws-last-price [SYMBOL] [options]
+
+Connects to Phemex WebSocket and displays live last price data.
+Optionally trades based on index vs last price comparison.
+
+Options:
+  --trade              Enable trading logic (disabled by default)
+  --credential <name>  Credential profile (e.g. 67b)
+  -h, --help           Show this help message
+
+Trading Logic (when --trade is enabled):
+  If index < last: buy short size 0.001, close any long positions
+  If index > last: buy long size 0.001, close any short positions
+
+Examples:
+  phemex-ws-last-price BTCUSDT
+  phemex-ws-last-price ETHUSDT --trade --credential 67b`);
+  process.exit(0);
+}
+
+const credential = getArg("--credential");
+const enableTrade = hasFlag("--trade");
+const SYMBOL = process.argv.find(a => !a.startsWith("-") && a !== process.argv[0] && a !== process.argv[1] && a !== credential) || "BTCUSDT";
+
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
+
+let creds: { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } | null = null;
+let secretRaw: Buffer | null = null;
+
+if (enableTrade) {
+  creds = credential ? loadCredentialProfile(credential) : loadCredentials();
+  secretRaw = Buffer.from(creds.PHEMEX_API_SECRET, "base64");
+}
+
+const TRADE_SIZE = 0.001;
+
+async function executeTrade(index: number, last: number): Promise<void> {
+  if (!creds || !secretRaw) return;
+
+  const positions = await fetchPositions(creds.PHEMEX_API_KEY, secretRaw);
+  const pos = positions.find(p => p.symbol === SYMBOL);
+
+  if (index < last) {
+    if (pos?.side === "Long") {
+      await closePosition(pos, creds.PHEMEX_API_KEY, secretRaw);
+    }
+    if (!pos || pos.side !== "Short") {
+      await placeMarketOrder(
+        { account: "usdt-m", symbol: SYMBOL, side: "Sell", qty: TRADE_SIZE, posSide: "Short", price: 0 },
+        creds.PHEMEX_API_KEY, secretRaw
+      );
+      console.log(`\n[${new Date().toLocaleString()}]  Sold short ${TRADE_SIZE} ${SYMBOL}`);
+    }
+  } else if (index > last) {
+    if (pos?.side === "Short") {
+      await closePosition(pos, creds.PHEMEX_API_KEY, secretRaw);
+    }
+    if (!pos || pos.side !== "Long") {
+      await placeMarketOrder(
+        { account: "usdt-m", symbol: SYMBOL, side: "Buy", qty: TRADE_SIZE, posSide: "Long", price: 0 },
+        creds.PHEMEX_API_KEY, secretRaw
+      );
+      console.log(`\n[${new Date().toLocaleString()}]  Bought long ${TRADE_SIZE} ${SYMBOL}`);
+    }
+  }
+}
 
 let lastSig = "";
 let cachedFields: string[] | null = null;
@@ -49,9 +134,21 @@ const ws = new ReconnectingWs(WS_URL, {
     const sign = changePct >= 0 ? "+" : "";
 
     const now = new Date().toLocaleString();
+    const ask = Number(ticker.askRp ?? 0);
+    const bid = Number(ticker.bidRp ?? 0);
+    const index = Number(ticker.indexRp ?? 0);
+    const mark = Number(ticker.markRp ?? 0);
+    const arrow = index < last ? "↓" : index > last ? "↑" : " ";
+
     process.stdout.write(
-      `\r\x1b[K${now}  ${SYMBOL}  $${last.toFixed(2)}  H: $${high.toFixed(2)}  L: $${low.toFixed(2)}  Chg: ${sign}${changePct.toFixed(2)}%  Vol: ${volume.toFixed(0)}`
+      `\r\x1b[K${now}  ${SYMBOL} ${arrow}  Last: $${last.toFixed(2)}  Ask: $${ask.toFixed(2)}  Bid: $${bid.toFixed(2)}  Index: $${index.toFixed(2)}  Mark: $${mark.toFixed(2)}  H: $${high.toFixed(2)}  L: $${low.toFixed(2)}  Chg: ${sign}${changePct.toFixed(2)}%  Vol: ${volume.toFixed(0)}`
     );
+
+    if (enableTrade && index !== last) {
+      executeTrade(index, last).catch(err => {
+        console.error(`\n[${new Date().toLocaleString()}]  Trade error:`, err.message);
+      });
+    }
   },
   onReconnect: (delayMs) => {
     process.stdout.write("\n");
