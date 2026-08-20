@@ -181,21 +181,9 @@ async function main(): Promise<void> {
     } else {
       console.log(`  ✓  Found ${total} fill(s), showing ${rows.length}:\n`);
 
-      // Header
-      console.log(
-        `${"Time".padEnd(12)} ${"ExecId".padEnd(10)} ` +
-        `${"Qty".padEnd(10)} ${"Price".padEnd(12)} ${"Fee".padEnd(12)} ${"Fee/Qty".padEnd(12)} ${"Side".padEnd(16)} ${"*".padEnd(2)}`
-      );
-      console.log("─".repeat(93));
-
-      let totalQty = 0;
-      let totalFee = 0;
-      let totalFeeClose = 0;
-      let totalFeeOpen = 0;
-      let countClose = 0;
-      let countOpen = 0;
-      for (const f of rows) {
-        // console.log(f)
+      // Format rows
+      type Row = { time: string; sym: string; execId: string; qty: string; price: string; fee: string; feePerQty: string; sideLabel: string; mismatch: string };
+      const formatted: Row[] = rows.map((f) => {
         const execId = String(f.execId ?? "?");
         const side = sideMap[Number(f.side)] ?? String(f.side ?? "?");
         const qty = String(f.execQtyRq ?? "?");
@@ -205,31 +193,59 @@ async function main(): Promise<void> {
           f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
             ? (Number(f.execFeeRv) / Number(f.execQtyRq)).toFixed(8)
             : "-";
-        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleString() : "?";
-        totalQty += Number(f.execQtyRq) || 0;
-        totalFee += Number(f.execFeeRv) || 0;
+        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleTimeString() : "?";
+        const sym = String(f.symbol ?? symbol);
 
         const sideLabel = side === "Buy" ? "Buy/Open Long" : side === "Sell" ? "Sell/Close Long" : "";
-
         const feeQty3 = feePerQty !== "-" ? feePerQty.slice(2, 5) : "";
         const cls = feeQty3 === "048" ? "Sell/Close Long" : feeQty3 === "008" ? "Buy/Open Long" : "?";
-
         const mismatch = cls !== sideLabel ? "*" : "";
 
-        if (cls === "Sell/Close Long") {
-          totalFeeClose += Number(f.execFeeRv) || 0;
+        return { time: created, sym, execId, qty, price, fee, feePerQty, sideLabel, mismatch };
+      });
+
+      // Column widths
+      const wTime = Math.max("Time".length, ...formatted.map((r) => r.time.length));
+      const wSym = Math.max("Symbol".length, ...formatted.map((r) => r.sym.length));
+      const wExecId = Math.max("ExecId".length, ...formatted.map((r) => r.execId.length));
+      const wQty = Math.max("Qty".length, ...formatted.map((r) => r.qty.length));
+      const wPrice = Math.max("Price".length, ...formatted.map((r) => r.price.length));
+      const wFee = Math.max("Fee".length, ...formatted.map((r) => r.fee.length));
+      const wFeeQty = Math.max("Fee/Qty".length, ...formatted.map((r) => r.feePerQty.length));
+      const wSide = Math.max("Side".length, ...formatted.map((r) => r.sideLabel.length));
+
+      // Header
+      console.log(
+        `${"Time".padEnd(wTime)} ${"Symbol".padEnd(wSym)} ${"ExecId".padEnd(wExecId)} ` +
+        `${"Qty".padEnd(wQty)} ${"Price".padEnd(wPrice)} ${"Fee".padEnd(wFee)} ${"Fee/Qty".padEnd(wFeeQty)} ${"Side".padEnd(wSide)} ${"*"}`
+      );
+      const totalWidth = wTime + wSym + wExecId + wQty + wPrice + wFee + wFeeQty + wSide + 9;
+      console.log("─".repeat(totalWidth));
+
+      let totalQty = 0;
+      let totalFee = 0;
+      let totalFeeClose = 0;
+      let totalFeeOpen = 0;
+      let countClose = 0;
+      let countOpen = 0;
+      for (const r of formatted) {
+        totalQty += Number(r.qty) || 0;
+        totalFee += Number(r.fee) || 0;
+
+        if (r.sideLabel === "Sell/Close Long") {
+          totalFeeClose += Number(r.fee) || 0;
           countClose++;
-        } else if (cls === "Buy/Open Long") {
-          totalFeeOpen += Number(f.execFeeRv) || 0;
+        } else if (r.sideLabel === "Buy/Open Long") {
+          totalFeeOpen += Number(r.fee) || 0;
           countOpen++;
         }
 
         console.log(
-          `${created.padEnd(12)} ${execId.padEnd(10)} ` +
-          `${qty.padEnd(10)} ${price.padEnd(12)} ${fee.padEnd(12)} ${feePerQty.padEnd(12)} ${sideLabel.padEnd(16)} ${mismatch.padEnd(2)}`
+          `${r.time.padEnd(wTime)} ${r.sym.padEnd(wSym)} ${r.execId.padEnd(wExecId)} ` +
+          `${r.qty.padEnd(wQty)} ${r.price.padEnd(wPrice)} ${r.fee.padEnd(wFee)} ${r.feePerQty.padEnd(wFeeQty)} ${r.sideLabel.padEnd(wSide)} ${r.mismatch}`
         );
       }
-      console.log("─".repeat(93));
+      console.log("─".repeat(totalWidth));
       console.log(
         `Rows: ${rows.length} | Σ Total Qty: ${Math.round(totalQty * 1e8) / 1e8}  |  Total Fee: ${Math.round(totalFee * 1e8) / 1e8}  |  ` +
         `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
