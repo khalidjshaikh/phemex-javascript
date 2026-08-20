@@ -91,6 +91,7 @@ export async function fetchPositions(
 
   if (resp.code !== 0) {
     console.error(`[${new Date().toLocaleString()}]  ✗  API error: ${resp.msg ?? resp.code}`);
+    console.error(new Error("fetchPositions").stack);
     return [];
   }
   const positions = resp.data?.positions ?? [];
