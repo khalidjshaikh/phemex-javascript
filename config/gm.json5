@@ -10,6 +10,7 @@
   // XAUUSDT3:  { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 8.5, errorBudget: 6 },
   // XAUUSDT9: { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 9, errorBudget: 6 },
   // XAUUSDT8:  { hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 8, errorBudget: 6 },
+  XAUUSDT6:  { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 6, errorBudget: 6, from:1800, to:1900 },
   XAUUSDT:  { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 9, errorBudget: 6 },
   XAUUSDT10: { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 16, errorBudget: 6 },
   XAUUSDT11: { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 32, errorBudget: 6 },
