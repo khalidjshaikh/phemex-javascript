@@ -47,7 +47,7 @@ const PYTHON_SCRIPT = path.resolve(import.meta.dirname, "xrpusdt_ml_model.py");
 const MODEL_DIR = path.resolve(import.meta.dirname, "..", "models", "xrpusdt");
 const POLL_INTERVAL_MS = 2_000;
 const COLLECT_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-const MIN_TICKS_FOR_TRAINING = 2000;
+const MIN_TICKS_FOR_TRAINING = 200;
 
 /* ── Defaults (overridable via CLI) ─────────────────────────────────── */
 
