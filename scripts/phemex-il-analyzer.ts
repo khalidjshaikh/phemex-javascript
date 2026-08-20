@@ -1,0 +1,427 @@
+#!/usr/bin/env -S npx tsx
+// SPDX-License-Identifier: MIT
+/**
+ * phemex-il-analyzer.ts — Track I-L (Δindex = index − last) dynamics per symbol.
+ *
+ * Tracks:
+ *   • Sign of I-L (positive = index > last, negative = index < last)
+ *   • Slope of I-L (rising / falling)
+ *   • Duration of sustained direction (I-L positive + slope positive, etc.)
+ *   • Zero-crossings count
+ *   • LONG / SHORT signals based on sustained I-L + slope
+ *
+ * Usage:
+ *   npx tsx phemex-il-analyzer.ts --symbol BTCUSDT,ETHUSDT,SOLUSDT
+ *   npx tsx phemex-il-analyzer.ts --window 10 --hold 5
+ */
+
+import { ReconnectingWs } from "../src/ws-client.js";
+import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
+
+const USAGE = `Usage: npx tsx phemex-il-analyzer.ts [options]
+
+Track I-L (Δindex = index − last) dynamics for trading signals.
+
+Options:
+  --symbol <SYMBOLS>  Comma-separated symbols (default: XBRUSDT)
+  --window <N>        Slope window in ticks (default: 5)
+  --hold <N>          Min sustained ticks before signal (default: 3)
+  --interval <MS>     WebSocket poll interval hint (default: 1000)
+  --decimals <N>      Decimal places for display (default: 4)
+  --hourlyOnly        Suppress per-tick output, show only hourly summary
+  --help              Show this help and exit
+
+Hourly summary prints:
+  ΔL      = I-L end − I-L start (net change over hour)
+  Σ(I-L)  = cumulative sum of I-L values (positive = index > last dominated)
+  Crossings = zero-crossings during hour
+`;
+
+if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
+
+const SYMBOLS = (getArg("--symbol") ?? "XBRUSDT").split(",").filter(Boolean);
+const WINDOW = Number(getArg("--window") ?? 5);
+const HOLD = Number(getArg("--hold") ?? 3);
+const DECIMALS = Number(getArg("--decimals") ?? 4);
+const HOURLY_ONLY = hasFlag("--hourlyOnly");
+const WS_URL = "wss://ws.phemex.com";
+const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
+
+/* ── Per-symbol state ── */
+
+interface IlState {
+  // Last I-L value and history for slope
+  lastIl: number | null;
+  history: Array<{ t: number; v: number }>;  // {t: ms, v: I-L}
+
+  // Current sign and slope
+  sign: "positive" | "negative" | "zero";
+  slope: "rising" | "falling" | "flat";
+
+  // How long current regime has persisted (ticks)
+  regimeTicks: number;
+
+  // Zero-crossing counter
+  crossCount: number;
+
+  // Previous sign for crossing detection
+  prevSign: "positive" | "negative" | "zero";
+
+  // Duration tracking (seconds in current regime)
+  regimeStartMs: number | null;
+
+  // Signal state
+  signal: "LONG" | "SHORT" | "NEUTRAL" | null;
+  signalTime: string | null;
+
+  // Counters for summary
+  longTicks: number;
+  shortTicks: number;
+  neutralTicks: number;
+
+  // Last few I-L values for slope calc
+  prevIl: number | null;
+  prevPrevIl: number | null;
+
+  // WebSocket tick state
+  lastSig: string;
+  prevAskRp: number | null;
+  prevBidRp: number | null;
+  prevIndexRp: number | null;
+  prevLastRp: number | null;
+
+  // Hour tracking: I-L at start of hour for ΔL
+  hourStartIl: number | null;
+  hourLastIl: number | null;
+  hourHour: number;  // which hour we're tracking
+  hourCrossings: number;
+  hourSigmaIl: number;  // Σ(I-L) cumulative I-L sum during hour
+}
+
+function initState(): IlState {
+  const now = new Date();
+  return {
+    lastIl: null,
+    history: [],
+    sign: "zero",
+    slope: "flat",
+    regimeTicks: 0,
+    crossCount: 0,
+    prevSign: "zero",
+    regimeStartMs: null,
+    signal: null,
+    signalTime: null,
+    longTicks: 0,
+    shortTicks: 0,
+    neutralTicks: 0,
+    prevIl: null,
+    prevPrevIl: null,
+    lastSig: "",
+    prevAskRp: null,
+    prevBidRp: null,
+    prevIndexRp: null,
+    prevLastRp: null,
+    hourStartIl: null,
+    hourLastIl: null,
+    hourHour: now.getHours(),
+    hourCrossings: 0,
+    hourSigmaIl: 0,
+  };
+}
+
+const states = new Map<string, IlState>();
+for (const sym of SYMBOLS) states.set(sym, initState());
+
+/* ── Hourly ΔL summary ── */
+
+let lastPrintedHour = new Date().getHours();
+
+function printHourlyDeltaL(): void {
+  const now = new Date();
+  const hour = now.getHours();
+  const hh = String(hour).padStart(2, "0");
+  const stamp = `${hh}:00`;
+
+  console.log("");
+  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log(`  END OF HOUR ${stamp} — ΔL (I-L change over hour) + Σ(I-L) + Crossings`);
+  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log(
+    "Symbol".padEnd(12) +
+    " I-L Start".padStart(12) +
+    "  I-L End".padStart(12) +
+    "      ΔL".padStart(12) +
+    "    Σ(I-L)".padStart(12) +
+    "  Crossings".padStart(12) +
+    "  Signal".padStart(10)
+  );
+  console.log("─".repeat(82));
+  for (const [sym, s] of states) {
+    const startIl = s.hourStartIl;
+    const endIl = s.hourLastIl;
+    const deltaL = (startIl !== null && endIl !== null) ? endIl - startIl : null;
+    console.log(
+      sym.padEnd(12) +
+      fmtSign(startIl).padStart(12) +
+      fmtSign(endIl).padStart(12) +
+      fmtSign(deltaL).padStart(12) +
+      fmt(s.hourSigmaIl).padStart(12) +
+      String(s.hourCrossings).padStart(12) +
+      (s.signal ?? "—").padStart(10)
+    );
+  }
+  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log("");
+}
+
+/* ── Helpers ── */
+
+function tsHMS(ms: number): string {
+  const d = new Date(ms);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+}
+
+function fmt(v: unknown, dec = DECIMALS): string {
+  if (v == null) return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(dec) : String(v);
+}
+
+function fmtSign(v: unknown, dec = DECIMALS): string {
+  if (v == null) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  const s = n.toFixed(dec);
+  return n > 0 ? `+${s}` : n < 0 ? s : ` ${s}`;
+}
+
+function pad(s: string, w: number): string {
+  return s.length >= w ? s : " ".repeat(w - s.length) + s;
+}
+
+/* ── Slope from linear regression over window ── */
+
+function computeSlope(history: Array<{ t: number; v: number }>, nowMs: number): number | null {
+  if (history.length < 2) return null;
+  // Use last WINDOW points (or all if fewer)
+  const windowMs = WINDOW * 3000; // 3s per tick estimate
+  const cutoff = nowMs - windowMs;
+  const pts = history.filter((p) => p.t >= cutoff);
+  if (pts.length < 2) return null;
+
+  // Linear regression: slope = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+  const n = pts.length;
+  let sx = 0, sy = 0, sxy = 0, sxx = 0;
+  for (const p of pts) {
+    sx += p.t;
+    sy += p.v;
+    sxy += p.t * p.v;
+    sxx += p.t * p.t;
+  }
+  const denom = n * sxx - sx * sx;
+  if (Math.abs(denom) < 1e-10) return 0;
+  return (n * sxy - sx * sy) / denom;
+}
+
+/* ── Process one ticker tick ── */
+
+function processTicker(data: Record<string, unknown>): void {
+  const sym = data.symbol as string;
+  const state = states.get(sym);
+  if (!state) return;
+
+  const now = Date.now();
+
+  const indexRp = Number(data.indexRp);
+  const lastRp = Number(data.lastRp);
+  if (!Number.isFinite(indexRp) || !Number.isFinite(lastRp)) return;
+
+  const il = indexRp - lastRp; // I-L = Δindex
+
+  // Determine sign
+  const newSign: "positive" | "negative" | "zero" =
+    il > 0 ? "positive" : il < 0 ? "negative" : "zero";
+
+  // Detect zero-crossing
+  if (state.lastIl !== null && state.sign !== "zero" && newSign !== "zero" && newSign !== state.sign) {
+    state.crossCount++;
+    state.hourCrossings++;
+  }
+
+  // Compute slope
+  const slopeVal = computeSlope(state.history, now);
+  const newSlope: "rising" | "falling" | "flat" =
+    slopeVal !== null ? (slopeVal > 0 ? "rising" : slopeVal < 0 ? "falling" : "flat") : "flat";
+
+  // Regime tracking: when sign or slope changes, reset regime timer
+  if (newSign !== state.sign || newSlope !== state.slope) {
+    state.regimeTicks = 0;
+    state.regimeStartMs = now;
+  }
+  state.regimeTicks++;
+
+  // Update history
+  state.history.push({ t: now, v: il });
+  // Keep last 60 seconds of history
+  while (state.history.length > 0 && state.history[0].t < now - 60000) {
+    state.history.shift();
+  }
+
+  // Signal logic
+  const oldSignal = state.signal;
+  if (newSign === "positive" && newSlope === "rising" && state.regimeTicks >= HOLD) {
+    state.signal = "LONG";
+    state.signalTime = tsHMS(now);
+    state.longTicks++;
+  } else if (newSign === "negative" && newSlope === "falling" && state.regimeTicks >= HOLD) {
+    state.signal = "SHORT";
+    state.signalTime = tsHMS(now);
+    state.shortTicks++;
+  } else if (newSign === "zero" || state.regimeTicks < HOLD) {
+    if (state.signal !== null && (newSign !== state.sign || newSlope !== state.slope)) {
+      // Signal invalidated
+      state.signal = null;
+      state.signalTime = null;
+    }
+    state.neutralTicks++;
+  }
+
+  // Hour tracking
+  const hour = new Date(now).getHours();
+  if (state.hourHour !== hour) {
+    // Hour boundary — we'll print ΔL after all symbols are processed
+    state.hourHour = hour;
+    state.hourStartIl = il;  // start of new hour
+    state.hourCrossings = 0;
+    state.hourSigmaIl = 0;
+  }
+  if (state.hourStartIl === null) {
+    state.hourStartIl = il;  // first tick
+  }
+  // Accumulate Σ(I-L) — sum of I-L values during hour
+  state.hourSigmaIl += il;
+  state.hourLastIl = il;
+
+  // Update state
+  state.prevSign = state.sign;
+  state.sign = newSign;
+  state.slope = newSlope;
+  state.lastIl = il;
+  state.prevIl = state.lastIl;
+  state.prevPrevIl = state.prevIl;
+
+  // Print summary for this symbol
+  const tick = tsHMS(now);
+  const ilStr = fmtSign(il);
+  const slopeStr = slopeVal !== null ? fmtSign(slopeVal, 6) : "      ";
+  const signChar = newSign === "positive" ? "+" : newSign === "negative" ? "-" : "0";
+  const slopeChar = newSlope === "rising" ? "↑" : newSlope === "falling" ? "↓" : "→";
+  const sigStr = state.signal ?? "—";
+  const regimeStr = String(state.regimeTicks).padStart(3);
+  const crossStr = String(state.crossCount).padStart(4);
+
+  if (!HOURLY_ONLY) {
+    console.log(
+      `[${tick}] ${pad(sym, 10)} I-L=${ilStr}  sign=${signChar}  slope=${slopeChar}${pad(slopeStr, 10)}  regime=${regimeStr}  crosses=${crossStr}  sig=${pad(sigStr, 6)}`,
+    );
+  }
+}
+
+/* ── Print final summary on SIGINT ── */
+
+function printSummary(): void {
+  console.log("\n═══════════════════════════════════════════════════════════════");
+  console.log("  I-L ANALYSIS SUMMARY");
+  console.log("═══════════════════════════════════════════════════════════════");
+  console.log(
+    "Symbol".padEnd(12) +
+    "Crossings".padStart(10) +
+    "  Long Tks".padStart(10) +
+    "Short Tks".padStart(10) +
+    "  Neu Tks".padStart(10) +
+    "  Last Sig".padStart(10)
+  );
+  console.log("─".repeat(62));
+  for (const [sym, s] of states) {
+    console.log(
+      sym.padEnd(12) +
+      String(s.crossCount).padStart(10) +
+      String(s.longTicks).padStart(10) +
+      String(s.shortTicks).padStart(10) +
+      String(s.neutralTicks).padStart(10) +
+      (s.signal ?? "—").padStart(10)
+    );
+  }
+  console.log("═══════════════════════════════════════════════════════════════");
+}
+
+/* ── WebSocket ── */
+
+let cachedFields: string[] | null = null;
+
+function handleMessage(msg: Record<string, unknown>): Record<string, unknown>[] {
+  if (msg.method === "market24h_p.update" && msg.data) {
+    const d = msg.data as Record<string, unknown>;
+    if (SYMBOLS.includes(d.symbol as string)) return [d];
+    return [];
+  }
+  if (msg.method === "perp_market24h_pack_p.update" && Array.isArray(msg.data)) {
+    if (Array.isArray(msg.fields)) cachedFields = msg.fields as string[];
+    if (!cachedFields) return [];
+    const result: Record<string, unknown>[] = [];
+    for (const row of msg.data as unknown[][]) {
+      if (row.length < 1) continue;
+      const sym = String(row[0]);
+      if (!SYMBOLS.includes(sym)) continue;
+      const ticker = findSymbolRow([row], cachedFields, sym);
+      if (ticker) result.push(ticker);
+    }
+    return result;
+  }
+  return [];
+}
+
+if (!HOURLY_ONLY) {
+  console.log(`\n⟐  I-L Analyzer — tracking ${SYMBOLS.join(", ")} — window=${WINDOW} hold=${HOLD}\n`);
+  console.log(`  I-L = Δindex = index − last`);
+  console.log(`  LONG  signal: I-L > 0, slope > 0, sustained ${HOLD}+ ticks`);
+  console.log(`  SHORT signal: I-L < 0, slope < 0, sustained ${HOLD}+ ticks`);
+  console.log(`  Crossings = sign changes of I-L\n`);
+}
+
+const ws = new ReconnectingWs(WS_URL, {
+  onOpen: () => {
+    if (IS_USDT_M) {
+      ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
+    } else {
+      ws.send({ method: "market24h.subscribe", params: SYMBOLS, id: 1 });
+    }
+  },
+  onMessage: (msg) => {
+    const tickers = handleMessage(msg);
+    for (const data of tickers) processTicker(data);
+    // Print hourly ΔL report after all symbols processed for this batch
+    const hour = new Date().getHours();
+    if (hour !== lastPrintedHour) {
+      lastPrintedHour = hour;
+      printHourlyDeltaL();
+    }
+  },
+  onReconnect: (delayMs) => {
+    process.stdout.write("\n");
+    console.log(`⟐  Reconnecting in ${delayMs / 1000}s …`);
+    for (const s of states.values()) {
+      s.lastSig = "";
+    }
+    cachedFields = null;
+  },
+});
+
+ws.connect();
+
+process.on("SIGINT", () => {
+  printHourlyDeltaL();
+  printSummary();
+  process.exit(0);
+});
