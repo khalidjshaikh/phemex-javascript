@@ -610,12 +610,13 @@ async function main(): Promise<void> {
   // Start Python subprocess
   startPython();
 
-  // Discover existing exposure
-  await pollPositions();
+  // Discover existing exposure (non-blocking)
+  pollPositions().catch(() => {});
 
   // Start WebSocket
   const ws = new ReconnectingWs(WS_URL, {
     onOpen: () => {
+      log(`⟐  WebSocket connected — subscribing to ${SYMBOL} …`);
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [SYMBOL], id: 1 });
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
     },
@@ -671,6 +672,13 @@ async function main(): Promise<void> {
 
   collectStartTime = Date.now();
   ws.connect();
+
+  // Warn if no data after 30s
+  setTimeout(() => {
+    if (collectPhase && collectedPrices.length === 0) {
+      log(`⚠  No data received after 30s — check WebSocket connection`);
+    }
+  }, 30_000);
 
   // Position polling loop
   let running = true;
