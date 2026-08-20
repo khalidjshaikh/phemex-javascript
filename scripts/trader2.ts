@@ -37,6 +37,10 @@ interface SymbolConfig {
   leverage?: number;
   hedge?: boolean;
   profit?: number;
+  realSymbol?: string;
+  from?: number;
+  to?: number;
+  errorBudget?: number;
 }
 
 type Config = Record<string, SymbolConfig>;
@@ -127,13 +131,17 @@ interface TickerData {
 /*  WebSocket ticker extraction                                        */
 /* ------------------------------------------------------------------ */
 
+function isConfiguredSymbol(sym: string): boolean {
+  return getUniqueRealSymbols().includes(sym);
+}
+
 function handleUsdtmTicker(msg: Record<string, unknown>): TickerData[] {
   const results: TickerData[] = [];
 
   if (msg.method === "market24h_p.update" && msg.data) {
     const d = msg.data as Record<string, unknown>;
     const sym = String(d.symbol ?? "");
-    if (!config[sym]) return results;
+    if (!isConfiguredSymbol(sym)) return results;
     results.push({
       symbol: sym,
       ask: Number(d.askRp ?? 0),
@@ -155,7 +163,7 @@ function handleUsdtmTicker(msg: Record<string, unknown>): TickerData[] {
     for (const row of msg.data as unknown[][]) {
       if (row.length < 1) continue;
       const sym = String(row[0]);
-      if (!config[sym]) continue;
+      if (!isConfiguredSymbol(sym)) continue;
       const ticker = findSymbolRow([row], cachedFields, sym);
       if (!ticker) continue;
       results.push({
@@ -181,7 +189,7 @@ function handleCoinmTicker(msg: Record<string, unknown>): TickerData[] {
   const ticker = msg.market24h as Record<string, unknown> | undefined;
   if (!ticker) return results;
   const sym = String(ticker.symbol ?? "");
-  if (!config[sym]) return results;
+  if (!isConfiguredSymbol(sym)) return results;
 
   const last = Number(ticker.close ?? 0) / PRICE_SCALE;
   const index = Number(ticker.indexPrice ?? 0) / PRICE_SCALE;
@@ -200,7 +208,8 @@ function handleCoinmTicker(msg: Record<string, unknown>): TickerData[] {
 }
 
 function startWebSocket(): ReconnectingWs {
-  const isUsdtM = symbols.every((s) => s.endsWith("USDT"));
+  const realSymbols = getUniqueRealSymbols();
+  const isUsdtM = realSymbols.every((s) => s.endsWith("USDT"));
 
   const ws = new ReconnectingWs(WS_URL, {
     onOpen: () => {
@@ -213,7 +222,10 @@ function startWebSocket(): ReconnectingWs {
     onMessage: (msg) => {
       const tickers = isUsdtM ? handleUsdtmTicker(msg) : handleCoinmTicker(msg);
       for (const d of tickers) {
-        tickerCache.set(d.symbol, d);
+        const aliases = getAliases(d.symbol);
+        for (const alias of aliases) {
+          tickerCache.set(alias, { ...d, symbol: alias });
+        }
       }
     },
     onReconnect: () => {
@@ -240,7 +252,49 @@ function cfg(symbol: string): Required<SymbolConfig> {
     leverage:        c.leverage ?? 100,
     hedge:           c.hedge ?? false,
     profit:          c.profit ?? 0,
+    realSymbol:      c.realSymbol ?? symbol,
+    from:            c.from ?? 0,
+    to:              c.to ?? 1440,
+    errorBudget:     c.errorBudget ?? 0,
   };
+}
+
+function getRealSymbol(symbol: string): string {
+  return config[symbol]?.realSymbol ?? symbol;
+}
+
+function getAliases(realSymbol: string): string[] {
+  return symbols.filter((s) => getRealSymbol(s) === realSymbol);
+}
+
+function hhmmToMinutes(hhmm: number): number {
+  const hours = Math.floor(hhmm / 100);
+  const minutes = hhmm % 100;
+  return hours * 60 + minutes;
+}
+
+function isWithinTimeWindow(symbol: string): boolean {
+  const s = cfg(symbol);
+  if (s.from === 0 && s.to === 0) return true;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const fromMinutes = hhmmToMinutes(s.from);
+  const toMinutes = hhmmToMinutes(s.to);
+
+  if (fromMinutes <= toMinutes) {
+    return currentMinutes >= fromMinutes && currentMinutes < toMinutes;
+  } else {
+    return currentMinutes >= fromMinutes || currentMinutes < toMinutes;
+  }
+}
+
+function getUniqueRealSymbols(): string[] {
+  const seen = new Set<string>();
+  for (const symbol of symbols) {
+    seen.add(getRealSymbol(symbol));
+  }
+  return Array.from(seen);
 }
 
 /* ------------------------------------------------------------------ */
@@ -255,12 +309,13 @@ async function openOrder(
   symbol: string,
   qty: number,
 ): Promise<void> {
+  const realSymbol = getRealSymbol(symbol);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol, side, price: 0, qty, posSide },
+    { account: "usdt-m", symbol: realSymbol, side, price: 0, qty, posSide },
     creds.PHEMEX_API_KEY,
     secretRaw,
   );
-  console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} ${posSide} opened — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`);
+  console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} (→ ${realSymbol}) ${posSide} opened — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`);
   if (result.ordStatus === "New" || result.ordStatus === "Filled") {
     pending.set(symbol, (pending.get(symbol) ?? 0) + qty);
   }
@@ -293,6 +348,8 @@ async function indexTrade(
 ): Promise<void> {
   const ticker = tickerCache.get(symbol);
   if (!ticker) return;
+
+  if (!isWithinTimeWindow(symbol)) return;
 
   const s = cfg(symbol);
   const signal = ticker.index - ticker.last;
@@ -328,17 +385,20 @@ async function askBidClose(
   const ticker = tickerCache.get(symbol);
   if (!ticker) return;
 
+  if (!isWithinTimeWindow(symbol)) return;
+
   const s = cfg(symbol);
+  const realSymbol = getRealSymbol(symbol);
 
   for (const pos of positions) {
-    if (pos.symbol !== symbol) continue;
+    if (pos.symbol !== realSymbol) continue;
     const entry = parseFloat(pos.avgEntryPriceRp || "0");
 
     if (pos.side === "Buy" && ticker.bid >= entry + s.profit) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — bid ${ticker.bid} >= entry ${entry} + ${s.profit}`);
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} (→ ${realSymbol}) Long closed — bid ${ticker.bid} >= entry ${entry} + ${s.profit}`);
       await closePos(pos);
     } else if (pos.side === "Sell" && ticker.ask <= entry - s.profit) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — ask ${ticker.ask} <= entry ${entry} - ${s.profit}`);
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} (→ ${realSymbol}) Short closed — ask ${ticker.ask} <= entry ${entry} - ${s.profit}`);
       await closePos(pos);
     }
   }
@@ -353,18 +413,21 @@ async function signalClose(
   const ticker = tickerCache.get(symbol);
   if (!ticker) return;
 
+  if (!isWithinTimeWindow(symbol)) return;
+
   const s = cfg(symbol);
+  const realSymbol = getRealSymbol(symbol);
   const signal = ticker.index - ticker.last;
   const adjusted = signal + s.bias;
 
   for (const pos of positions) {
-    if (pos.symbol !== symbol) continue;
+    if (pos.symbol !== realSymbol) continue;
 
     if (pos.side === "Buy" && adjusted < 0) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Long closed — signal ${adjusted} < 0`);
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} (→ ${realSymbol}) Long closed — signal ${adjusted} < 0`);
       await closePos(pos);
     } else if (pos.side === "Sell" && adjusted > 0) {
-      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} Short closed — signal ${adjusted} > 0`);
+      console.log(`[${new Date().toLocaleTimeString()}]  ✗  ${symbol} (→ ${realSymbol}) Short closed — signal ${adjusted} > 0`);
       await closePos(pos);
     }
   }
@@ -394,9 +457,10 @@ async function main(): Promise<void> {
 
   for (const symbol of symbols) {
     const s = cfg(symbol);
-    await setLeverageUsdtM(symbol, s.leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
-    await setLeverageUsdtM(symbol, s.leverage, "Short", creds.PHEMEX_API_KEY, secretRaw);
-    console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} leverage set to ${s.leverage}x`);
+    const realSymbol = getRealSymbol(symbol);
+    await setLeverageUsdtM(realSymbol, s.leverage, "Long", creds.PHEMEX_API_KEY, secretRaw);
+    await setLeverageUsdtM(realSymbol, s.leverage, "Short", creds.PHEMEX_API_KEY, secretRaw);
+    console.log(`[${new Date().toLocaleTimeString()}]  ✓  ${symbol} (→ ${realSymbol}) leverage set to ${s.leverage}x`);
   }
 
   process.on("SIGINT", () => {
@@ -411,11 +475,12 @@ async function main(): Promise<void> {
 
       for (const symbol of symbols) {
         try {
+          const realSymbol = getRealSymbol(symbol);
           const pendingQ = pending.get(symbol) ?? 0;
           let longSize = 0;
           let shortSize = 0;
           for (const p of positions) {
-            if (p.symbol !== symbol) continue;
+            if (p.symbol !== realSymbol) continue;
             const size = parseFloat(p.size || "0");
             if (p.side === "Buy") longSize += size;
             else if (p.side === "Sell") shortSize += size;
