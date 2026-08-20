@@ -47,7 +47,8 @@ const PYTHON_SCRIPT = path.resolve(import.meta.dirname, "xrpusdt_ml_model.py");
 const MODEL_DIR = path.resolve(import.meta.dirname, "..", "models", "xrpusdt");
 const POLL_INTERVAL_MS = 2_000;
 const COLLECT_DURATION_MS = 10 * 60 * 1000; // 10 minutes
-const MIN_TICKS_FOR_TRAINING = 200;
+const MIN_TICKS_FOR_TRAINING = 1000;
+const MIN_TICKS_FOR_RETRAIN = 500;
 
 /* ── Defaults (overridable via CLI) ─────────────────────────────────── */
 
@@ -135,9 +136,12 @@ let lastPrediction: { rf: number; xgb: number; ensemble: number } | null = null;
 let lastTrainTime = 0;
 let retrainCollecting = false;
 
+/** Rolling buffer for background retraining — keeps last N ticks */
+const ROLLING_BUFFER_SIZE = 2000;
+const rollingPrices: number[] = [];
+const rollingVolumes: number[] = [];
+
 /** Background retrain state */
-const retrainPrices: number[] = [];
-const retrainVolumes: number[] = [];
 let retrainInProgress = false;
 
 /** Cached fields from first perp_market24h_pack_p.update message */
@@ -654,6 +658,13 @@ async function main(): Promise<void> {
           if (collectPhase && lastPrice > 0) {
             collectedPrices.push(lastPrice);
             collectedVolumes.push(Number(ticker.volumeRq ?? 0));
+            // Also add to rolling buffer for future retraining
+            rollingPrices.push(lastPrice);
+            rollingVolumes.push(Number(ticker.volumeRq ?? 0));
+            if (rollingPrices.length > ROLLING_BUFFER_SIZE) {
+              rollingPrices.shift();
+              rollingVolumes.shift();
+            }
             // Debug: log every tick until we see it working
             log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
           } else if (collectPhase) {
@@ -688,22 +699,13 @@ async function main(): Promise<void> {
 
           // Collect data for background retraining
           if (retrainCollecting && lastPrice > 0) {
-            retrainPrices.push(lastPrice);
-            retrainVolumes.push(Number(ticker.volumeRq ?? 0));
-            if (retrainPrices.length % 50 === 0) {
-              log(`  📊 Retrain collection: ${retrainPrices.length} ticks`);
-            }
-            // Once we have enough fresh data, retrain in background
-            if (retrainPrices.length >= MIN_TICKS_FOR_TRAINING) {
-              retrainCollecting = false;
-              retrainInProgress = true;
-              log(`⟐  Retraining in background with ${retrainPrices.length} fresh ticks …`);
-              // Train without blocking trading
-              const pricesCopy = [...retrainPrices];
-              const volumesCopy = [...retrainVolumes];
-              retrainPrices.length = 0;
-              retrainVolumes.length = 0;
-              sendToPython({
+            retrainCollecting = false;
+            retrainInProgress = true;
+            log(`⟐  Retraining in background with rolling buffer (${rollingPrices.length} ticks) …`);
+            // Train on rolling buffer (includes historical context)
+            const pricesCopy = [...rollingPrices];
+            const volumesCopy = [...rollingVolumes];
+            sendToPython({
                 action: "train",
                 prices: pricesCopy,
                 volumes: volumesCopy,
@@ -725,7 +727,6 @@ async function main(): Promise<void> {
                 log(`✗  Background retrain error: ${err instanceof Error ? err.message : err}`);
                 retrainInProgress = false;
               });
-            }
           }
         }
       }
@@ -747,6 +748,13 @@ async function main(): Promise<void> {
             if (collectPhase) {
               collectedPrices.push(p);
               collectedVolumes.push(qty);
+            }
+            // Always maintain rolling buffer
+            rollingPrices.push(p);
+            rollingVolumes.push(qty);
+            if (rollingPrices.length > ROLLING_BUFFER_SIZE) {
+              rollingPrices.shift();
+              rollingVolumes.shift();
             }
           }
         }
