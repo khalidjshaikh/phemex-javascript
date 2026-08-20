@@ -637,6 +637,12 @@ async function main(): Promise<void> {
           if (collectPhase && lastPrice > 0) {
             collectedPrices.push(lastPrice);
             collectedVolumes.push(Number(ticker.volumeRq ?? 0));
+            // Debug: log every 10 ticks
+            if (collectedPrices.length % 10 === 0) {
+              log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
+            }
+          } else if (collectPhase && lastPrice === 0) {
+            log(`  ⚠ Ticker received but lastPrice is 0`);
           }
 
           // Transition from collection to training
