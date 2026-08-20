@@ -566,6 +566,7 @@ async function transitionToTraining(): Promise<void> {
         log(`✓  Models loaded — entering live trading`);
         return;
       }
+      log(`✗  Load returned status "${resp.status}": ${resp.message ?? ""}`);
     } catch (err) {
       log(`✗  Failed to load models: ${err instanceof Error ? err.message : err}`);
     }
@@ -691,8 +692,8 @@ async function main(): Promise<void> {
             // Check if it's time to retrain
             if (lastTrainTime > 0 && Date.now() - lastTrainTime >= RETRAIN_INTERVAL_MS) {
               log(`\n⟐  Retrain interval reached — starting background collection …`);
-              retrainPrices.length = 0;
-              retrainVolumes.length = 0;
+              rollingPrices.length = 0;
+              rollingVolumes.length = 0;
               retrainCollecting = true;
             }
           }
