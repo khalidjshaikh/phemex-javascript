@@ -1,11 +1,12 @@
 #!/usr/bin/env -S npx tsx
 // SPDX-License-Identifier: MIT
 /**
- * phemex-list-fills.ts  —  List trade fills for a symbol via the Phemex API.
+ * phemex-list-fills.ts  —  List trade fills via the Phemex API.
  *
  * Endpoint:  GET /exchange/order/v2/tradingList
  *
  * Usage:
+ *   ./phemex-list-fills.ts                                  # all symbols
  *   ./phemex-list-fills.ts --symbol XBRUSDT
  *   ./phemex-list-fills.ts --symbol XBRUSDT --limit 50
  *   ./phemex-list-fills.ts --symbol XBRUSDT --days 7
@@ -27,13 +28,13 @@ import path from "node:path";
 
 function usage(): never {
   console.log(`
-Usage: ./phemex-list-fills.ts --symbol <symbol> [--limit <n>] [--days <n>] [--loop] [--interval <sec>] [--dry-run]
+Usage: ./phemex-list-fills.ts [--symbol <symbol>] [--limit <n>] [--days <n>] [--loop] [--interval <sec>] [--dry-run]
 
 List trade fills (executed trades) via /exchange/order/v2/tradingList.
 
 Options:
-  --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — defaults to XBRUSDT
-  --limit <n>         Max results (default 50; values >200 are paged in batches of 200)
+  --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — omit to list ALL symbols
+  --limit <n>         Max results per symbol (default 50; values >200 are paged in batches of 200)
   --days <n>          Look back days (default 7)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --loop              Repeat the listing every --interval seconds until Ctrl+C
@@ -42,6 +43,7 @@ Options:
   --help, -h          Show this help message
 
 Examples:
+  ./phemex-list-fills.ts                          # all symbols
   ./phemex-list-fills.ts --symbol XBRUSDT
   ./phemex-list-fills.ts --symbol XBRUSDT --limit 100 --days 30
   ./phemex-list-fills.ts --symbol XBRUSDT --loop --interval 5
@@ -101,13 +103,136 @@ function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_A
 }
 
 /* ------------------------------------------------------------------ */
+/*  Fetch fills for a single symbol                                    */
+/* ------------------------------------------------------------------ */
+
+async function fetchFillsForSymbol(
+  symbol: string | undefined,
+  limit: number,
+  days: number,
+  creds: { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string },
+  secretRaw: Buffer,
+  pageSize: number,
+): Promise<Record<string, unknown>[]> {
+  const now = Date.now();
+  const start = now - days * 86_400_000;
+  const rows: Record<string, unknown>[] = [];
+  let offset = 0;
+  const label = symbol ?? "ALL";
+
+  while (rows.length < limit) {
+    const pageLimit = Math.min(pageSize, limit - rows.length);
+    const symParam = symbol ? `symbol=${symbol}&` : "";
+    const query = `${symParam}currency=USDT&start=${start}&end=${now}&offset=${offset}&limit=${pageLimit}&withCount=true`;
+
+    console.log(`⟐  Fetching fills for ${label} (last ${days} days, limit ${limit}) — offset ${offset} …`);
+
+    const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
+    if (resp.code !== 0) {
+      console.error(`  ✗  API error for ${label}: ${String(resp.msg ?? resp.code)}`);
+      return [];
+    }
+
+    const data = resp.data as Record<string, unknown> | undefined;
+    const pageRows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
+    rows.push(...pageRows);
+
+    if (pageRows.length < pageLimit) break;
+    offset += pageLimit;
+  }
+
+  return rows;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Display fills table                                                */
+/* ------------------------------------------------------------------ */
+
+function displayFills(rows: Record<string, unknown>[], symbol: string, totalOverride?: number): void {
+  if (rows.length === 0) {
+    console.log(`  ℹ  ${symbol}: No fills found.`);
+    return;
+  }
+
+  const total = totalOverride ?? rows.length;
+  console.log(`  ✓  ${symbol}: Found ${total} fill(s), showing ${rows.length}:\n`);
+
+  type Row = { time: string; sym: string; execId: string; qty: string; price: string; fee: string; feePerQty: string; sideLabel: string; mismatch: string };
+  const formatted: Row[] = rows.map((f) => {
+    const execId = String(f.execId ?? "?");
+    const side = sideMap[Number(f.side)] ?? String(f.side ?? "?");
+    const qty = String(f.execQtyRq ?? "?");
+    const price = f.execPriceRp != null ? Number(f.execPriceRp).toFixed(2) : "?";
+    const fee = f.execFeeRv != null ? Number(f.execFeeRv).toFixed(8) : "-";
+    const feePerQty =
+      f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
+        ? (Number(f.execFeeRv) / Number(f.execQtyRq)).toFixed(8)
+        : "-";
+    const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleTimeString() : "?";
+    const sym = String(f.symbol ?? symbol);
+
+    const sideLabel = side === "Buy" ? "Buy/Open Long" : side === "Sell" ? "Sell/Close Long" : "";
+    const feeQty3 = feePerQty !== "-" ? feePerQty.slice(2, 5) : "";
+    const cls = feeQty3 === "048" ? "Sell/Close Long" : feeQty3 === "008" ? "Buy/Open Long" : "?";
+    const mismatch = cls !== sideLabel ? "*" : "";
+
+    return { time: created, sym, execId, qty, price, fee, feePerQty, sideLabel, mismatch };
+  });
+
+  const wTime = Math.max("Time".length, ...formatted.map((r) => r.time.length));
+  const wSym = Math.max("Symbol".length, ...formatted.map((r) => r.sym.length));
+  const wExecId = Math.max("ExecId".length, ...formatted.map((r) => r.execId.length));
+  const wQty = Math.max("Qty".length, ...formatted.map((r) => r.qty.length));
+  const wPrice = Math.max("Price".length, ...formatted.map((r) => r.price.length));
+  const wFee = Math.max("Fee".length, ...formatted.map((r) => r.fee.length));
+  const wFeeQty = Math.max("Fee/Qty".length, ...formatted.map((r) => r.feePerQty.length));
+  const wSide = Math.max("Side".length, ...formatted.map((r) => r.sideLabel.length));
+
+  console.log(
+    `${"Time".padEnd(wTime)} ${"Symbol".padEnd(wSym)} ${"ExecId".padEnd(wExecId)} ` +
+    `${"Qty".padEnd(wQty)} ${"Price".padEnd(wPrice)} ${"Fee".padEnd(wFee)} ${"Fee/Qty".padEnd(wFeeQty)} ${"Side".padEnd(wSide)} ${"*"}`
+  );
+  const totalWidth = wTime + wSym + wExecId + wQty + wPrice + wFee + wFeeQty + wSide + 9;
+  console.log("─".repeat(totalWidth));
+
+  let totalQty = 0;
+  let totalFee = 0;
+  let totalFeeClose = 0;
+  let totalFeeOpen = 0;
+  let countClose = 0;
+  let countOpen = 0;
+  for (const r of formatted) {
+    totalQty += Number(r.qty) || 0;
+    totalFee += Number(r.fee) || 0;
+
+    if (r.sideLabel === "Sell/Close Long") {
+      totalFeeClose += Number(r.fee) || 0;
+      countClose++;
+    } else if (r.sideLabel === "Buy/Open Long") {
+      totalFeeOpen += Number(r.fee) || 0;
+      countOpen++;
+    }
+
+    console.log(
+      `${r.time.padEnd(wTime)} ${r.sym.padEnd(wSym)} ${r.execId.padEnd(wExecId)} ` +
+      `${r.qty.padEnd(wQty)} ${r.price.padEnd(wPrice)} ${r.fee.padEnd(wFee)} ${r.feePerQty.padEnd(wFeeQty)} ${r.sideLabel.padEnd(wSide)} ${r.mismatch}`
+    );
+  }
+  console.log("─".repeat(totalWidth));
+  console.log(
+    `Rows: ${rows.length} | Σ Total Qty: ${Math.round(totalQty * 1e8) / 1e8}  |  Total Fee: ${Math.round(totalFee * 1e8) / 1e8}  |  ` +
+    `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
 async function main(): Promise<void> {
   if (hasFlag("--help") || hasFlag("-h")) usage();
 
-  const symbol = getArg("--symbol") || "XBRUSDT";
+  const symbolArg = getArg("--symbol");
   const limit = Math.max(parseInt(getArg("--limit") || "50", 10) || 50, 1);
   const days = parseInt(getArg("--days") || "7", 10) || 7;
   const dryRun = hasFlag("--dry-run");
@@ -119,19 +244,31 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const pageSize = 200; // Phemex caps tradingList at 200 rows per request
+  const pageSize = 200;
+
+  // Resolve symbols: single or all listed
+  let symbols: string[] | undefined;
+  if (symbolArg) {
+    symbols = [symbolArg];
+  }
 
   if (dryRun) {
     const now = Date.now();
     const start = now - days * 86_400_000;
     const pages = Math.ceil(limit / pageSize);
-    console.log(`\n  DRY RUN — Would send ${pages} request(s)${loopMode ? ` per cycle (--loop, every ${intervalSec}s until Ctrl+C)` : ""}:\n`);
-    for (let off = 0; off < limit; off += pageSize) {
-      const lim = Math.min(pageSize, limit - off);
-      console.log(
-        `  GET /exchange/order/v2/tradingList?symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${off}&limit=${lim}&withCount=true`
-      );
+    const symCount = symbols ? symbols.length : 1;
+    console.log(`\n  DRY RUN — Would send ${pages} request(s)${symCount > 1 ? ` × ${symCount} symbols` : ""}${loopMode ? ` per cycle (--loop, every ${intervalSec}s until Ctrl+C)` : ""}:\n`);
+    const showSymbols = symbols ?? ["<all>"];
+    for (const sym of showSymbols.slice(0, 10)) {
+      const symParam = sym === "<all>" ? "" : `symbol=${sym}&`;
+      for (let off = 0; off < limit; off += pageSize) {
+        const lim = Math.min(pageSize, limit - off);
+        console.log(
+          `  GET /exchange/order/v2/tradingList?${symParam}currency=USDT&start=${start}&end=${now}&offset=${off}&limit=${lim}&withCount=true`
+        );
+      }
     }
+    if (showSymbols.length > 10) console.log(`  … and ${showSymbols.length - 10} more symbols`);
     console.log();
     process.exit(0);
   }
@@ -142,114 +279,20 @@ async function main(): Promise<void> {
   let cycle = 0;
   for (;;) {
     cycle++;
-    const now = Date.now();
-    const start = now - days * 86_400_000;
-
     if (loopMode) {
+      const label = symbols ? `${symbols.length} symbol(s)` : "all symbols";
       console.log(`\n${"─".repeat(80)}`);
-      console.log(`  [${new Date().toLocaleString()}] cycle #${cycle} — last ${days} days, limit ${limit}, poll every ${intervalSec}s (Ctrl+C to stop)`);
+      console.log(`  [${new Date().toLocaleString()}] cycle #${cycle} — ${label}, last ${days} days, limit ${limit}, poll every ${intervalSec}s (Ctrl+C to stop)`);
     }
 
-    const rows: Record<string, unknown>[] = [];
-    let total = 0;
-    let offset = 0;
-
-    while (rows.length < limit) {
-      const pageLimit = Math.min(pageSize, limit - rows.length);
-      const query = `symbol=${symbol}&currency=USDT&start=${start}&end=${now}&offset=${offset}&limit=${pageLimit}&withCount=true`;
-
-      console.log(`⟐  Fetching fills for ${symbol} (last ${days} days, limit ${limit}) — offset ${offset} …`);
-
-      const resp = await request("GET", "/exchange/order/v2/tradingList", query, creds.PHEMEX_API_KEY, secretRaw, "");
-      if (resp.code !== 0) {
-        console.error(`  ✗  API error: ${String(resp.msg ?? resp.code)}`);
-        process.exit(1);
+    if (symbols) {
+      for (const sym of symbols) {
+        const rows = await fetchFillsForSymbol(sym, limit, days, creds, secretRaw, pageSize);
+        displayFills(rows, sym);
       }
-
-      const data = resp.data as Record<string, unknown> | undefined;
-      const pageRows = (data?.rows as Record<string, unknown>[] | undefined) ?? [];
-      total = (data?.total as number | undefined) ?? rows.length + pageRows.length;
-      rows.push(...pageRows);
-
-      // Stop on a short page (end of data) or once all matching fills are collected
-      if (pageRows.length < pageLimit || (total > 0 && rows.length >= total)) break;
-      offset += pageLimit;
-    }
-
-    if (rows.length === 0) {
-      console.log("  ℹ  No fills found.");
     } else {
-      console.log(`  ✓  Found ${total} fill(s), showing ${rows.length}:\n`);
-
-      // Format rows
-      type Row = { time: string; sym: string; execId: string; qty: string; price: string; fee: string; feePerQty: string; sideLabel: string; mismatch: string };
-      const formatted: Row[] = rows.map((f) => {
-        const execId = String(f.execId ?? "?");
-        const side = sideMap[Number(f.side)] ?? String(f.side ?? "?");
-        const qty = String(f.execQtyRq ?? "?");
-        const price = f.execPriceRp != null ? Number(f.execPriceRp).toFixed(2) : "?";
-        const fee = f.execFeeRv != null ? Number(f.execFeeRv).toFixed(8) : "-";
-        const feePerQty =
-          f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
-            ? (Number(f.execFeeRv) / Number(f.execQtyRq)).toFixed(8)
-            : "-";
-        const created = f.createdAt ? new Date(Number(f.createdAt)).toLocaleTimeString() : "?";
-        const sym = String(f.symbol ?? symbol);
-
-        const sideLabel = side === "Buy" ? "Buy/Open Long" : side === "Sell" ? "Sell/Close Long" : "";
-        const feeQty3 = feePerQty !== "-" ? feePerQty.slice(2, 5) : "";
-        const cls = feeQty3 === "048" ? "Sell/Close Long" : feeQty3 === "008" ? "Buy/Open Long" : "?";
-        const mismatch = cls !== sideLabel ? "*" : "";
-
-        return { time: created, sym, execId, qty, price, fee, feePerQty, sideLabel, mismatch };
-      });
-
-      // Column widths
-      const wTime = Math.max("Time".length, ...formatted.map((r) => r.time.length));
-      const wSym = Math.max("Symbol".length, ...formatted.map((r) => r.sym.length));
-      const wExecId = Math.max("ExecId".length, ...formatted.map((r) => r.execId.length));
-      const wQty = Math.max("Qty".length, ...formatted.map((r) => r.qty.length));
-      const wPrice = Math.max("Price".length, ...formatted.map((r) => r.price.length));
-      const wFee = Math.max("Fee".length, ...formatted.map((r) => r.fee.length));
-      const wFeeQty = Math.max("Fee/Qty".length, ...formatted.map((r) => r.feePerQty.length));
-      const wSide = Math.max("Side".length, ...formatted.map((r) => r.sideLabel.length));
-
-      // Header
-      console.log(
-        `${"Time".padEnd(wTime)} ${"Symbol".padEnd(wSym)} ${"ExecId".padEnd(wExecId)} ` +
-        `${"Qty".padEnd(wQty)} ${"Price".padEnd(wPrice)} ${"Fee".padEnd(wFee)} ${"Fee/Qty".padEnd(wFeeQty)} ${"Side".padEnd(wSide)} ${"*"}`
-      );
-      const totalWidth = wTime + wSym + wExecId + wQty + wPrice + wFee + wFeeQty + wSide + 9;
-      console.log("─".repeat(totalWidth));
-
-      let totalQty = 0;
-      let totalFee = 0;
-      let totalFeeClose = 0;
-      let totalFeeOpen = 0;
-      let countClose = 0;
-      let countOpen = 0;
-      for (const r of formatted) {
-        totalQty += Number(r.qty) || 0;
-        totalFee += Number(r.fee) || 0;
-
-        if (r.sideLabel === "Sell/Close Long") {
-          totalFeeClose += Number(r.fee) || 0;
-          countClose++;
-        } else if (r.sideLabel === "Buy/Open Long") {
-          totalFeeOpen += Number(r.fee) || 0;
-          countOpen++;
-        }
-
-        console.log(
-          `${r.time.padEnd(wTime)} ${r.sym.padEnd(wSym)} ${r.execId.padEnd(wExecId)} ` +
-          `${r.qty.padEnd(wQty)} ${r.price.padEnd(wPrice)} ${r.fee.padEnd(wFee)} ${r.feePerQty.padEnd(wFeeQty)} ${r.sideLabel.padEnd(wSide)} ${r.mismatch}`
-        );
-      }
-      console.log("─".repeat(totalWidth));
-      console.log(
-        `Rows: ${rows.length} | Σ Total Qty: ${Math.round(totalQty * 1e8) / 1e8}  |  Total Fee: ${Math.round(totalFee * 1e8) / 1e8}  |  ` +
-        `Sell/Close: ${countClose} rows, fee ${Math.round(totalFeeClose * 1e8) / 1e8}  |  Buy/Open: ${countOpen} rows, fee ${Math.round(totalFeeOpen * 1e8) / 1e8}`
-      );
+      const rows = await fetchFillsForSymbol(undefined, limit, days, creds, secretRaw, pageSize);
+      displayFills(rows, "ALL");
     }
 
     if (!loopMode) break;

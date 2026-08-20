@@ -4,8 +4,8 @@
  * phemex-closed-positions.ts  —  List closed (fully exited) USDT-M positions.
  *
  * Closed positions are reconstructed from executed fills
- * (/exchange/order/v2/tradingList) via FIFO round-trip matching in
- * src/closed-positions.ts: each closing fill consumes the oldest open
+ * (/exchange/order/v2/tradingList) via LIFO round-trip matching in
+ * src/closed-positions.ts: each closing fill consumes the most recent open
  * lots of the same (symbol, posSide), producing one closed position with
  * avg entry price, exit price, realized PnL and fees.
  *
@@ -38,7 +38,7 @@ function usage(): never {
 Usage:  ./phemex-closed-positions.ts [options]
 
 List closed USDT-M positions, reconstructed from trade fills
-(via /exchange/order/v2/tradingList) with FIFO round-trip matching.
+(via /exchange/order/v2/tradingList) with LIFO round-trip matching.
 
 Options:
   --symbol <symbol>   Restrict to one symbol (e.g. XBRUSDT, BTCUSDT)

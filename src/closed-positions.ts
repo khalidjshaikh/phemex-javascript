@@ -5,14 +5,14 @@
  *
  * The /g-accounts/accountPositions endpoint only reports currently open
  * positions; it does not reliably return closed ones.  Instead, this module
- * fetches executed fills and reconstructs closed round-trips with FIFO
+ * fetches executed fills and reconstructs closed round-trips with LIFO
  * lot matching:
  *
  *   Long  positions:  Buy fills open lots,  Sell fills close them.
  *   Short positions:  Sell fills open lots, Buy  fills close them.
  *
  * Each closing fill produces one ClosedPosition entry whose avg entry price
- * is the quantity-weighted average of the FIFO lots it consumed.  Realized
+ * is the quantity-weighted average of the LIFO lots it consumed.  Realized
  * PnL (gross), entry/exit fees and net PnL are computed per round-trip.
  *
  * Usage:
@@ -183,7 +183,7 @@ export function reconstructClosedPositions(fills: Fill[]): ClosedPosition[] {
     if (qty <= 0 || price <= 0) continue;
 
     if (f.side === open) {
-      // Opening fill → push onto the FIFO queue
+      // Opening fill → push onto the LIFO queue
       const lots = openLots.get(key) ?? [];
       lots.push({ qty, origQty: qty, price, fee, time });
       openLots.set(key, lots);
@@ -192,18 +192,18 @@ export function reconstructClosedPositions(fills: Fill[]): ClosedPosition[] {
 
     if (f.side !== close) continue; // unknown side — ignore
 
-    // Closing fill → consume FIFO lots until the close qty is satisfied
+    // Closing fill → consume LIFO lots until the close qty is satisfied
     const lots = openLots.get(key) ?? [];
     let remaining = qty;
     let consumed: Lot[] = [];
 
     while (remaining > 1e-12 && lots.length > 0) {
-      const lot = lots[0];
+      const lot = lots[lots.length - 1];
       const take = Math.min(lot.qty, remaining);
       consumed.push({ ...lot, qty: take });
       lot.qty -= take;
       remaining -= take;
-      if (lot.qty <= 1e-12) lots.shift();
+      if (lot.qty <= 1e-12) lots.pop();
     }
     if (consumed.length === 0) continue; // closing without an open lot (e.g. old history)
 
