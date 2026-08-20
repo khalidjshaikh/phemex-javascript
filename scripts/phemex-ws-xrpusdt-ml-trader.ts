@@ -120,6 +120,8 @@ const collectedPrices: number[] = [];
 const collectedVolumes: number[] = [];
 let collectStartTime = 0;
 let collectPhase = true;
+let lastCollectTime = 0;
+const MIN_COLLECT_INTERVAL_MS = 500; // min ms between collected ticks to avoid duplicates
 
 /** ML models */
 let mlModels: Record<string, unknown> | null = null;
@@ -633,13 +635,17 @@ async function main(): Promise<void> {
         if (ticker) {
           printTicker(ticker);
 
-          // Collect tick from ticker update
+          // Collect tick from ticker update (skip if recently collected from trade)
           if (collectPhase && lastPrice > 0) {
-            collectedPrices.push(lastPrice);
-            collectedVolumes.push(Number(ticker.volumeRq ?? 0));
-            // Debug: log every 10 ticks
-            if (collectedPrices.length % 10 === 0) {
-              log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
+            const now = Date.now();
+            if (now - lastCollectTime >= MIN_COLLECT_INTERVAL_MS) {
+              collectedPrices.push(lastPrice);
+              collectedVolumes.push(Number(ticker.volumeRq ?? 0));
+              lastCollectTime = now;
+              // Debug: log every 10 ticks
+              if (collectedPrices.length % 10 === 0) {
+                log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
+              }
             }
           } else if (collectPhase && lastPrice === 0) {
             log(`  ⚠ Ticker received but lastPrice is 0`);
@@ -666,13 +672,28 @@ async function main(): Promise<void> {
         return;
       }
 
-      // Real-time trades — collect price
+      // Real-time trades — update lastPrice and collect for training
       if (m.trades_p && m.symbol === SYMBOL && Array.isArray(m.trades_p) && m.trades_p.length > 0) {
         const trades = m.trades_p as unknown[][];
         for (const trade of trades) {
           const p = Number(trade[2]);
-          if (p > 0 && collectPhase) {
-            collectedPrices.push(p);
+          const qty = Number(trade[3]);
+          const side = String(trade[1]);
+          if (p > 0) {
+            // Update real-time prices from trades (matches Phemex graph)
+            lastPrice = p;
+            if (side === "Buy") askPrice = p;
+            if (side === "Sell") bidPrice = p;
+
+            // Collect for training with deduplication
+            if (collectPhase) {
+              const now = Date.now();
+              if (now - lastCollectTime >= MIN_COLLECT_INTERVAL_MS) {
+                collectedPrices.push(p);
+                collectedVolumes.push(qty);
+                lastCollectTime = now;
+              }
+            }
           }
         }
       }
