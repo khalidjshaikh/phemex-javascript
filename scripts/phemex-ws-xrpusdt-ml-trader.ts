@@ -617,7 +617,7 @@ async function main(): Promise<void> {
   const ws = new ReconnectingWs(WS_URL, {
     onOpen: () => {
       log(`⟐  WebSocket connected — subscribing to ${SYMBOL} …`);
-      ws.send({ method: "perp_market24h_pack_p.subscribe", params: [SYMBOL], id: 1 });
+      ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
     },
     onMessage: async (msg) => {
