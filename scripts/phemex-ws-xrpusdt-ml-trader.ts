@@ -633,6 +633,12 @@ async function main(): Promise<void> {
         if (ticker) {
           printTicker(ticker);
 
+          // Collect tick from ticker update
+          if (collectPhase && lastPrice > 0) {
+            collectedPrices.push(lastPrice);
+            collectedVolumes.push(Number(ticker.volumeRq ?? 0));
+          }
+
           // Transition from collection to training
           if (collectPhase && collectedPrices.length >= MIN_TICKS_FOR_TRAINING) {
             const elapsed = Date.now() - collectStartTime;
