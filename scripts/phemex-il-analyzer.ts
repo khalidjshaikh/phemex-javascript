@@ -15,6 +15,8 @@
  *   npx tsx phemex-il-analyzer.ts --window 10 --hold 5
  */
 
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 
@@ -132,9 +134,90 @@ function initState(): IlState {
 const states = new Map<string, IlState>();
 for (const sym of SYMBOLS) states.set(sym, initState());
 
-/* ── Hourly ΔL summary ── */
+/* ── Persistence ── */
 
+const STATE_FILE = join(process.cwd(), ".phemex-il-state.json");
+const STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 let lastPrintedHour = new Date().getHours();
+
+interface PersistedState {
+  savedAt: number;
+  lastPrintedHour: number;
+  symbols: Record<string, {
+    crossCount: number;
+    longTicks: number;
+    shortTicks: number;
+    neutralTicks: number;
+    signal: string | null;
+    signalTime: string | null;
+    hourStartIl: number | null;
+    hourLastIl: number | null;
+    hourHour: number;
+    hourCrossings: number;
+    hourSigmaIl: number;
+  }>;
+}
+
+function saveState(): void {
+  const now = Date.now();
+  const data: PersistedState = {
+    savedAt: now,
+    lastPrintedHour,
+    symbols: {},
+  };
+  for (const [sym, s] of states) {
+    data.symbols[sym] = {
+      crossCount: s.crossCount,
+      longTicks: s.longTicks,
+      shortTicks: s.shortTicks,
+      neutralTicks: s.neutralTicks,
+      signal: s.signal,
+      signalTime: s.signalTime,
+      hourStartIl: s.hourStartIl,
+      hourLastIl: s.hourLastIl,
+      hourHour: s.hourHour,
+      hourCrossings: s.hourCrossings,
+      hourSigmaIl: s.hourSigmaIl,
+    };
+  }
+  writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
+}
+
+function loadState(): boolean {
+  if (!existsSync(STATE_FILE)) return false;
+  try {
+    const raw = readFileSync(STATE_FILE, "utf-8");
+    const data: PersistedState = JSON.parse(raw);
+    const age = Date.now() - data.savedAt;
+    if (age > STATE_MAX_AGE_MS) {
+      console.log(`⟐  State file is ${Math.round(age / 3600000)}h old (>${STATE_MAX_AGE_MS / 3600000}h), starting fresh`);
+      return false;
+    }
+    lastPrintedHour = data.lastPrintedHour;
+    for (const [sym, saved] of Object.entries(data.symbols)) {
+      const s = states.get(sym);
+      if (!s) continue;
+      s.crossCount = saved.crossCount;
+      s.longTicks = saved.longTicks;
+      s.shortTicks = saved.shortTicks;
+      s.neutralTicks = saved.neutralTicks;
+      s.signal = saved.signal as IlState["signal"];
+      s.signalTime = saved.signalTime;
+      s.hourStartIl = saved.hourStartIl;
+      s.hourLastIl = saved.hourLastIl;
+      s.hourHour = saved.hourHour;
+      s.hourCrossings = saved.hourCrossings;
+      s.hourSigmaIl = saved.hourSigmaIl;
+    }
+    console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
+    return true;
+  } catch (e) {
+    console.log(`⟐  Failed to load state: ${e}`);
+    return false;
+  }
+}
+
+/* ── Hourly ΔL summary ── */
 
 function printHourlyDeltaL(): void {
   const now = new Date();
@@ -390,6 +473,8 @@ if (!HOURLY_ONLY) {
   console.log(`  Crossings = sign changes of I-L\n`);
 }
 
+loadState();
+
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
     if (IS_USDT_M) {
@@ -406,6 +491,7 @@ const ws = new ReconnectingWs(WS_URL, {
     if (hour !== lastPrintedHour) {
       lastPrintedHour = hour;
       printHourlyDeltaL();
+      saveState();
     }
   },
   onReconnect: (delayMs) => {
@@ -420,8 +506,12 @@ const ws = new ReconnectingWs(WS_URL, {
 
 ws.connect();
 
+// Save state every 5 minutes
+setInterval(saveState, 5 * 60 * 1000);
+
 process.on("SIGINT", () => {
   printHourlyDeltaL();
   printSummary();
+  saveState();
   process.exit(0);
 });

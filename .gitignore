@@ -47,3 +47,4 @@ model.onnx
 .phemex-last-close.json
 data/
 models/*
+.phemex-il-state.json
