@@ -57,6 +57,7 @@ const DEFAULT_THRESHOLD = 0.025;     // min predicted return to enter
 const DEFAULT_TRAILING_STOP = 5;    // PnL% trailing stop from peak
 const DEFAULT_HARD_STOP = -10;      // PnL% hard stop
 const DEFAULT_FEE_BPS = 10;         // estimated taker fee, per side
+const DEFAULT_RETRAIN_INTERVAL_HOURS = 4; // retrain every N hours
 
 /* ── CLI flags ──────────────────────────────────────────────────────── */
 
@@ -75,6 +76,7 @@ const SIGNAL_THRESHOLD = Number(parseArg("threshold")) || DEFAULT_THRESHOLD;
 const TRAILING_STOP_PCT = Number(parseArg("trailing")) || DEFAULT_TRAILING_STOP;
 const HARD_STOP_PCT = -Math.abs(Number(parseArg("hard-stop") ?? Math.abs(DEFAULT_HARD_STOP)));
 const FEE_BPS = Number(parseArg("fee-bps")) ?? DEFAULT_FEE_BPS;
+const RETRAIN_INTERVAL_MS = Number(parseArg("retrain-interval")) * 3600_000 || DEFAULT_RETRAIN_INTERVAL_HOURS * 3600_000;
 
 if (hasFlag("help") || hasFlag("h")) {
   console.log(`Usage: scripts/phemex-ws-xrpusdt-ml-trader.ts [options]
@@ -84,6 +86,7 @@ Collects XRPUSDT data, trains ML models, then auto-trades.
   --credential <name>   Use named profile from .credentials.json (e.g. gmail, meta)
   --dry-run             Simulate trades without placing real orders (default: live)
   --retrain             Force retrain even if models exist
+  --retrain-interval <h> Retrain every N hours during live trading (default: ${DEFAULT_RETRAIN_INTERVAL_HOURS})
   --size <qty>          Position quantity (default: ${DEFAULT_SIZE})
   --leverage <n>        Leverage (default: ${DEFAULT_LEVERAGE})
   --threshold <pct>     ML signal threshold (default: ${DEFAULT_THRESHOLD})
@@ -129,6 +132,13 @@ let collectPhase = true;
 let mlModels: Record<string, unknown> | null = null;
 let mlReady = false;
 let lastPrediction: { rf: number; xgb: number; ensemble: number } | null = null;
+let lastTrainTime = 0;
+let retrainCollecting = false;
+
+/** Background retrain state */
+const retrainPrices: number[] = [];
+const retrainVolumes: number[] = [];
+let retrainInProgress = false;
 
 /** Cached fields from first perp_market24h_pack_p.update message */
 let cachedFields: string[] | null = null;
@@ -567,6 +577,7 @@ async function transitionToTraining(): Promise<void> {
     });
     if (resp.status === "trained") {
       mlReady = true;
+      lastTrainTime = Date.now();
       log(`✓  Models trained — saving to ${MODEL_DIR}`);
       await sendToPython({ action: "save", path: MODEL_DIR });
       log(`✓  Models saved — entering live trading`);
@@ -661,10 +672,60 @@ async function main(): Promise<void> {
           }
 
           // Get prediction on each ticker update (throttled)
-          if (mlReady && !collectPhase) {
+          if (mlReady && !collectPhase && !retrainInProgress) {
             await getPrediction();
             checkEntrySignals();
             checkExitSignals();
+
+            // Check if it's time to retrain
+            if (lastTrainTime > 0 && Date.now() - lastTrainTime >= RETRAIN_INTERVAL_MS) {
+              log(`\n⟐  Retrain interval reached — starting background collection …`);
+              retrainPrices.length = 0;
+              retrainVolumes.length = 0;
+              retrainCollecting = true;
+            }
+          }
+
+          // Collect data for background retraining
+          if (retrainCollecting && lastPrice > 0) {
+            retrainPrices.push(lastPrice);
+            retrainVolumes.push(Number(ticker.volumeRq ?? 0));
+            if (retrainPrices.length % 50 === 0) {
+              log(`  📊 Retrain collection: ${retrainPrices.length} ticks`);
+            }
+            // Once we have enough fresh data, retrain in background
+            if (retrainPrices.length >= MIN_TICKS_FOR_TRAINING) {
+              retrainCollecting = false;
+              retrainInProgress = true;
+              log(`⟐  Retraining in background with ${retrainPrices.length} fresh ticks …`);
+              // Train without blocking trading
+              const pricesCopy = [...retrainPrices];
+              const volumesCopy = [...retrainVolumes];
+              retrainPrices.length = 0;
+              retrainVolumes.length = 0;
+              sendToPython({
+                action: "train",
+                prices: pricesCopy,
+                volumes: volumesCopy,
+              }).then(async (resp) => {
+                if (resp.status === "trained") {
+                  log(`✓  Background retrain complete — saving to ${MODEL_DIR}`);
+                  await sendToPython({ action: "save", path: MODEL_DIR });
+                  // Swap to new model by reloading
+                  const loadResp = await sendToPython({ action: "load", path: MODEL_DIR });
+                  if (loadResp.status === "loaded") {
+                    lastTrainTime = Date.now();
+                    log(`✓  New model loaded — resuming trading`);
+                  }
+                } else {
+                  log(`✗  Background retrain failed: ${resp.message}`);
+                }
+                retrainInProgress = false;
+              }).catch((err) => {
+                log(`✗  Background retrain error: ${err instanceof Error ? err.message : err}`);
+                retrainInProgress = false;
+              });
+            }
           }
         }
       }
