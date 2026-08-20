@@ -11,6 +11,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import JSON5 from "json5";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -38,7 +39,7 @@ export function loadCredentials(credsDir?: string): Credentials {
     console.error("✗  Missing .phemex-credentials.json");
     process.exit(1);
   }
-  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+  return JSON5.parse(fs.readFileSync(credsPath, "utf8"));
 }
 
 export function loadCredentialsPath(credsPath: string): Credentials {
@@ -46,7 +47,7 @@ export function loadCredentialsPath(credsPath: string): Credentials {
     console.error(`✗  Missing ${credsPath}`);
     process.exit(1);
   }
-  return JSON.parse(fs.readFileSync(credsPath, "utf8"));
+  return JSON5.parse(fs.readFileSync(credsPath, "utf8"));
 }
 
 /**
@@ -62,7 +63,7 @@ export function loadCredentialNamed(name: string, credsDir?: string): Credential
     console.error("✗  Missing .credentials.json");
     process.exit(1);
   }
-  const all = JSON.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, Credentials>;
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, Credentials>;
   const creds = all[name];
   if (!creds) {
     const available = Object.keys(all).join(", ");
