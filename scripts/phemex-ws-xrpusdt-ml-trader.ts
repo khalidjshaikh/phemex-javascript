@@ -54,7 +54,7 @@ const MIN_TICKS_FOR_RETRAIN = 500;
 
 const DEFAULT_LEVERAGE = 100;
 const DEFAULT_SIZE = 0.01;
-const DEFAULT_THRESHOLD = 0.025;     // min predicted return to enter
+const DEFAULT_THRESHOLD = 0.005;     // min predicted return to enter
 const DEFAULT_TRAILING_STOP = 5;    // PnL% trailing stop from peak
 const DEFAULT_HARD_STOP = -10;      // PnL% hard stop
 const DEFAULT_FEE_BPS = 10;         // estimated taker fee, per side
@@ -129,6 +129,35 @@ const collectedVolumes: number[] = [];
 let collectStartTime = 0;
 let collectPhase = true;
 
+/** Candle aggregation (1-minute) */
+interface Candle {
+  ts: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+const candles: Candle[] = [];
+let currentCandle: Candle | null = null;
+
+function candleKey(ts: number): number {
+  return Math.floor(ts / 60_000) * 60_000;
+}
+
+function addTickToCandle(price: number, qty: number, ts: number): void {
+  const key = candleKey(ts);
+  if (!currentCandle || currentCandle.ts !== key) {
+    if (currentCandle) candles.push(currentCandle);
+    currentCandle = { ts: key, open: price, high: price, low: price, close: price, volume: qty };
+  } else {
+    currentCandle.high = Math.max(currentCandle.high, price);
+    currentCandle.low = Math.min(currentCandle.low, price);
+    currentCandle.close = price;
+    currentCandle.volume += qty;
+  }
+}
+
 /** ML models */
 let mlModels: Record<string, unknown> | null = null;
 let mlReady = false;
@@ -143,6 +172,10 @@ const rollingVolumes: number[] = [];
 
 /** Background retrain state */
 let retrainInProgress = false;
+
+/** Prediction throttle */
+let lastPredictionTime = 0;
+const PREDICT_INTERVAL_MS = 5_000;
 
 /** Cached fields from first perp_market24h_pack_p.update message */
 let cachedFields: string[] | null = null;
@@ -574,11 +607,19 @@ async function transitionToTraining(): Promise<void> {
 
   // Train new models
   log(`⟐  Training RF + XGBoost on ${collectedPrices.length} ticks …`);
+  // Flush last candle
+  if (currentCandle) candles.push(currentCandle);
+  currentCandle = null;
+
+  const candleClose = candles.map((c) => c.close);
+  const candleVol = candles.map((c) => c.volume);
+  log(`⟐  Training on ${candles.length} candles (${collectedPrices.length} raw ticks)`);
+
   try {
     const resp = await sendToPython({
       action: "train",
-      prices: collectedPrices,
-      volumes: collectedVolumes,
+      prices: candleClose,
+      volumes: candleVol,
     });
     if (resp.status === "trained") {
       mlReady = true;
@@ -594,10 +635,20 @@ async function transitionToTraining(): Promise<void> {
   }
 }
 
+const FEATURE_WINDOW = 100;
+
 async function getPrediction(): Promise<void> {
   if (!mlReady || !tickerReady || lastPrice <= 0) return;
 
-  const features = computeFeatures(collectedPrices, collectedVolumes);
+  const allCandles = currentCandle ? [...candles, currentCandle] : candles;
+  const candleClose = allCandles.map((c) => c.close);
+  const candleVol = allCandles.map((c) => c.volume);
+  const windowPrices = candleClose.slice(-FEATURE_WINDOW);
+  const windowVolumes = candleVol.slice(-FEATURE_WINDOW);
+  const features = computeFeatures(windowPrices, windowVolumes);
+
+  // Debug: log key features
+  log(`  📊 Features: RSI=${features.rsi_14.toFixed(1)} MACD=${features.macd.toFixed(6)} ret_5d=${(features.ret_5d * 100).toFixed(3)}% bb_pos=${features.bb_pos.toFixed(3)}`);
 
   try {
     const resp = await sendToPython({ action: "predict", features });
@@ -674,17 +725,15 @@ async function main(): Promise<void> {
 
           // Transition from collection to training
           if (collectPhase && collectedPrices.length >= MIN_TICKS_FOR_TRAINING) {
-            const elapsed = Date.now() - collectStartTime;
-            if (elapsed >= COLLECT_DURATION_MS) {
-              ws.close();
-              await transitionToTraining();
-              // Reconnect for live trading
-              ws.connect();
-            }
+            ws.close();
+            await transitionToTraining();
+            // Reconnect for live trading
+            ws.connect();
           }
 
           // Get prediction on each ticker update (throttled)
-          if (mlReady && !collectPhase && !retrainInProgress) {
+          if (mlReady && !collectPhase && !retrainInProgress && Date.now() - lastPredictionTime >= PREDICT_INTERVAL_MS) {
+            lastPredictionTime = Date.now();
             await getPrediction();
             checkEntrySignals();
             checkExitSignals();
@@ -702,10 +751,11 @@ async function main(): Promise<void> {
           if (retrainCollecting && lastPrice > 0) {
             retrainCollecting = false;
             retrainInProgress = true;
-            log(`⟐  Retraining in background with rolling buffer (${rollingPrices.length} ticks) …`);
-            // Train on rolling buffer (includes historical context)
-            const pricesCopy = [...rollingPrices];
-            const volumesCopy = [...rollingVolumes];
+            const candleCloseAll = candles.map((c) => c.close);
+            const candleVolAll = candles.map((c) => c.volume);
+            log(`⟐  Retraining in background with ${candles.length} candles …`);
+            const pricesCopy = [...candleCloseAll];
+            const volumesCopy = [...candleVolAll];
             sendToPython({
                 action: "train",
                 prices: pricesCopy,
@@ -735,22 +785,21 @@ async function main(): Promise<void> {
       // Real-time trades — update lastPrice and collect for training
       if (m.trades_p && m.symbol === SYMBOL && Array.isArray(m.trades_p) && m.trades_p.length > 0) {
         const trades = m.trades_p as unknown[][];
+        const now = Date.now();
         for (const trade of trades) {
           const p = Number(trade[2]);
           const qty = Number(trade[3]);
           const side = String(trade[1]);
           if (p > 0) {
-            // Update real-time prices from trades (matches Phemex graph)
             lastPrice = p;
             if (side === "Buy") askPrice = p;
             if (side === "Sell") bidPrice = p;
 
-            // Collect for training
             if (collectPhase) {
               collectedPrices.push(p);
               collectedVolumes.push(qty);
             }
-            // Always maintain rolling buffer
+            addTickToCandle(p, qty, now);
             rollingPrices.push(p);
             rollingVolumes.push(qty);
             if (rollingPrices.length > ROLLING_BUFFER_SIZE) {
@@ -758,6 +807,12 @@ async function main(): Promise<void> {
               rollingVolumes.shift();
             }
           }
+        }
+
+        if (collectPhase && collectedPrices.length >= MIN_TICKS_FOR_TRAINING) {
+          ws.close();
+          await transitionToTraining();
+          ws.connect();
         }
       }
     },

@@ -80,6 +80,8 @@ interface SymbolConfig {
   errorBudget?: number;
   noReversalExit?: boolean;
   noTp?: boolean;
+  from?: number;
+  to?: number;
 }
 
 const DRY_RUN = hasFlag("--dry-run");
@@ -165,7 +167,7 @@ const REAL_SYMBOLS = [...new Set(aliasToReal.values())];
 const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 
-function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean } {
+function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean; from: number; to: number } {
   const real = aliasToReal.get(symbol) ?? symbol;
   const preset = SYMBOL_PRESETS[symbol] ?? SYMBOL_PRESETS[real] ?? {};
   const external = externalConfig?.[symbol] ?? {};
@@ -177,6 +179,8 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     errorBudget: parseInt(getArg("--error-budget") ?? "0", 10),
     noReversalExit: NO_REVERSAL_EXIT,
     noTp: NO_TP,
+    from: 0,
+    to: 2400,
   };
   // External config overrides preset, CLI flags override both
   return {
@@ -187,6 +191,8 @@ function resolveConfig(symbol: string): { bias: number; threshold: number; qty: 
     errorBudget:"errorBudget" in external ? external.errorBudget! : "errorBudget" in preset ? preset.errorBudget! : fallback.errorBudget,
     noReversalExit: "noReversalExit" in external ? external.noReversalExit! : "noReversalExit" in preset ? preset.noReversalExit! : fallback.noReversalExit,
     noTp:           "noTp" in external ? external.noTp!         : "noTp" in preset ? preset.noTp!             : fallback.noTp,
+    from:           "from" in external ? external.from!         : "from" in preset ? preset.from!             : fallback.from,
+    to:             "to" in external ? external.to!             : "to" in preset ? preset.to!                 : fallback.to,
   };
 }
 
@@ -221,7 +227,7 @@ interface SymbolState {
   bestBid: number;
   bestBidErrors: number;
   bestAskErrors: number;
-  config: { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean };
+  config: { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean; from: number; to: number };
 }
 
 /* ------------------------------------------------------------------ */
@@ -373,7 +379,22 @@ async function closeShort(symbol: string, qty: number): Promise<void> {
 /*  Strategy evaluation                                                */
 /* ------------------------------------------------------------------ */
 
+function isWithinTradingWindow(from: number, to: number): boolean {
+  const now = new Date();
+  const hhmm = now.getHours() * 100 + now.getMinutes();
+  if (from <= to) {
+    return hhmm >= from && hhmm < to;
+  } else {
+    // Overnight window (e.g. 2200 to 0600)
+    return hhmm >= from || hhmm < to;
+  }
+}
+
 async function evaluate(symbol: string, ticker: TickerData, symState: SymbolState): Promise<void> {
+  const { from, to } = symState.config;
+  if (from !== 0 || to !== 2400) {
+    if (!isWithinTradingWindow(from, to)) return;
+  }
   const spread = ticker.index - ticker.last + symState.config.bias;
   const realSym = aliasToReal.get(symbol) ?? symbol;
 

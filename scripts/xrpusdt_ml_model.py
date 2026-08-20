@@ -122,10 +122,10 @@ def compute_features(p, v):
     return d
 
 
-def build_training_matrix(prices, volumes, forward=10):
+def build_training_matrix(prices, volumes, forward=50):
     """Build feature matrix and targets from price/volume arrays."""
     n = len(prices)
-    min_lookback = 200
+    min_lookback = 50
 
     if n < min_lookback + forward + 10:
         return None, None, None
@@ -160,10 +160,6 @@ def train(prices, volumes):
     split = int(len(X_all) * 0.80)
     X_tr, X_te = X_all.iloc[:split].values, X_all.iloc[split:].values
     y_tr, y_te = y_all[:split], y_all[split:]
-
-    recent_n = int(len(X_tr) * 0.50)
-    X_tr = X_tr[recent_n:]
-    y_tr = y_tr[recent_n:]
 
     scaler = StandardScaler()
     Xtr = scaler.fit_transform(X_tr)
