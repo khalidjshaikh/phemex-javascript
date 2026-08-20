@@ -130,6 +130,9 @@ let mlModels: Record<string, unknown> | null = null;
 let mlReady = false;
 let lastPrediction: { rf: number; xgb: number; ensemble: number } | null = null;
 
+/** Cached fields from first perp_market24h_pack_p.update message */
+let cachedFields: string[] | null = null;
+
 /* ── Helpers ────────────────────────────────────────────────────────── */
 
 function fmtTime(): string {
@@ -625,10 +628,14 @@ async function main(): Promise<void> {
       // 24h ticker
       if (
         m.method === "perp_market24h_pack_p.update" &&
-        Array.isArray(m.fields) &&
         Array.isArray(m.data)
       ) {
-        const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
+        // Cache fields from first message (Phemex only sends them once)
+        if (Array.isArray(m.fields)) {
+          cachedFields = m.fields as string[];
+        }
+        if (!cachedFields) return;
+        const ticker = findSymbolRow(m.data as unknown[][], cachedFields, SYMBOL);
         if (ticker) {
           printTicker(ticker);
 
@@ -686,6 +693,7 @@ async function main(): Promise<void> {
     },
     onReconnect: (delayMs) => {
       log(`⟐  Reconnecting in ${delayMs / 1000}s …`);
+      cachedFields = null;
     },
   });
 
