@@ -7,7 +7,6 @@
     "creds": "tsx scripts/select-credentials.ts",
     "index-trader": "tsx scripts/phemex-index-trader.ts",
     "xti-trader": "tsx scripts/phemex-ws-xtiusdt-trader.ts",
-    "xti-trader-live": "tsx scripts/phemex-ws-xtiusdt-trader.ts --live",
     "xrp-trader": "tsx scripts/phemex-ws-xrpusdt-ml-trader.ts",
     "closed-positions": "tsx scripts/phemex-closed-positions.ts",
     "graph": "tsx scripts/graph-ticker.ts",
