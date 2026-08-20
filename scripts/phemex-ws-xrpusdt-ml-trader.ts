@@ -13,8 +13,8 @@
  *   - Exit:  direction flip, trailing stop, hard stop, profit target
  *
  * Usage:
- *   ./phemex-ws-xrpusdt-ml-trader.ts                     # dry-run (default)
- *   ./phemex-ws-xrpusdt-ml-trader.ts --live              # place real orders
+ *   ./phemex-ws-xrpusdt-ml-trader.ts                     # live (default)
+ *   ./phemex-ws-xrpusdt-ml-trader.ts --dry-run           # simulate only
  *   ./phemex-ws-xrpusdt-ml-trader.ts --retrain           # force retrain
  *   ./phemex-ws-xrpusdt-ml-trader.ts --size 0.01         # position size
  *   ./phemex-ws-xrpusdt-ml-trader.ts --leverage 100      # leverage
@@ -68,7 +68,6 @@ function hasFlag(name: string): boolean {
   return process.argv.includes(`--${name}`);
 }
 
-const DRY_RUN = !hasFlag("live");
 const RETRAIN = hasFlag("retrain");
 const LEVERAGE = Number(parseArg("leverage")) || DEFAULT_LEVERAGE;
 const QTY = Number(parseArg("size")) || DEFAULT_SIZE;
@@ -82,7 +81,7 @@ if (hasFlag("help") || hasFlag("h")) {
 
 Collects XRPUSDT data, trains ML models, then auto-trades.
 
-  --live                Place real orders (default: dry-run)
+  --dry-run             Simulate trades without placing real orders (default: live)
   --retrain             Force retrain even if models exist
   --size <qty>          Position quantity (default: ${DEFAULT_SIZE})
   --leverage <n>        Leverage (default: ${DEFAULT_LEVERAGE})
@@ -380,11 +379,6 @@ function printTicker(ticker: Record<string, unknown>): void {
 /* ── Trading actions ────────────────────────────────────────────────── */
 
 async function openLong(price: number): Promise<void> {
-  if (DRY_RUN) {
-    log(`[DRY-RUN]  🟢  Open Long ${QTY} ${SYMBOL} @ ${fmtPrice(price)}  ${LEVERAGE}x`);
-    botLong = { entryPrice: price, maxPnlPct: 0 };
-    return;
-  }
   log(`🟢  Opening Long ${QTY} ${SYMBOL} @ ${fmtPrice(price)}  ${LEVERAGE}x …`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Long", apiKey, secretRaw);
   const result = await placeMarketOrder(
@@ -396,11 +390,6 @@ async function openLong(price: number): Promise<void> {
 }
 
 async function openShort(price: number): Promise<void> {
-  if (DRY_RUN) {
-    log(`[DRY-RUN]  🔴  Open Short ${QTY} ${SYMBOL} @ ${fmtPrice(price)}  ${LEVERAGE}x`);
-    botShort = { entryPrice: price, maxPnlPct: 0 };
-    return;
-  }
   log(`🔴  Opening Short ${QTY} ${SYMBOL} @ ${fmtPrice(price)}  ${LEVERAGE}x …`);
   await setLeverageUsdtM(SYMBOL, LEVERAGE, "Short", apiKey, secretRaw);
   const result = await placeMarketOrder(
@@ -413,11 +402,6 @@ async function openShort(price: number): Promise<void> {
 
 async function closeLong(pos: Position, reason: string): Promise<void> {
   const price = bidPrice;
-  if (DRY_RUN) {
-    log(`[DRY-RUN]  ✖  Close Long ${SYMBOL} @ ${fmtPrice(price)} — ${reason}`);
-    botLong = null;
-    return;
-  }
   log(`✖  Closing Long ${SYMBOL} @ ${fmtPrice(price)} — ${reason} …`);
   await closePosition(pos, apiKey, secretRaw);
   botLong = null;
@@ -426,11 +410,6 @@ async function closeLong(pos: Position, reason: string): Promise<void> {
 
 async function closeShort(pos: Position, reason: string): Promise<void> {
   const price = askPrice;
-  if (DRY_RUN) {
-    log(`[DRY-RUN]  ✖  Close Short ${SYMBOL} @ ${fmtPrice(price)} — ${reason}`);
-    botShort = null;
-    return;
-  }
   log(`✖  Closing Short ${SYMBOL} @ ${fmtPrice(price)} — ${reason} …`);
   await closePosition(pos, apiKey, secretRaw);
   botShort = null;
@@ -477,8 +456,6 @@ function checkExitSignals(): void {
     if (pos) {
       const reason = `ML signal flip (ensemble ${fmtPct(ensemble * 100)})`;
       runAction("closeLong error", () => closeLong(pos, reason));
-    } else if (DRY_RUN) {
-      botLong = null;
     }
   }
 
@@ -488,8 +465,6 @@ function checkExitSignals(): void {
     if (pos) {
       const reason = `ML signal flip (ensemble ${fmtPct(ensemble * 100)})`;
       runAction("closeShort error", () => closeShort(pos, reason));
-    } else if (DRY_RUN) {
-      botShort = null;
     }
   }
 }
@@ -503,11 +478,11 @@ async function pollPositions(): Promise<void> {
     const pos = positions.find((p) => p.symbol === SYMBOL);
 
     if (!pos) {
-      if (botLong && !DRY_RUN) {
+      if (botLong) {
         log(`  ℹ  Long position gone (closed externally) — resetting`);
         botLong = null;
       }
-      if (botShort && !DRY_RUN) {
+      if (botShort) {
         log(`  ℹ  Short position gone (closed externally) — resetting`);
         botShort = null;
       }
@@ -624,13 +599,12 @@ async function getPrediction(): Promise<void> {
 /* ── Main ───────────────────────────────────────────────────────────── */
 
 async function main(): Promise<void> {
-  log(`══ ${SYMBOL} ML Trader ${DRY_RUN ? "(DRY RUN)" : "(LIVE)"} ══════════════════════════════════`);
+  log(`══ ${SYMBOL} ML Trader ══════════════════════════════════`);
   log(`  Symbol:       ${SYMBOL}`);
   log(`  Leverage:     ${LEVERAGE}x`);
   log(`  Size:         ${QTY}`);
   log(`  Threshold:    ${fmtPct(SIGNAL_THRESHOLD * 100)}`);
   log(`  Stops:        trailing ${TRAILING_STOP_PCT}%  hard ${HARD_STOP_PCT}%`);
-  log(`  Mode:         ${DRY_RUN ? "DRY-RUN" : "LIVE"}`);
   log(`═══════════════════════════════════════════════════════════════════════════════`);
 
   // Start Python subprocess

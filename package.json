@@ -9,7 +9,6 @@
     "xti-trader": "tsx scripts/phemex-ws-xtiusdt-trader.ts",
     "xti-trader-live": "tsx scripts/phemex-ws-xtiusdt-trader.ts --live",
     "xrp-trader": "tsx scripts/phemex-ws-xrpusdt-ml-trader.ts",
-    "xrp-trader-live": "tsx scripts/phemex-ws-xrpusdt-ml-trader.ts --live",
     "closed-positions": "tsx scripts/phemex-closed-positions.ts",
     "graph": "tsx scripts/graph-ticker.ts",
     "number-line": "tsx scripts/number-line.ts",

@@ -39,6 +39,8 @@ def ema(arr, period):
 
 def compute_features(p, v):
     """Compute feature vector from price and volume arrays."""
+    p = np.asarray(p, dtype=float)
+    v = np.asarray(v, dtype=float)
     n = len(p)
     d = {}
 
