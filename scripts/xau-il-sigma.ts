@@ -14,12 +14,54 @@
  *   npx tsx xau-il-sigma.ts --decimals 4
  */
 
+import { readFileSync, appendFileSync, mkdirSync, existsSync } from "fs";
+import { join } from "path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { hasFlag } from "../src/cli-utils.js";
 
 const DECIMALS = Number(hasFlag("--decimals") ? process.argv[process.argv.indexOf("--decimals") + 1] : 4);
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XAUUSDT";
+
+/* ── Persistence ── */
+
+const DATA_DIR = join(process.cwd(), "data");
+const HOURS_FILE = join(DATA_DIR, "xau-il-sigma-hours.jsonl");
+
+interface HourRecord {
+  hour: number;
+  clockHour: number;
+  ticks: number;
+  sigma: number;
+  avgIl: number;
+  deltas: number;
+  deltaSum: number;
+  avgDelta: number;
+  deltaL: number;
+  signChanges: number;
+}
+
+function loadHours(): HourRecord[] {
+  if (!existsSync(HOURS_FILE)) return [];
+  try {
+    return readFileSync(HOURS_FILE, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l));
+  } catch {
+    return [];
+  }
+}
+
+function saveHour(rec: HourRecord): void {
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  appendFileSync(HOURS_FILE, JSON.stringify(rec) + "\n");
+}
+
+function loadLastHour(): HourRecord | null {
+  const hours = loadHours();
+  return hours.length > 0 ? hours[hours.length - 1] : null;
+}
 
 /* ── Helpers ── */
 
@@ -140,6 +182,32 @@ console.log(`   I-L = index − last  |  Σ|I−L| = cumulative |I−L| within t
 console.log(`   Decimals: ${DECIMALS}`);
 console.log();
 
+// Print past hours from persistence
+const pastHours = loadHours();
+if (pastHours.length > 0) {
+  console.log(`  ── past hours (${pastHours.length}) ──`);
+  for (const h of pastHours) {
+    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  Σ(I−L): ${fmtSigma(h.sigma)}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}`);
+    console.log(`    deltas: ${h.deltas}  avg(Δ): ${h.deltas > 0 ? fmtDelta(h.avgDelta) : "—"}  ΣΔL: ${fmtDelta(h.deltaL)}  sign changes: ${h.signChanges}`);
+  }
+  console.log();
+}
+
+// Restore last hour state if we're still in the same hour
+const lastHour = loadLastHour();
+const nowHour = Math.floor(Date.now() / 3600000);
+if (lastHour && lastHour.hour === nowHour) {
+  hourTicks = lastHour.ticks;
+  hourSigma = lastHour.sigma;
+  hourDeltaCount = lastHour.deltas;
+  hourDeltaSum = lastHour.deltaSum;
+  hourDeltaL = lastHour.deltaL;
+  hourSignChanges = lastHour.signChanges;
+  currentHour = lastHour.hour;
+  console.log(`  ⟳  Restored hour ${fmtHour(lastHour.clockHour)} state: ${hourTicks} ticks, Σ(I−L): ${fmtSigma(hourSigma)}`);
+  console.log();
+}
+
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
     ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
@@ -166,10 +234,24 @@ const ws = new ReconnectingWs(WS_URL, {
       // Hour rollover
       const hour = Math.floor(minute / 60);
       if (currentHour >= 0 && hour !== currentHour) {
-        console.log(`  ═══ hour ${fmtHour(currentHour)} end ═══`);
+        console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
         console.log(`  ticks: ${hourTicks}  Σ(I−L): ${fmtSigma(hourSigma)}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}`);
         console.log(`  deltas: ${hourDeltaCount}  avg(Δ): ${hourDeltaCount > 0 ? fmtDelta(hourDeltaSum / hourDeltaCount) : "—"}  ΣΔL: ${fmtDelta(hourDeltaL)}  sign changes: ${hourSignChanges}`);
         console.log();
+
+        saveHour({
+          hour: currentHour,
+          clockHour: currentHour % 24,
+          ticks: hourTicks,
+          sigma: hourSigma,
+          avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
+          deltas: hourDeltaCount,
+          deltaSum: hourDeltaSum,
+          avgDelta: hourDeltaCount > 0 ? hourDeltaSum / hourDeltaCount : 0,
+          deltaL: hourDeltaL,
+          signChanges: hourSignChanges,
+        });
+
         hourSignChanges = 0;
         hourTicks = 0;
         hourSigma = 0;
