@@ -24,7 +24,7 @@
 import { ReconnectingWs } from "../src/ws-client.js";
 import { findSymbolRow } from "../src/cli-utils.js";
 import { base64UrlDecode } from "../src/http-client.js";
-import { loadCredentialsLocal } from "../src/credentials.js";
+import { loadCredentialsLocal, loadCredentialNamed } from "../src/credentials.js";
 import {
   placeMarketOrder,
   setLeverageUsdtM,
@@ -81,6 +81,7 @@ if (hasFlag("help") || hasFlag("h")) {
 
 Collects XRPUSDT data, trains ML models, then auto-trades.
 
+  --credential <name>   Use named profile from .credentials.json (e.g. gmail, meta)
   --dry-run             Simulate trades without placing real orders (default: live)
   --retrain             Force retrain even if models exist
   --size <qty>          Position quantity (default: ${DEFAULT_SIZE})
@@ -96,7 +97,10 @@ Collects XRPUSDT data, trains ML models, then auto-trades.
 
 /* ── Credentials ────────────────────────────────────────────────────── */
 
-const credentials = loadCredentialsLocal();
+const CREDENTIAL_PROFILE = parseArg("credential");
+const credentials = CREDENTIAL_PROFILE
+  ? loadCredentialNamed(CREDENTIAL_PROFILE)
+  : loadCredentialsLocal();
 const apiKey = credentials.PHEMEX_API_KEY;
 const secretRaw = base64UrlDecode(credentials.PHEMEX_API_SECRET);
 
@@ -120,8 +124,6 @@ const collectedPrices: number[] = [];
 const collectedVolumes: number[] = [];
 let collectStartTime = 0;
 let collectPhase = true;
-let lastCollectTime = 0;
-const MIN_COLLECT_INTERVAL_MS = 500; // min ms between collected ticks to avoid duplicates
 
 /** ML models */
 let mlModels: Record<string, unknown> | null = null;
@@ -349,12 +351,6 @@ function printTicker(ticker: Record<string, unknown>): void {
   if (high > 0) highPrice = high;
   if (low > 0) lowPrice = low;
   if (open > 0) tickerReady = true;
-
-  // Collect data for training
-  if (collectPhase && last > 0) {
-    collectedPrices.push(last);
-    collectedVolumes.push(volume);
-  }
 
   const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
   const sign = changePct >= 0 ? "+" : "";
@@ -603,6 +599,7 @@ async function getPrediction(): Promise<void> {
 async function main(): Promise<void> {
   log(`══ ${SYMBOL} ML Trader ══════════════════════════════════`);
   log(`  Symbol:       ${SYMBOL}`);
+  log(`  Credential:   ${CREDENTIAL_PROFILE ?? "default"}`);
   log(`  Leverage:     ${LEVERAGE}x`);
   log(`  Size:         ${QTY}`);
   log(`  Threshold:    ${fmtPct(SIGNAL_THRESHOLD * 100)}`);
@@ -635,17 +632,13 @@ async function main(): Promise<void> {
         if (ticker) {
           printTicker(ticker);
 
-          // Collect tick from ticker update (skip if recently collected from trade)
+          // Collect tick from ticker update
           if (collectPhase && lastPrice > 0) {
-            const now = Date.now();
-            if (now - lastCollectTime >= MIN_COLLECT_INTERVAL_MS) {
-              collectedPrices.push(lastPrice);
-              collectedVolumes.push(Number(ticker.volumeRq ?? 0));
-              lastCollectTime = now;
-              // Debug: log every 10 ticks
-              if (collectedPrices.length % 10 === 0) {
-                log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
-              }
+            collectedPrices.push(lastPrice);
+            collectedVolumes.push(Number(ticker.volumeRq ?? 0));
+            // Debug: log every 10 ticks
+            if (collectedPrices.length % 10 === 0) {
+              log(`  📊 Collected ${collectedPrices.length} ticks, last: ${fmtPrice(lastPrice)}`);
             }
           } else if (collectPhase && lastPrice === 0) {
             log(`  ⚠ Ticker received but lastPrice is 0`);
@@ -669,7 +662,6 @@ async function main(): Promise<void> {
             checkExitSignals();
           }
         }
-        return;
       }
 
       // Real-time trades — update lastPrice and collect for training
@@ -685,14 +677,10 @@ async function main(): Promise<void> {
             if (side === "Buy") askPrice = p;
             if (side === "Sell") bidPrice = p;
 
-            // Collect for training with deduplication
+            // Collect for training
             if (collectPhase) {
-              const now = Date.now();
-              if (now - lastCollectTime >= MIN_COLLECT_INTERVAL_MS) {
-                collectedPrices.push(p);
-                collectedVolumes.push(qty);
-                lastCollectTime = now;
-              }
+              collectedPrices.push(p);
+              collectedVolumes.push(qty);
             }
           }
         }
