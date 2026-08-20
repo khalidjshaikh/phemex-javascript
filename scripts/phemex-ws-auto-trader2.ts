@@ -399,25 +399,6 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
   const realSym = aliasToReal.get(symbol) ?? symbol;
 
   if (symState.state === "IDLE") {
-    // Verify no existing position before opening
-    try {
-      const positions = await fetchPositions(apiKey, secretRaw);
-      const existing = positions.find((p) => p.symbol === realSym && parseFloat(p.size || "0") !== 0);
-      if (existing) {
-        const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
-        symState.entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
-        symState.state = posSide as State;
-        symState.entryIL = ticker.index - ticker.last;
-        symState.bestAsk = Infinity;
-        symState.bestBid = 0;
-        symState.bestBidErrors = 0;
-        symState.bestAskErrors = 0;
-        console.log(`   ℹ  Found existing ${posSide} position on ${realSym} (alias: ${symbol}), syncing state`);
-        return;
-      }
-    } catch {
-      // Ignore position check errors, proceed with signal
-    }
     if (spread > symState.config.threshold) {
       const il = ticker.index - ticker.last;
       console.log(`\n   ▲  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} > ${symState.config.threshold} → OPEN LONG`);
