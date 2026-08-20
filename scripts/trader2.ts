@@ -446,11 +446,12 @@ async function main(): Promise<void> {
   const cols = ["threshold", "bias", "size", "leverage", "profit"] as const;
   const widths = cols.map((k) => Math.max(k.length, ...rows.map((r) => String(r[k]).length)));
   const symWidth = Math.max(...rows.map((r) => r.sym.length));
-  const header = `${" ".repeat(symWidth)}: ${cols.map((k, i) => k.padStart(widths[i])).join(", ")}`;
+  const header = `${" ".repeat(symWidth)}: ${cols.map((k, i) => k.padStart(widths[i])).join(" ")}  alias`;
   console.log(header);
   for (const r of rows) {
     const vals = cols.map((k, i) => String(r[k]).padStart(widths[i]));
-    console.log(`${r.sym.padEnd(symWidth)}: ${vals.join(", ")}`);
+    const alias = r.realSymbol !== r.sym ? ` → ${r.realSymbol}` : "";
+    console.log(`${r.sym.padEnd(symWidth)}: ${vals.join(" ")}${alias}`);
   }
 
   startWebSocket();
