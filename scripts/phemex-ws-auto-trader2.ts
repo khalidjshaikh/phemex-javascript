@@ -60,7 +60,9 @@ Options:
 Config format (JSON5):
   {
     XTIUSDT: { bias: -0.125, threshold: 0.4, qty: 0.01, leverage: 100, errorBudget: 1 },
-    BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100, errorBudget: 2 }
+    BTCUSDT: { bias: -30, threshold: 50, qty: 0.001, leverage: 100, errorBudget: 2 },
+    GOLD_TIGHT: { realSymbol: "XAUUSDT", threshold: 8.25, qty: 0.001, leverage: 100 },
+    GOLD_WIDE:  { realSymbol: "XAUUSDT", threshold: 9, qty: 0.001, leverage: 100 }
   }
 `;
 
@@ -70,6 +72,7 @@ if (hasFlag("--help")) {
 }
 
 interface SymbolConfig {
+  realSymbol?: string;
   threshold?: number;
   bias?: number;
   qty?: number;
@@ -135,11 +138,36 @@ if (externalConfig) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Symbol alias mapping                                               */
+/*  Config entries with a `realSymbol` field are aliases that share    */
+/*  the same Phemex ticker feed but maintain independent state and     */
+/*  place orders on the real symbol.                                   */
+/* ------------------------------------------------------------------ */
+
+function resolveRealSymbol(configSymbol: string, config?: SymbolConfig): string {
+  return config?.realSymbol ?? configSymbol;
+}
+
+const aliasToReal = new Map<string, string>();
+const realToAliases = new Map<string, string[]>();
+
+for (const sym of SYMBOLS) {
+  const extConf = externalConfig?.[sym];
+  const real = resolveRealSymbol(sym, extConf);
+  aliasToReal.set(sym, real);
+  if (!realToAliases.has(real)) realToAliases.set(real, []);
+  realToAliases.get(real)!.push(sym);
+}
+
+const REAL_SYMBOLS = [...new Set(aliasToReal.values())];
+
 const QTY_DEFAULT = parseFloat(getArg("--qty") ?? "0.01");
 const LEVERAGE = parseInt(getArg("--leverage") ?? "100", 10);
 
 function resolveConfig(symbol: string): { bias: number; threshold: number; qty: number; leverage: number; errorBudget: number; noReversalExit: boolean; noTp: boolean } {
-  const preset = SYMBOL_PRESETS[symbol] ?? {};
+  const real = aliasToReal.get(symbol) ?? symbol;
+  const preset = SYMBOL_PRESETS[symbol] ?? SYMBOL_PRESETS[real] ?? {};
   const external = externalConfig?.[symbol] ?? {};
   const fallback = {
     bias: parseFloat(getArg("--bias") ?? "0"),
@@ -280,14 +308,15 @@ function printTicker(symbol: string, t: TickerData, deltas: Deltas | null, symSt
 /* ------------------------------------------------------------------ */
 
 async function openLong(symbol: string, qty: number, leverage: number): Promise<void> {
+  const realSym = aliasToReal.get(symbol) ?? symbol;
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open long ${symbol} qty:${qty} leverage:${leverage}x at ask`);
+    console.log(`   DRY RUN: open long ${symbol} (API: ${realSym}) qty:${qty} leverage:${leverage}x at ask`);
     return;
   }
-  console.log(`   ⟐  Opening long ${symbol}  qty: ${qty}  leverage: ${leverage}x  at ask`);
-  await setLeverageUsdtM(symbol, leverage, "Long", apiKey, secretRaw);
+  console.log(`   ⟐  Opening long ${symbol} (API: ${realSym})  qty: ${qty}  leverage: ${leverage}x  at ask`);
+  await setLeverageUsdtM(realSym, leverage, "Long", apiKey, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol, side: "Buy", price: 0, qty, posSide: "Long" },
+    { account: "usdt-m", symbol: realSym, side: "Buy", price: 0, qty, posSide: "Long" },
     apiKey,
     secretRaw,
   );
@@ -295,13 +324,14 @@ async function openLong(symbol: string, qty: number, leverage: number): Promise<
 }
 
 async function closeLong(symbol: string, qty: number): Promise<void> {
+  const realSym = aliasToReal.get(symbol) ?? symbol;
   if (DRY_RUN) {
-    console.log(`   DRY RUN: close long ${symbol} qty:${qty} at bid`);
+    console.log(`   DRY RUN: close long ${symbol} (API: ${realSym}) qty:${qty} at bid`);
     return;
   }
-  console.log(`   ⟐  Closing long ${symbol}  qty: ${qty}  at bid`);
+  console.log(`   ⟐  Closing long ${symbol} (API: ${realSym})  qty: ${qty}  at bid`);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol, side: "Sell", price: 0, qty, posSide: "Long", reduceOnly: true },
+    { account: "usdt-m", symbol: realSym, side: "Sell", price: 0, qty, posSide: "Long", reduceOnly: true },
     apiKey,
     secretRaw,
   );
@@ -309,14 +339,15 @@ async function closeLong(symbol: string, qty: number): Promise<void> {
 }
 
 async function openShort(symbol: string, qty: number, leverage: number): Promise<void> {
+  const realSym = aliasToReal.get(symbol) ?? symbol;
   if (DRY_RUN) {
-    console.log(`   DRY RUN: open short ${symbol} qty:${qty} leverage:${leverage}x at bid`);
+    console.log(`   DRY RUN: open short ${symbol} (API: ${realSym}) qty:${qty} leverage:${leverage}x at bid`);
     return;
   }
-  console.log(`   ⟐  Opening short ${symbol}  qty: ${qty}  leverage: ${leverage}x  at bid`);
-  await setLeverageUsdtM(symbol, leverage, "Short", apiKey, secretRaw);
+  console.log(`   ⟐  Opening short ${symbol} (API: ${realSym})  qty: ${qty}  leverage: ${leverage}x  at bid`);
+  await setLeverageUsdtM(realSym, leverage, "Short", apiKey, secretRaw);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol, side: "Sell", price: 0, qty, posSide: "Short" },
+    { account: "usdt-m", symbol: realSym, side: "Sell", price: 0, qty, posSide: "Short" },
     apiKey,
     secretRaw,
   );
@@ -324,13 +355,14 @@ async function openShort(symbol: string, qty: number, leverage: number): Promise
 }
 
 async function closeShort(symbol: string, qty: number): Promise<void> {
+  const realSym = aliasToReal.get(symbol) ?? symbol;
   if (DRY_RUN) {
-    console.log(`   DRY RUN: close short ${symbol} qty:${qty} at ask`);
+    console.log(`   DRY RUN: close short ${symbol} (API: ${realSym}) qty:${qty} at ask`);
     return;
   }
-  console.log(`   ⟐  Closing short ${symbol}  qty: ${qty}  at ask`);
+  console.log(`   ⟐  Closing short ${symbol} (API: ${realSym})  qty: ${qty}  at ask`);
   const result = await placeMarketOrder(
-    { account: "usdt-m", symbol, side: "Buy", price: 0, qty, posSide: "Short", reduceOnly: true },
+    { account: "usdt-m", symbol: realSym, side: "Buy", price: 0, qty, posSide: "Short", reduceOnly: true },
     apiKey,
     secretRaw,
   );
@@ -343,12 +375,13 @@ async function closeShort(symbol: string, qty: number): Promise<void> {
 
 async function evaluate(symbol: string, ticker: TickerData, symState: SymbolState): Promise<void> {
   const spread = ticker.index - ticker.last + symState.config.bias;
+  const realSym = aliasToReal.get(symbol) ?? symbol;
 
   if (symState.state === "IDLE") {
     // Verify no existing position before opening
     try {
       const positions = await fetchPositions(apiKey, secretRaw);
-      const existing = positions.find((p) => p.symbol === symbol && parseFloat(p.size || "0") !== 0);
+      const existing = positions.find((p) => p.symbol === realSym && parseFloat(p.size || "0") !== 0);
       if (existing) {
         const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
         symState.entryPrice = parseFloat(existing.avgEntryPriceRp || "0");
@@ -358,7 +391,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
         symState.bestBid = 0;
         symState.bestBidErrors = 0;
         symState.bestAskErrors = 0;
-        console.log(`   ℹ  Found existing ${posSide} position on ${symbol}, syncing state`);
+        console.log(`   ℹ  Found existing ${posSide} position on ${realSym} (alias: ${symbol}), syncing state`);
         return;
       }
     } catch {
@@ -373,7 +406,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       symState.bestBid = ticker.bid;
       symState.bestBidErrors = 0;
       symState.bestAskErrors = 0;
-      await openLong(symbol, symState.config.qty, symState.config.leverage);
+      await openLong(realSym, symState.config.qty, symState.config.leverage);
     } else if (spread < -symState.config.threshold) {
       const il = ticker.index - ticker.last;
       console.log(`\n   ▼  SIGNAL [${symbol}]: I-L (${il.toFixed(4)}) + bias (${symState.config.bias}) = ${spread.toFixed(4)} < -${symState.config.threshold} → OPEN SHORT`);
@@ -383,7 +416,7 @@ async function evaluate(symbol: string, ticker: TickerData, symState: SymbolStat
       symState.bestAsk = ticker.ask;
       symState.bestBidErrors = 0;
       symState.bestAskErrors = 0;
-      await openShort(symbol, symState.config.qty, symState.config.leverage);
+      await openShort(realSym, symState.config.qty, symState.config.leverage);
     }
   } else if (symState.state === "LONG") {
     const currentIL = ticker.index - ticker.last;
@@ -546,7 +579,7 @@ function extractTicker(msg: Record<string, unknown>): { symbol: string; ticker: 
   if (msg.method === "market24h_p.update" && msg.data) {
     const d = msg.data as Record<string, unknown>;
     const sym = d.symbol as string;
-    if (!symbolStates.has(sym)) return null;
+    if (!symbolStates.has(sym) && !realToAliases.has(sym)) return null;
     return {
       symbol: sym,
       ticker: {
@@ -566,17 +599,17 @@ function extractTicker(msg: Record<string, unknown>): { symbol: string; ticker: 
     }
     if (!cachedFields) return null;
 
-    // Extract all matching tickers for tracked symbols
+    // Extract tickers for real symbols (WS uses real symbol names, not aliases)
     const results: { symbol: string; ticker: TickerData }[] = [];
-    for (const sym of symbolStates.keys()) {
-      const row = (msg.data as unknown[][]).find((r) => String(r[0]) === sym);
+    for (const realSym of REAL_SYMBOLS) {
+      const row = (msg.data as unknown[][]).find((r) => String(r[0]) === realSym);
       if (!row) continue;
       const obj: Record<string, unknown> = {};
       for (let i = 0; i < cachedFields.length && i < row.length; i++) {
         obj[cachedFields[i]] = row[i];
       }
       results.push({
-        symbol: sym,
+        symbol: realSym,
         ticker: {
           ask: Number(obj.askRp ?? 0),
           bid: Number(obj.bidRp ?? 0),
@@ -612,7 +645,8 @@ async function main(): Promise<void> {
   // Check existing positions on startup
   const positions = await fetchPositions(apiKey, secretRaw);
   for (const sym of SYMBOLS) {
-    const existing = positions.find((p) => p.symbol === sym);
+    const realSym = aliasToReal.get(sym) ?? sym;
+    const existing = positions.find((p) => p.symbol === realSym);
     const symState = symbolStates.get(sym)!;
     if (existing) {
       const posSide = existing.side === "Buy" ? "LONG" : "SHORT";
@@ -623,7 +657,7 @@ async function main(): Promise<void> {
       symState.bestBid = 0;
       symState.bestBidErrors = 0;
       symState.bestAskErrors = 0;
-      console.log(`⟐  Found existing ${posSide} position on ${sym}  entry: ${symState.entryPrice}  size: ${existing.size}`);
+      console.log(`⟐  Found existing ${posSide} position on ${realSym} (alias: ${sym})  entry: ${symState.entryPrice}  size: ${existing.size}`);
     }
   }
 
@@ -644,8 +678,9 @@ async function main(): Promise<void> {
         if (!cachedFields) return;
         const fields = cachedFields;
 
-        for (const sym of symbolStates.keys()) {
-          const row = (msg.data as unknown[][]).find((r) => String(r[0]) === sym);
+        // Iterate real symbols (WS data uses real names, not aliases)
+        for (const realSym of REAL_SYMBOLS) {
+          const row = (msg.data as unknown[][]).find((r) => String(r[0]) === realSym);
           if (!row) continue;
           const obj: Record<string, unknown> = {};
           for (let i = 0; i < fields.length && i < row.length; i++) {
@@ -661,17 +696,21 @@ async function main(): Promise<void> {
             timestamp: Number(obj.timestamp ?? Date.now() * 1_000_000),
           };
 
-          const symState = symbolStates.get(sym)!;
-          const lastTicker = lastTickers.get(sym) ?? null;
-          const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
+          // Fan out ticker to all aliases of this real symbol
+          const aliases = realToAliases.get(realSym) ?? [realSym];
+          for (const alias of aliases) {
+            const symState = symbolStates.get(alias)!;
+            const lastTicker = lastTickers.get(alias) ?? null;
+            const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
 
-          if (!NO_TICKER_LOGS) printTicker(sym, ticker, deltas, symState);
-          lastTickers.set(sym, ticker);
+            if (!NO_TICKER_LOGS) printTicker(alias, ticker, deltas, symState);
+            lastTickers.set(alias, ticker);
 
-          try {
-            await evaluate(sym, ticker, symState);
-          } catch (err) {
-            console.error(`   ✗  Trade error on ${sym}: ${err instanceof Error ? err.message : String(err)}`);
+            try {
+              await evaluate(alias, ticker, symState);
+            } catch (err) {
+              console.error(`   ✗  Trade error on ${alias}: ${err instanceof Error ? err.message : String(err)}`);
+            }
           }
         }
         return;
@@ -681,18 +720,22 @@ async function main(): Promise<void> {
       const result = extractTicker(msg);
       if (!result) return;
 
-      const { symbol, ticker } = result;
-      const symState = symbolStates.get(symbol)!;
-      const lastTicker = lastTickers.get(symbol) ?? null;
-      const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
+      const { symbol: realSym, ticker } = result;
+      // Fan out ticker to all aliases of this real symbol
+      const aliases = realToAliases.get(realSym) ?? [realSym];
+      for (const alias of aliases) {
+        const symState = symbolStates.get(alias)!;
+        const lastTicker = lastTickers.get(alias) ?? null;
+        const deltas = lastTicker ? computeDeltas(ticker, lastTicker) : null;
 
-      if (!NO_TICKER_LOGS) printTicker(symbol, ticker, deltas, symState);
-      lastTickers.set(symbol, ticker);
+        if (!NO_TICKER_LOGS) printTicker(alias, ticker, deltas, symState);
+        lastTickers.set(alias, ticker);
 
-      try {
-        await evaluate(symbol, ticker, symState);
-      } catch (err) {
-        console.error(`   ✗  Trade error on ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        try {
+          await evaluate(alias, ticker, symState);
+        } catch (err) {
+          console.error(`   ✗  Trade error on ${alias}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     },
     onReconnect: (delayMs) => {
@@ -701,10 +744,12 @@ async function main(): Promise<void> {
     },
   });
 
-  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  ${DRY_RUN ? "(DRY RUN)" : ""}  ${NO_TICKER_LOGS ? "(NO TICKER LOGS)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
+  console.log(`⟐  Auto-trading ${SYMBOLS.join(", ")}  (WS symbols: ${REAL_SYMBOLS.join(", ")})  ${DRY_RUN ? "(DRY RUN)" : ""}  ${NO_TICKER_LOGS ? "(NO TICKER LOGS)" : ""}  ${CREDENTIAL ? `credential: ${CREDENTIAL}` : "credential: default"}`);
   for (const sym of SYMBOLS) {
     const s = symbolStates.get(sym)!;
-    console.log(`   ${sym}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}  errorBudget: ${s.config.errorBudget}`);
+    const realSym = aliasToReal.get(sym) ?? sym;
+    const aliasNote = realSym !== sym ? ` (real: ${realSym})` : "";
+    console.log(`   ${sym}${aliasNote}  qty: ${s.config.qty}  leverage: ${s.config.leverage}x  threshold: ${s.config.threshold}  bias: ${s.config.bias}  errorBudget: ${s.config.errorBudget}`);
   }
   console.log(`⟐  Connecting to ${WS_URL} …`);
   ws.connect();
