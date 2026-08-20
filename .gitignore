@@ -46,3 +46,4 @@ model.onnx
 .aider*
 .phemex-last-close.json
 data/
+models/*
