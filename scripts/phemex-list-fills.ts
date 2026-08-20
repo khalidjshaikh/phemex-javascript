@@ -17,6 +17,9 @@
 import { request, base64UrlDecode } from "../src/http-client.js";
 import { getArg, hasFlag } from "../src/cli-utils.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
+import JSON5 from "json5";
+import fs from "node:fs";
+import path from "node:path";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -32,6 +35,7 @@ Options:
   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — defaults to XBRUSDT
   --limit <n>         Max results (default 50; values >200 are paged in batches of 200)
   --days <n>          Look back days (default 7)
+  --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --loop              Repeat the listing every --interval seconds until Ctrl+C
   --interval <sec>    Poll period in seconds (default 2; used with --loop)
   --dry-run           Show what would be sent without executing
@@ -79,6 +83,24 @@ const posSideMap: Record<number, string> = {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Credential profile loader                                          */
+/* ------------------------------------------------------------------ */
+
+function loadCredentialProfile(name: string): { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string } {
+  const credsPath = path.resolve(process.cwd(), ".credentials.json");
+  if (!fs.existsSync(credsPath)) {
+    console.error(`✗  Missing ${credsPath}`);
+    process.exit(1);
+  }
+  const all = JSON5.parse(fs.readFileSync(credsPath, "utf8")) as Record<string, { PHEMEX_API_KEY: string; PHEMEX_API_SECRET: string }>;
+  if (!all[name]) {
+    console.error(`✗  Credential profile "${name}" not found in .credentials.json (available: ${Object.keys(all).join(", ")})`);
+    process.exit(1);
+  }
+  return all[name];
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -91,6 +113,7 @@ async function main(): Promise<void> {
   const dryRun = hasFlag("--dry-run");
   const loopMode = hasFlag("--loop");
   const intervalSec = parseInt(getArg("--interval") || "2", 10);
+  const credential = getArg("--credential");
   if (!Number.isInteger(intervalSec) || intervalSec < 1) {
     console.error(`  ✗  Invalid --interval: "${getArg("--interval")}" — use a whole number of seconds >= 1`);
     process.exit(1);
@@ -113,7 +136,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const creds = loadCredentialsLocal();
+  const creds = credential ? loadCredentialProfile(credential) : loadCredentialsLocal();
   const secretRaw = base64UrlDecode(creds.PHEMEX_API_SECRET);
 
   let cycle = 0;
