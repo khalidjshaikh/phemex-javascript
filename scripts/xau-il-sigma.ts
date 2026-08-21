@@ -197,7 +197,7 @@ function fmtDate(d: Date): string {
 
 function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number }): string {
   const dt = h.date ?? "";
-  const hr = `hour ${fmtHour(h.clockHour)}`;
+  const hr = fmtHour(h.clockHour);
   const ticks = String(h.ticks);
   const avg = h.ticks > 0 ? fmtSigma(h.avgIl) : "—";
   const sig = fmtSigma(h.sigma);
