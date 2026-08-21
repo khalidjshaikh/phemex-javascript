@@ -64,6 +64,7 @@ interface HourRecord {
   crossings: number;
   ticks: number;
   signal: string | null;
+  lastPriceChange: number | null;
 }
 
 interface IlState {
@@ -117,6 +118,10 @@ interface IlState {
   hourSigmaIlNeg: number;  // Σ(I-L) where I-L < 0
   hourTicks: number;    // ticks captured this hour
 
+  // Hour tracking: last price at start/end of hour
+  hourStartLast: number | null;
+  hourLastLast: number | null;
+
   // Ring buffer of last 24 hourly records
   hourHistory: HourRecord[];
 }
@@ -152,6 +157,8 @@ function initState(): IlState {
     hourSigmaIlPos: 0,
     hourSigmaIlNeg: 0,
     hourTicks: 0,
+    hourStartLast: null,
+    hourLastLast: null,
     hourHistory: [],
   };
 }
@@ -187,6 +194,8 @@ interface PersistedState {
     hourSigmaIlPos: number;
     hourSigmaIlNeg: number;
     hourTicks: number;
+    hourStartLast: number | null;
+    hourLastLast: number | null;
     hourHistory: HourRecord[];
   }>;
 }
@@ -214,6 +223,8 @@ function saveState(): void {
       hourSigmaIlPos: s.hourSigmaIlPos,
       hourSigmaIlNeg: s.hourSigmaIlNeg,
       hourTicks: s.hourTicks,
+      hourStartLast: s.hourStartLast,
+      hourLastLast: s.hourLastLast,
       hourHistory: s.hourHistory,
     };
   }
@@ -248,6 +259,8 @@ function loadState(): boolean {
       s.hourSigmaIlPos = saved.hourSigmaIlPos ?? 0;
       s.hourSigmaIlNeg = saved.hourSigmaIlNeg ?? 0;
       s.hourTicks = saved.hourTicks ?? 0;
+      s.hourStartLast = saved.hourStartLast ?? null;
+      s.hourLastLast = saved.hourLastLast ?? null;
       s.hourHistory = saved.hourHistory ?? [];
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
@@ -278,7 +291,8 @@ function printHourlyDeltaL(): void {
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
     "  Crosses".padStart(10) +
-    "    Ticks".padStart(10)
+    "    Ticks".padStart(10) +
+    "  Last Δ".padStart(12)
   );
   for (const [sym, s] of states) {
     if (s.hourHistory.length === 0) continue;
@@ -292,7 +306,8 @@ function printHourlyDeltaL(): void {
       fmt(rec.sigmaIlPos).padStart(12) +
       fmt(rec.sigmaIlNeg).padStart(12) +
       String(rec.crossings).padStart(10) +
-      String(rec.ticks).padStart(10)
+      String(rec.ticks).padStart(10) +
+      fmtSign(rec.lastPriceChange).padStart(12)
     );
   }
   console.log("");
@@ -319,7 +334,8 @@ function printStartupHistory(): void {
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
     "  Crosses".padStart(10) +
-    "    Ticks".padStart(10)
+    "    Ticks".padStart(10) +
+    "  Last Δ".padStart(12)
   );
 
   for (const [sym, s] of states) {
@@ -337,7 +353,8 @@ function printStartupHistory(): void {
         fmt(rec.sigmaIlPos).padStart(12) +
         fmt(rec.sigmaIlNeg).padStart(12) +
         String(rec.crossings).padStart(10) +
-        String(rec.ticks).padStart(10)
+        String(rec.ticks).padStart(10) +
+        fmtSign(rec.lastPriceChange).padStart(12)
       );
     }
   }
@@ -468,6 +485,9 @@ function processTicker(data: Record<string, unknown>): void {
     const prevHour = (hour + 23) % 24;
     const startIl = state.hourStartIl;
     const endIl = state.hourLastIl;
+    const lastPriceChange = (state.hourStartLast !== null && state.hourLastLast !== null)
+      ? state.hourLastLast - state.hourStartLast
+      : null;
     state.hourHistory.push({
       hour: prevHour,
       startIl,
@@ -479,6 +499,7 @@ function processTicker(data: Record<string, unknown>): void {
       crossings: state.hourCrossings,
       ticks: state.hourTicks,
       signal: state.signal,
+      lastPriceChange,
     });
     // Keep only last 24 hours
     if (state.hourHistory.length > MAX_HISTORY_HOURS) {
@@ -488,6 +509,7 @@ function processTicker(data: Record<string, unknown>): void {
     // Reset for new hour
     state.hourHour = hour;
     state.hourStartIl = il;  // start of new hour
+    state.hourStartLast = lastRp;  // start of new hour
     state.hourCrossings = 0;
     state.hourSigmaIl = 0;
     state.hourSigmaIlPos = 0;
@@ -497,11 +519,15 @@ function processTicker(data: Record<string, unknown>): void {
   if (state.hourStartIl === null) {
     state.hourStartIl = il;  // first tick
   }
+  if (state.hourStartLast === null) {
+    state.hourStartLast = lastRp;  // first tick
+  }
   // Accumulate Σ(I-L) — sum of I-L values during hour
   state.hourSigmaIl += il;
   if (il > 0) state.hourSigmaIlPos += il;
   else if (il < 0) state.hourSigmaIlNeg += il;
   state.hourLastIl = il;
+  state.hourLastLast = lastRp;  // track last price
   state.hourTicks++;
 
   // Update state (assign prev BEFORE last so prev captures old value)
