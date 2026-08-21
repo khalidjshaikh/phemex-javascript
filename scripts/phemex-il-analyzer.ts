@@ -698,13 +698,16 @@ const ws = new ReconnectingWs(WS_URL, {
       }
       hourlyLinesPrinted = 0;
       const hh = String(new Date().getHours()).padStart(2, "0");
-      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)} ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}  ${"ticks".padStart(5)}   [${hh}:00]\n`);
+      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)} ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}  ${"ticks".padStart(5)}  ${"ΣΔL".padStart(10)} ${"ΣΔL+".padStart(10)} ${"ΣΔL-".padStart(10)}  ${"ΔL(h)".padStart(10)}  [${hh}:00]\n`);
       hourlyLinesPrinted++;
       for (const [sym, s] of states) {
         const ilStr = fmtSign(s.lastIl);
         const prevIlStr = fmtSign(s.prevIl);
         const slopeChar = s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→";
-        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} ${prevIlStr.padStart(10)}  ${ilStr.padStart(10)}  ${slopeChar.padStart(5)}  ${String(s.hourCrossings).padStart(7)}  ${String(s.hourTicks).padStart(5)}   [${hh}:00]\n`);
+        const deltaLh = (s.hourStartLast !== null && s.hourLastLast !== null)
+          ? s.hourLastLast - s.hourStartLast
+          : null;
+        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} ${prevIlStr.padStart(10)}  ${ilStr.padStart(10)}  ${slopeChar.padStart(5)}  ${String(s.hourCrossings).padStart(7)}  ${String(s.hourTicks).padStart(5)}  ${fmtSign(s.hourSigmaDeltaL).padStart(10)} ${fmtSign(s.hourSigmaDeltaLPos).padStart(10)} ${fmtSign(s.hourSigmaDeltaLNeg).padStart(10)}  ${fmtSign(deltaLh).padStart(10)}  [${hh}:00]\n`);
         hourlyLinesPrinted++;
       }
     }
