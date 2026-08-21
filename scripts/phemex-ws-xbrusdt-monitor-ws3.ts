@@ -23,7 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { findSymbolRow, getArg, hasFlag } from "../src/cli-utils.js";
-import { base64UrlDecode } from "../src/http-client.js";
+import { base64UrlDecode, publicGet } from "../src/http-client.js";
 import { loadCredentialsLocal } from "../src/credentials.js";
 import JSON5 from "json5";
 import { 
@@ -120,6 +120,20 @@ function fmtNum(n: number, d: number = DECIMALS): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
+/** Fetch initial 24h ticker via REST to populate index price before WebSocket connects. */
+async function fetchInitialTicker(symbol: string): Promise<void> {
+  try {
+    const resp = await publicGet("/md/v2/ticker/24hr", `symbol=${symbol}`);
+    const result = resp.result as Record<string, unknown> | undefined;
+    if (result?.indexPriceRp) {
+      TradeBatchProcessor.indexPrice = Number(result.indexPriceRp);
+      console.log(`[${fmtTime()}]  Initial Index: $${TradeBatchProcessor.indexPrice.toFixed(DECIMALS)}`);
+    }
+  } catch (err) {
+    // Ignore — will be populated by first WebSocket ticker update
+  }
+}
+
 //homelastTickerPrice ??= 0
 //lastTradePrice ??= 0
 // streak ??= 0
@@ -191,8 +205,8 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const volume = Number(ticker.volumeRq ?? 0);
   const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
 
-  // Update intraday low for trade log column
-  TradeBatchProcessor.intradayLow = low;
+  // Update index price for I-L column (Index - Last)
+  TradeBatchProcessor.indexPrice = Number(ticker.indexPriceRp ?? 0);
 
   const now = fmtTime();
   const sign = changePct >= 0 ? "+" : "";
@@ -293,7 +307,7 @@ class TradeBatchProcessor {
   static streakStartPrice: number | null = null;
   static lastLongPrice: number | null = null;
   static lastShortPrice: number | null = null;
-  static intradayLow: number = 0;
+  static indexPrice: number = 0;
 
   /** Set to true when the direction just changed on the most recent process_trade call. */
   static directionChanged: boolean = false;
@@ -363,7 +377,8 @@ class TradeBatchProcessor {
     const bidStr = bestBid > 0 ? `$${bestBid.toFixed(DECIMALS)}` : '';
     const askStr = bestAsk > 0 ? `$${bestAsk.toFixed(DECIMALS)}` : '';
     const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(DECIMALS) : '';
-    const ilStr = this.intradayLow > 0 ? `$${this.intradayLow.toFixed(DECIMALS)}` : "";
+    const il = this.indexPrice > 0 ? this.indexPrice - p : 0;
+    const ilStr = this.indexPrice > 0 ? `${il >= 0 ? "+" : ""}${il.toFixed(DECIMALS)}` : "";
     console.log(
       `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${ilStr.padStart(8)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)}`
     );
@@ -476,6 +491,9 @@ async function main(): Promise<void> {
   console.log(`  Symbol:       ${SYMBOL}`);
   console.log(`  Position poll: every ${POLL_INTERVAL_MS / 1000}s`);
   console.log(`═════════════════════════════════════════════════════════════`);
+
+  // Fetch initial ticker data to populate I-L column before WebSocket connects
+  await fetchInitialTicker(SYMBOL);
 
   // ---------------------------------------------------------------
   // WebSocket — ticker + trade feed
