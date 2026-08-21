@@ -48,7 +48,7 @@ output = "{\n" + config.map { |symbol, settings|
               s = s.sub(/\.?0+$/, '') if s.include?('.')
               s
             end
-          else v.to_s
+          else "\"#{v}\""
           end
     "#{k}: #{val}"
   }.join(", ")
