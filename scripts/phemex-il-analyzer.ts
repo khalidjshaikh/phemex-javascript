@@ -528,8 +528,6 @@ function processTicker(data: Record<string, unknown>): void {
   // Print summary for this symbol
   const tick = tsHMS(now);
   const ilStr = fmtSign(il);
-  const slopeDiff = state.lastIl !== null ? il - state.lastIl : null;
-  const slopeStr = slopeDiff !== null ? fmtSign(slopeDiff, 6) : "      ";
   const signChar = newSign === "positive" ? "+" : newSign === "negative" ? "-" : "0";
   const slopeChar = newSlope === "rising" ? "↑" : newSlope === "falling" ? "↓" : "→";
   const sigStr = state.signal ?? "—";
@@ -539,14 +537,14 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  tick            symbol       I-L      sign  slope    slopeΔ    regime  crosses       Σ+         Σ-     signal`);
+      console.log(`  tick            symbol       I-L      sign  slope    regime  crosses       Σ+         Σ-     signal`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
     console.log(
-      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${pad(slopeStr, 10)}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}    ${pad(sigStr, 6)}`,
+      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}    ${pad(sigStr, 6)}`,
     );
     tickCount++;
   }
