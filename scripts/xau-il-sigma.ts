@@ -234,8 +234,7 @@ const pastHours = loadHours();
 if (pastHours.length > 0) {
   console.log(`  ── past hours (${pastHours.length}) ──`);
   for (const h of pastHours) {
-    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}  Σ(I−L): ${fmtSigma(h.sigma)}  Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}`);
-    console.log(`    ΣΔL: ${fmtDelta(h.deltaL)}  ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}  sign changes: ${h.signChanges}`);
+    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}  Σ(I−L): ${fmtSigma(h.sigma)}  Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}  ΣΔL: ${fmtDelta(h.deltaL)}  ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}  sign changes: ${h.signChanges}`);
   }
   console.log();
 }
@@ -279,10 +278,7 @@ const ws = new ReconnectingWs(WS_URL, {
     if (currentMinute >= 0 && minute !== currentMinute) {
       if (!NO_MINUTE) {
         console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
-        console.log(`  ticks: ${tickCount}  Σ(I−L): ${fmtSigma(cumSigma)}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}`);
-        console.log(`  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}`);
-        console.log(`  ΣΔL: ${fmtDelta(cumDeltaL)}  sign changes: ${minuteSignChanges}`);
-        console.log(`  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
+        console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  sign changes: ${minuteSignChanges}`);
         console.log();
       }
 
@@ -290,10 +286,7 @@ const ws = new ReconnectingWs(WS_URL, {
       const hour = localHour();
       if (currentHour >= 0 && hour !== currentHour) {
         console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
-        console.log(`  ticks: ${hourTicks}  Σ(I−L): ${fmtSigma(hourSigma)}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}`);
-        console.log(`  Σ(I−L)>0: ${fmtSigma(hourSigmaPos)}  Σ(I−L)<0: ${fmtSigma(hourSigmaNeg)}`);
-        console.log(`  ΣΔL: ${fmtDelta(hourDeltaL)}  sign changes: ${hourSignChanges}`);
-        console.log(`  ΣΔL>0: ${fmtDelta(hourDeltaLPos)}  ΣΔL<0: ${fmtDelta(hourDeltaLNeg)}`);
+        console.log(`  ticks: ${hourTicks}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}  Σ(I−L): ${fmtSigma(hourSigma)}  Σ(I−L)>0: ${fmtSigma(hourSigmaPos)}  Σ(I−L)<0: ${fmtSigma(hourSigmaNeg)}  ΣΔL: ${fmtDelta(hourDeltaL)}  ΣΔL>0: ${fmtDelta(hourDeltaLPos)}  ΣΔL<0: ${fmtDelta(hourDeltaLNeg)}  sign changes: ${hourSignChanges}`);
         console.log();
 
         saveHour({
