@@ -547,6 +547,9 @@ function processTicker(data: Record<string, unknown>): void {
 function printSummary(): void {
   console.log("\n═══════════════════════════════════════════════════════════════");
   console.log("  I-L ANALYSIS SUMMARY");
+  console.log("  Long Tks  = ticks where I-L > 0, slope rising, sustained ≥ HOLD ticks → LONG signal");
+  console.log("  Short Tks = ticks where I-L < 0, slope falling, sustained ≥ HOLD ticks → SHORT signal");
+  console.log("  Neu Tks   = ticks with no clear signal (I-L zero, or not sustained long enough)");
   console.log("═══════════════════════════════════════════════════════════════");
   console.log(
     "Symbol".padEnd(12) +
