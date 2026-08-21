@@ -51,7 +51,7 @@ const SYMBOL_DEFAULT = "XAUUSDT";
 const POLL_INTERVAL_MS = 2_000;
 
 /* ── Auto-trader configuration (tune these) ───────────────────────── */
-const AUTO_TRADE_ENABLED = true;      // master switch for placing real orders
+const AUTO_TRADE_ENABLED = !hasFlag("--no-trade");  // master switch for placing real orders
 const AUTO_TRADE_LEVERAGE = 100;      // leverage used for bot positions
 const ENTRY_DELTA_MIN = 0.10;         // buy when the up-leg is ≥ this far ($) above its pivot; 0 = strict "Δ > 0" rule
 const TRAILING_PNL_PCT = 5;          // safety: close bot position if PnL% gives back this many points from peak
@@ -81,6 +81,7 @@ Options:
   --size/--qty <num>      Contract quantity per trade (default: 0.01)
   --decimals <N>          Decimal places for displayed values (default: 2)
   --credential <name>     Credential profile from .credentials.json (e.g. A02, meta, gmail)
+  --no-trade              Suppress trading activity (read-only mode)
   --help                  Show this help message
 
 Examples:
@@ -190,6 +191,9 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const volume = Number(ticker.volumeRq ?? 0);
   const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
 
+  // Update intraday low for trade log column
+  TradeBatchProcessor.intradayLow = low;
+
   const now = fmtTime();
   const sign = changePct >= 0 ? "+" : "";
   const priceStr = `$${last.toFixed(DECIMALS)}`;
@@ -289,11 +293,23 @@ class TradeBatchProcessor {
   static streakStartPrice: number | null = null;
   static lastLongPrice: number | null = null;
   static lastShortPrice: number | null = null;
+  static intradayLow: number = 0;
 
   /** Set to true when the direction just changed on the most recent process_trade call. */
   static directionChanged: boolean = false;
   /** The direction value BEFORE the most recent process_trade call (for flip logging). */
   static prevPrevDirection: string | null = null;
+
+  static headersPrinted = false;
+
+  /** Print column headers once before the first trade is processed. */
+  static printHeaders(): void {
+    if (this.headersPrinted) return;
+    console.log(
+      `${"Timestamp".padEnd(22)} ${"Side".padEnd(4)} ${"Price".padStart(8)} ${"Qty".padStart(10)} ${"Last Δ".padStart(10)} ${"Dir".padEnd(6)} ${"Δ".padStart(8)} ${"I-L".padStart(8)} ${"Ask".padStart(8)} ${"Bid".padStart(8)} ${"Spread".padStart(8)}`
+    );
+    this.headersPrinted = true;
+  }
 
   /** Reset all static tracking state before starting a new batch. */
   static reset(): void {
@@ -313,6 +329,7 @@ class TradeBatchProcessor {
    * and big-move indicator.  Updates the static tracking state.
    */
   static process_trade(trade: unknown[]): void {
+    this.printHeaders();
     const [timestamp, side, price, quantity] = trade;
     const p = Number(price);
     const date = new Date(Number(timestamp / 1e6));
@@ -346,8 +363,9 @@ class TradeBatchProcessor {
     const bidStr = bestBid > 0 ? `$${bestBid.toFixed(DECIMALS)}` : '';
     const askStr = bestAsk > 0 ? `$${bestAsk.toFixed(DECIMALS)}` : '';
     const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(DECIMALS) : '';
+    const ilStr = this.intradayLow > 0 ? `$${this.intradayLow.toFixed(DECIMALS)}` : "";
     console.log(
-      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)}`
+      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(8)} ${Number(quantity).toFixed(DECIMALS).padStart(10)} ${lastDeltaStr.padStart(10)} ${arrow.padEnd(6)} ${ilStr.padStart(8)} ${askStr.padStart(8)} ${bidStr.padStart(8)} ${spread.padStart(8)}`
     );
     this.prevPrice = p;
   }
