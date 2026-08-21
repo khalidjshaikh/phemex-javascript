@@ -98,6 +98,8 @@ interface IlState {
   hourHour: number;  // which hour we're tracking
   hourCrossings: number;
   hourSigmaIl: number;  // Σ(I-L) cumulative I-L sum during hour
+  hourSigmaIlPos: number;  // Σ(I-L) where I-L > 0
+  hourSigmaIlNeg: number;  // Σ(I-L) where I-L < 0
   hourTicks: number;    // ticks captured this hour
 }
 
@@ -129,6 +131,8 @@ function initState(): IlState {
     hourHour: now.getHours(),
     hourCrossings: 0,
     hourSigmaIl: 0,
+    hourSigmaIlPos: 0,
+    hourSigmaIlNeg: 0,
     hourTicks: 0,
   };
 }
@@ -159,6 +163,8 @@ interface PersistedState {
     hourHour: number;
     hourCrossings: number;
     hourSigmaIl: number;
+    hourSigmaIlPos: number;
+    hourSigmaIlNeg: number;
     hourTicks: number;
   }>;
 }
@@ -183,6 +189,8 @@ function saveState(): void {
       hourHour: s.hourHour,
       hourCrossings: s.hourCrossings,
       hourSigmaIl: s.hourSigmaIl,
+      hourSigmaIlPos: s.hourSigmaIlPos,
+      hourSigmaIlNeg: s.hourSigmaIlNeg,
       hourTicks: s.hourTicks,
     };
   }
@@ -214,6 +222,8 @@ function loadState(): boolean {
       s.hourHour = saved.hourHour;
       s.hourCrossings = saved.hourCrossings;
       s.hourSigmaIl = saved.hourSigmaIl;
+      s.hourSigmaIlPos = saved.hourSigmaIlPos ?? 0;
+      s.hourSigmaIlNeg = saved.hourSigmaIlNeg ?? 0;
       s.hourTicks = saved.hourTicks ?? 0;
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
@@ -242,10 +252,12 @@ function printHourlyDeltaL(): void {
     "  I-L End".padStart(12) +
     "      ΔL".padStart(12) +
     "    Σ(I-L)".padStart(12) +
+    "      Σ+".padStart(12) +
+    "      Σ-".padStart(12) +
     "  Crossings".padStart(12) +
     "  Signal".padStart(10)
   );
-  console.log("─".repeat(82));
+  console.log("─".repeat(94));
   for (const [sym, s] of states) {
     const startIl = s.hourStartIl;
     const endIl = s.hourLastIl;
@@ -256,11 +268,13 @@ function printHourlyDeltaL(): void {
       fmtSign(endIl).padStart(12) +
       fmtSign(deltaL).padStart(12) +
       fmt(s.hourSigmaIl).padStart(12) +
+      fmt(s.hourSigmaIlPos).padStart(12) +
+      fmt(s.hourSigmaIlNeg).padStart(12) +
       String(s.hourCrossings).padStart(12) +
       (s.signal ?? "—").padStart(10)
     );
   }
-  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log("");
 }
 
@@ -389,6 +403,8 @@ function processTicker(data: Record<string, unknown>): void {
     state.hourStartIl = il;  // start of new hour
     state.hourCrossings = 0;
     state.hourSigmaIl = 0;
+    state.hourSigmaIlPos = 0;
+    state.hourSigmaIlNeg = 0;
     state.hourTicks = 0;
   }
   if (state.hourStartIl === null) {
@@ -396,6 +412,8 @@ function processTicker(data: Record<string, unknown>): void {
   }
   // Accumulate Σ(I-L) — sum of I-L values during hour
   state.hourSigmaIl += il;
+  if (il > 0) state.hourSigmaIlPos += il;
+  else if (il < 0) state.hourSigmaIlNeg += il;
   state.hourLastIl = il;
   state.hourTicks++;
 
@@ -419,8 +437,10 @@ function processTicker(data: Record<string, unknown>): void {
   const crossStr = String(state.crossCount).padStart(4);
 
   if (!HOURLY_ONLY) {
+    const sigPos = fmt(s.hourSigmaIlPos);
+    const sigNeg = fmt(s.hourSigmaIlNeg);
     console.log(
-      `[${tick}] ${pad(sym, 10)} I-L=${ilStr}  sign=${signChar}  slope=${slopeChar}${pad(slopeStr, 10)}  regime=${regimeStr}  crosses=${crossStr}  sig=${pad(sigStr, 6)}`,
+      `[${tick}] ${pad(sym, 10)} I-L=${ilStr}  sign=${signChar}  slope=${slopeChar}${pad(slopeStr, 10)}  regime=${regimeStr}  crosses=${crossStr}  Σ+=${pad(sigPos, 10)}  Σ-=${pad(sigNeg, 10)}  sig=${pad(sigStr, 6)}`,
     );
   }
 }
