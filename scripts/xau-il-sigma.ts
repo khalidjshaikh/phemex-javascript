@@ -73,6 +73,7 @@ interface HourRecord {
   deltaLPos: number;
   deltaLNeg: number;
   signChanges: number;
+  priceChange: number;
 }
 
 function loadHours(): HourRecord[] {
@@ -163,6 +164,8 @@ let hourDeltaLPos = 0;
 let hourDeltaLNeg = 0;
 let hourDeltaCount = 0;
 let currentHour = -1;
+let hourFirstLast: number | null = null;
+let hourLastLast: number | null = null;
 
 function resetMinute(minute: number): void {
   currentMinute = minute;
@@ -196,7 +199,7 @@ function fmtDate(d: Date): string {
   return `${p(d.getMonth() + 1)}/${p(d.getDate())}`;
 }
 
-function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number }): string {
+function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number; priceChange?: number }): string {
   const dt = h.date ?? "";
   const hr = fmtHour(h.clockHour);
   const ticks = String(h.ticks);
@@ -208,10 +211,11 @@ function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks
   const dlP = fmtDelta(h.deltaLPos ?? 0);
   const dlN = fmtDelta(h.deltaLNeg ?? 0);
   const sc = String(h.signChanges);
-  return `${label} ${padR(dt, 10)} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)}`;
+  const pc = h.priceChange != null ? fmtDelta(h.priceChange) : "—";
+  return `${label} ${padR(dt, 10)} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)} ${padR(pc, 10)}`;
 }
 
-const HOUR_HEADER = `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)}`;
+const HOUR_HEADER = `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)} ${padR("ΔL(h)", 10)}`;
 const HOUR_SEP = `  ${padR("", 10)} ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 12)} ${padR("", 12)} ${padR("", 12)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)} ${padR("chgs", 4)}`;
 
 /* ── WebSocket message handling ── */
@@ -285,6 +289,8 @@ if (lastHour && lastHour.clockHour === nowHour) {
   hourDeltaLNeg = lastHour.deltaLNeg ?? 0;
   hourSignChanges = lastHour.signChanges;
   currentHour = lastHour.clockHour;
+  hourFirstLast = null;  // Will be set on next tick
+  hourLastLast = null;
   console.log(`  ⟳  Restored hour ${fmtHour(lastHour.clockHour)} state: ${hourTicks} ticks, Σ(I−L): ${fmtSigma(hourSigma)}`);
   console.log();
 }
@@ -352,6 +358,7 @@ const ws = new ReconnectingWs(WS_URL, {
           deltaLPos: hourDeltaLPos,
           deltaLNeg: hourDeltaLNeg,
           signChanges: hourSignChanges,
+          priceChange: hourLastLast != null && hourFirstLast != null ? hourLastLast - hourFirstLast : 0,
         });
 
         hourSignChanges = 0;
@@ -364,6 +371,8 @@ const ws = new ReconnectingWs(WS_URL, {
         hourDeltaLPos = 0;
         hourDeltaLNeg = 0;
         hourDeltaCount = 0;
+        hourFirstLast = null;
+        hourLastLast = null;
       }
       currentHour = hour;
     }
@@ -387,6 +396,8 @@ const ws = new ReconnectingWs(WS_URL, {
     hourSigma += iMinusL;
     if (iMinusL > 0) hourSigmaPos += iMinusL;
     else if (iMinusL < 0) hourSigmaNeg += iMinusL;
+    if (hourFirstLast === null) hourFirstLast = last;
+    hourLastLast = last;
 
     const deltaIl = prevIl !== null ? iMinusL - prevIl : null;
     prevIl = iMinusL;
@@ -453,6 +464,7 @@ function saveCurrentHour(): void {
     deltaLPos: hourDeltaLPos,
     deltaLNeg: hourDeltaLNeg,
     signChanges: hourSignChanges,
+    priceChange: hourLastLast != null && hourFirstLast != null ? hourLastLast - hourFirstLast : 0,
   });
 }
 
