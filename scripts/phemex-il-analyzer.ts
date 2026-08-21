@@ -101,6 +101,18 @@ interface IlState {
   hourSigmaIlPos: number;  // Σ(I-L) where I-L > 0
   hourSigmaIlNeg: number;  // Σ(I-L) where I-L < 0
   hourTicks: number;    // ticks captured this hour
+
+  // Saved previous hour data for END OF HOUR report
+  lastHourStartIl: number | null;
+  lastHourEndIl: number | null;
+  lastHourDeltaL: number | null;
+  lastHourSigmaIl: number;
+  lastHourSigmaIlPos: number;
+  lastHourSigmaIlNeg: number;
+  lastHourCrossings: number;
+  lastHourTicks: number;
+  lastHourSignal: string | null;
+  hasLastHour: boolean;
 }
 
 function initState(): IlState {
@@ -134,6 +146,16 @@ function initState(): IlState {
     hourSigmaIlPos: 0,
     hourSigmaIlNeg: 0,
     hourTicks: 0,
+    lastHourStartIl: null,
+    lastHourEndIl: null,
+    lastHourDeltaL: null,
+    lastHourSigmaIl: 0,
+    lastHourSigmaIlPos: 0,
+    lastHourSigmaIlNeg: 0,
+    lastHourCrossings: 0,
+    lastHourTicks: 0,
+    lastHourSignal: null,
+    hasLastHour: false,
   };
 }
 
@@ -166,6 +188,16 @@ interface PersistedState {
     hourSigmaIlPos: number;
     hourSigmaIlNeg: number;
     hourTicks: number;
+    lastHourStartIl: number | null;
+    lastHourEndIl: number | null;
+    lastHourDeltaL: number | null;
+    lastHourSigmaIl: number;
+    lastHourSigmaIlPos: number;
+    lastHourSigmaIlNeg: number;
+    lastHourCrossings: number;
+    lastHourTicks: number;
+    lastHourSignal: string | null;
+    hasLastHour: boolean;
   }>;
 }
 
@@ -192,6 +224,16 @@ function saveState(): void {
       hourSigmaIlPos: s.hourSigmaIlPos,
       hourSigmaIlNeg: s.hourSigmaIlNeg,
       hourTicks: s.hourTicks,
+      lastHourStartIl: s.lastHourStartIl,
+      lastHourEndIl: s.lastHourEndIl,
+      lastHourDeltaL: s.lastHourDeltaL,
+      lastHourSigmaIl: s.lastHourSigmaIl,
+      lastHourSigmaIlPos: s.lastHourSigmaIlPos,
+      lastHourSigmaIlNeg: s.lastHourSigmaIlNeg,
+      lastHourCrossings: s.lastHourCrossings,
+      lastHourTicks: s.lastHourTicks,
+      lastHourSignal: s.lastHourSignal,
+      hasLastHour: s.hasLastHour,
     };
   }
   writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
@@ -225,6 +267,16 @@ function loadState(): boolean {
       s.hourSigmaIlPos = saved.hourSigmaIlPos ?? 0;
       s.hourSigmaIlNeg = saved.hourSigmaIlNeg ?? 0;
       s.hourTicks = saved.hourTicks ?? 0;
+      s.lastHourStartIl = saved.lastHourStartIl ?? null;
+      s.lastHourEndIl = saved.lastHourEndIl ?? null;
+      s.lastHourDeltaL = saved.lastHourDeltaL ?? null;
+      s.lastHourSigmaIl = saved.lastHourSigmaIl ?? 0;
+      s.lastHourSigmaIlPos = saved.lastHourSigmaIlPos ?? 0;
+      s.lastHourSigmaIlNeg = saved.lastHourSigmaIlNeg ?? 0;
+      s.lastHourCrossings = saved.lastHourCrossings ?? 0;
+      s.lastHourTicks = saved.lastHourTicks ?? 0;
+      s.lastHourSignal = saved.lastHourSignal ?? null;
+      s.hasLastHour = saved.hasLastHour ?? false;
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
     return true;
@@ -238,8 +290,8 @@ function loadState(): boolean {
 
 function printHourlyDeltaL(): void {
   const now = new Date();
-  const hour = now.getHours();
-  const hh = String(hour).padStart(2, "0");
+  const prevHour = (now.getHours() + 23) % 24; // previous hour
+  const hh = String(prevHour).padStart(2, "0");
   const stamp = `${hh}:00`;
 
   console.log("");
@@ -260,20 +312,21 @@ function printHourlyDeltaL(): void {
   );
   console.log("─".repeat(100));
   for (const [sym, s] of states) {
-    const startIl = s.hourStartIl;
-    const endIl = s.hourLastIl;
-    const deltaL = (startIl !== null && endIl !== null) ? endIl - startIl : null;
+    if (!s.hasLastHour) continue;
+    const startIl = s.lastHourStartIl;
+    const endIl = s.lastHourEndIl;
+    const deltaL = s.lastHourDeltaL;
     console.log(
       sym.padEnd(12) +
       fmtSign(startIl).padStart(12) +
       fmtSign(endIl).padStart(12) +
       fmtSign(deltaL).padStart(12) +
-      fmt(s.hourSigmaIl).padStart(12) +
-      fmt(s.hourSigmaIlPos).padStart(12) +
-      fmt(s.hourSigmaIlNeg).padStart(12) +
-      String(s.hourCrossings).padStart(10) +
-      String(s.hourTicks).padStart(10) +
-      (s.signal ?? "—").padStart(10)
+      fmt(s.lastHourSigmaIl).padStart(12) +
+      fmt(s.lastHourSigmaIlPos).padStart(12) +
+      fmt(s.lastHourSigmaIlNeg).padStart(12) +
+      String(s.lastHourCrossings).padStart(10) +
+      String(s.lastHourTicks).padStart(10) +
+      (s.lastHourSignal ?? "—").padStart(10)
     );
   }
   console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
@@ -400,7 +453,20 @@ function processTicker(data: Record<string, unknown>): void {
   // Hour tracking
   const hour = new Date(now).getHours();
   if (state.hourHour !== hour) {
-    // Hour boundary — we'll print ΔL after all symbols are processed
+    // Hour boundary — save previous hour's data for the END OF HOUR report
+    state.lastHourStartIl = state.hourStartIl;
+    state.lastHourEndIl = state.hourLastIl;
+    state.lastHourDeltaL = (state.hourStartIl !== null && state.hourLastIl !== null)
+      ? state.hourLastIl - state.hourStartIl : null;
+    state.lastHourSigmaIl = state.hourSigmaIl;
+    state.lastHourSigmaIlPos = state.hourSigmaIlPos;
+    state.lastHourSigmaIlNeg = state.hourSigmaIlNeg;
+    state.lastHourCrossings = state.hourCrossings;
+    state.lastHourTicks = state.hourTicks;
+    state.lastHourSignal = state.signal;
+    state.hasLastHour = true;
+
+    // Reset for new hour
     state.hourHour = hour;
     state.hourStartIl = il;  // start of new hour
     state.hourCrossings = 0;
@@ -439,8 +505,8 @@ function processTicker(data: Record<string, unknown>): void {
   const crossStr = String(state.crossCount).padStart(4);
 
   if (!HOURLY_ONLY) {
-    const sigPos = fmt(s.hourSigmaIlPos);
-    const sigNeg = fmt(s.hourSigmaIlNeg);
+    const sigPos = fmt(state.hourSigmaIlPos);
+    const sigNeg = fmt(state.hourSigmaIlNeg);
     console.log(
       `[${tick}] ${pad(sym, 10)} I-L=${ilStr}  sign=${signChar}  slope=${slopeChar}${pad(slopeStr, 10)}  regime=${regimeStr}  crosses=${crossStr}  Σ+=${pad(sigPos, 10)}  Σ-=${pad(sigNeg, 10)}  sig=${pad(sigStr, 6)}`,
     );
