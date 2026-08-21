@@ -527,7 +527,7 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  tick            symbol       I-L      sign  slope    regime  crosses    Σ(I-L)       Σ+         Σ-`);
+      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(12)}${"I-L".padStart(11)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(8)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
@@ -535,7 +535,7 @@ function processTicker(data: Record<string, unknown>): void {
     const sigNeg = fmt(state.hourSigmaIlNeg);
     const sigmaIl = fmt(state.hourSigmaIl);
     console.log(
-      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigmaIl, 10)}  ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}`,
+      `  ${pad(tick, 16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}`,
     );
     tickCount++;
   }
