@@ -295,7 +295,7 @@ if (lastHour && lastHour.clockHour === nowHour) {
   console.log();
 }
 
-const TICK_HEADER = `[             ]  ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("Σ(I−L)", W_SG)}  ${padL("Σ+", W_SG)}  ${padL("Σ-", W_SG)}`;
+const TICK_HEADER = `[             ]  ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("Σ(I−L)", W_SG)}  ${padL("Σ+", W_SG)}  ${padL("Σ-", W_SG)}  ${padL("ΣΔL", W_SG)}  ${padL("ΣΔL+", W_SG)}  ${padL("ΣΔL-", W_SG)}  ${padL("chgs", 4)}  ${padL("ΔL(h)", W_SG)}`;
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
@@ -426,7 +426,7 @@ const ws = new ReconnectingWs(WS_URL, {
         tickHeaderPrinted = true;
       }
       console.log(
-        `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtSigma(cumSigma), W_SG)}  ${padL(fmtSigma(cumSigmaPos), W_SG)}  ${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
+        `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtSigma(cumSigma), W_SG)}  ${padL(fmtSigma(cumSigmaPos), W_SG)}  ${padL(fmtSigma(cumSigmaNeg), W_SG)}  ${padL(fmtDelta(cumDeltaL), W_SG)}  ${padL(fmtDelta(cumDeltaLPos), W_SG)}  ${padL(fmtDelta(cumDeltaLNeg), W_SG)}  ${padL(String(minuteSignChanges), 4)}  ${padL(hourLastLast != null && hourFirstLast != null ? fmtDelta(hourLastLast - hourFirstLast) : "—", W_SG)}`,
       );
     }
   },
