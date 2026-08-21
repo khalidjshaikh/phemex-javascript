@@ -254,10 +254,11 @@ function printHourlyDeltaL(): void {
     "    Σ(I-L)".padStart(12) +
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
-    "  Crossings".padStart(12) +
+    "  Crosses".padStart(10) +
+    "    Ticks".padStart(10) +
     "  Signal".padStart(10)
   );
-  console.log("─".repeat(94));
+  console.log("─".repeat(100));
   for (const [sym, s] of states) {
     const startIl = s.hourStartIl;
     const endIl = s.hourLastIl;
@@ -270,7 +271,8 @@ function printHourlyDeltaL(): void {
       fmt(s.hourSigmaIl).padStart(12) +
       fmt(s.hourSigmaIlPos).padStart(12) +
       fmt(s.hourSigmaIlNeg).padStart(12) +
-      String(s.hourCrossings).padStart(12) +
+      String(s.hourCrossings).padStart(10) +
+      String(s.hourTicks).padStart(10) +
       (s.signal ?? "—").padStart(10)
     );
   }
