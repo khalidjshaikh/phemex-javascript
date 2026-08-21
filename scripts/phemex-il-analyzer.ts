@@ -524,7 +524,7 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(12)}${"I-L".padStart(11)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(8)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`);
+      console.log(`  ${"tick".padEnd(16)}  ${"symbol".padEnd(10)}  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
