@@ -327,8 +327,7 @@ function printStartupHistory(): void {
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
     "  Crosses".padStart(10) +
-    "    Ticks".padStart(10) +
-    "  Signal".padStart(10)
+    "    Ticks".padStart(10)
   );
   console.log("─".repeat(106));
 
@@ -347,8 +346,7 @@ function printStartupHistory(): void {
         fmt(rec.sigmaIlPos).padStart(12) +
         fmt(rec.sigmaIlNeg).padStart(12) +
         String(rec.crossings).padStart(10) +
-        String(rec.ticks).padStart(10) +
-        (rec.signal ?? "—").padStart(10)
+        String(rec.ticks).padStart(10)
       );
     }
     console.log("─".repeat(106));
