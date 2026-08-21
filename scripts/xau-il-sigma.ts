@@ -414,7 +414,7 @@ const ws = new ReconnectingWs(WS_URL, {
         tickHeaderPrinted = true;
       }
       console.log(
-        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ(I-L)=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}  Σ+=${padL(fmtSigma(cumSigmaPos), W_SG)}  Σ-=${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
+        `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtSigma(cumSigma), W_SG)}  ${padL(fmtSigma(cumSigmaPos), W_SG)}  ${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
       );
     }
   },
