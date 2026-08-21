@@ -47,7 +47,7 @@ const LONG_PID_FILE = ".long-limit.pid";
 const SHORT_PID_FILE = ".short-limit.pid";
 
 const WS_URL = "wss://ws.phemex.com";
-const SYMBOL_DEFAULT = "XBRUSDT";
+const SYMBOL_DEFAULT = "XAUUSDT";
 const POLL_INTERVAL_MS = 2_000;
 
 /* ── Auto-trader configuration (tune these) ───────────────────────── */
@@ -63,7 +63,7 @@ function parseArg(name: string): string | undefined {
   return idx !== -1 && idx + 1 < process.argv.length ? process.argv[idx + 1] : undefined;
 }
 
-const AUTO_TRADE_QTY = Number(parseArg("size") ?? parseArg("qty") ?? "0.01");
+const AUTO_TRADE_QTY = Number(parseArg("size") ?? parseArg("qty") ?? "0.001");
 const SYMBOL = parseArg("symbol") ?? SYMBOL_DEFAULT;
 const PRICE_FILE = `${(parseArg("symbol") ?? "xbrusdt").toLowerCase()}-last-price.txt`;
 const DECIMALS = Number(parseArg("decimals") ?? "3");
