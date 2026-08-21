@@ -153,6 +153,8 @@ let prevDirection: "↑" | "↓" = "↑";
 /** Best bid/ask from orderbook WebSocket */
 let bestBid = 0;
 let bestAsk = 0;
+/** Flag to log pack fields only once */
+let fieldsLogged = false;
 /** API credentials, set once in main() */
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
@@ -535,6 +537,10 @@ async function main(): Promise<void> {
         Array.isArray(m.fields) &&
         Array.isArray(m.data)
       ) {
+        if (!fieldsLogged) {
+          console.log(`[${fmtTime()}]  pack fields: ${(m.fields as string[]).join(", ")}`);
+          fieldsLogged = true;
+        }
         const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
         if (ticker) {
           printTicker(SYMBOL, ticker);
@@ -577,7 +583,7 @@ async function main(): Promise<void> {
   ws.connect();
 
   // ---------------------------------------------------------------
-  // Position polling loop (REST)
+  // Position polling loop (REST) — skipped when --no-trade
   // ---------------------------------------------------------------
   let running = true;
 
@@ -588,11 +594,17 @@ async function main(): Promise<void> {
     process.exit(0);
   });
 
+  if (!AUTO_TRADE_ENABLED) {
+    console.log(`[${fmtTime()}]  --no-trade: position polling disabled`);
+  }
+
   while (running) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     if (!running) break;
+    if (!AUTO_TRADE_ENABLED) continue;
 
     try {
+      if (!AUTO_TRADE_ENABLED) continue;
       const positions = await fetchPositions(apiKey, secretRaw);
       allPositions = positions;
       const pos = positions.find((p) => p.symbol === SYMBOL);
@@ -611,12 +623,14 @@ async function main(): Promise<void> {
       const size = parseFloat(pos.size || "0");
       const margin = parseFloat(pos.posCostRv || "0");
 
-      console.log(
-        `[${fmtTime()}]  ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
-        `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
-        `PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  ` +
-        `margin: $${fmtNum(margin, 4)}`
-      );
+      if (AUTO_TRADE_ENABLED) {
+        console.log(
+          `[${fmtTime()}]  ${SYMBOL}  ${pos.side.padEnd(4)}  ` +
+          `size: ${fmtNum(size, 4)}  entry: $${fmtNum(entry)}  mark: $${fmtNum(mark)}  ` +
+          `PnL: ${pnlPct >= 0 ? "+" : ""}${fmtNum(pnlPct, 2)}%  ` +
+          `margin: $${fmtNum(margin, 4)}`
+        );
+      }
 
       // ── Auto-trader position: close when the PnL declines ───────────
       // PnL% is margin-based, so at 100x leverage a -10% PnL is only a

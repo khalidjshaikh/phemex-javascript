@@ -5,7 +5,7 @@
   ETHUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.85, threshold: 20},
   LINKUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: 0.0004, threshold: 0.3},
   SOLUSDT: {hedge: true, leverage: 50, profit: 0, size: 0.01, bias: -0.04, threshold: 1.5},
-  SUIUSDT: {hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.013},
+  SUIUSDT: {hedge: true, leverage: 50, profit: 0, size: 1, bias: -0.0004, threshold: 0.015},
   XAUUSDT: {realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 90, errorBudget: 4},
   XBRUSDT: {hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.02, threshold: 10, errorBudget: 4},
   XRPUSDT: {realSymbol: "XRPUSDT", hedge: true, leverage: 50, profit: 0, size: 0.01, threshold: 0.05},
