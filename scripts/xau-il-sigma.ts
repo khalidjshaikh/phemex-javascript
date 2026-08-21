@@ -36,7 +36,7 @@ Output columns:
   L       = last (mark) price
   ΔL      = last tick delta
   I-L     = index − last
-  Δ       = change in I-L from previous tick
+  Δ(I-L)  = change in I-L from previous tick
   Σ(I−L)  = cumulative I-L within the minute
 
 Per-minute / per-hour summaries include:
@@ -407,7 +407,7 @@ const ws = new ReconnectingWs(WS_URL, {
 
     if (!QUIET) {
       console.log(
-        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}  Σ+=${padL(fmtSigma(cumSigmaPos), W_SG)}  Σ-=${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
+        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ(I-L)=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}  Σ+=${padL(fmtSigma(cumSigmaPos), W_SG)}  Σ-=${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
       );
     }
   },
