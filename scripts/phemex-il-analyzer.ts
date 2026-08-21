@@ -535,7 +535,7 @@ function processTicker(data: Record<string, unknown>): void {
     const sigNeg = fmt(state.hourSigmaIlNeg);
     const sigmaIl = fmt(state.hourSigmaIl);
     console.log(
-      `  ${pad(tick, 16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}`,
+      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}`,
     );
     tickCount++;
   }
