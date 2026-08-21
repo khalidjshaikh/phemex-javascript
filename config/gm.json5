@@ -20,7 +20,7 @@
   XAUUSDT8_6to8: { realSymbol: "XAUUSDT", hedge: true, leverage: 100, profit: 0, size: 0.001, bias: 0, threshold: 8, errorBudget: 6, from: 600, to: 800 },
   XTIUSDT4_6to8:  { realSymbol: "XTIUSDT",hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.125, threshold: 0.45, errorBudget: 6, from: 600, to: 800  },
   XBRUSDT:  { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.02, threshold: 1, errorBudget: 6 },
-  XRPUSDT:  { realSymbol: "XRPUSDT", hedge: true, leverage: 50, profit: 0, size: 0.01, threshold: 0.004 },
+  XRPUSDT:  { realSymbol: "XRPUSDT", hedge: true, leverage: 50, profit: 0, size: 0.01, threshold: 0.005 },
 // XRPUSDT4:  { realSymbol: "XRPUSDT", hedge: true, leverage: 50, profit: 0, size: 0.01, threshold: 0.0018, from: 1850, to: 2000 },
 // XRPUSDT5:  { realSymbol: "XRPUSDT", hedge: true, leverage: 50, profit: 0, size: 0.01, threshold: 0.005 },
   XTIUSDT:  { hedge: true, leverage: 100, profit: 0, size: 0.01, bias: -0.125, threshold: 0.45, errorBudget: 6 }
