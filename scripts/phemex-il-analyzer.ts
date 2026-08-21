@@ -329,7 +329,6 @@ function printStartupHistory(): void {
     "  Crosses".padStart(10) +
     "    Ticks".padStart(10)
   );
-  console.log("─".repeat(106));
 
   for (const [sym, s] of states) {
     if (s.hourHistory.length === 0) continue;
@@ -349,11 +348,7 @@ function printStartupHistory(): void {
         String(rec.ticks).padStart(10)
       );
     }
-    console.log("─".repeat(106));
   }
-  console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
-  console.log("");
-}
 
 /* ── Helpers ── */
 
