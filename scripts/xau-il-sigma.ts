@@ -58,6 +58,7 @@ const DATA_DIR = join(process.cwd(), "data");
 const HOURS_FILE = join(DATA_DIR, "xau-il-sigma-hours.jsonl");
 
 interface HourRecord {
+  date: string;
   hour: number;
   clockHour: number;
   ticks: number;
@@ -189,7 +190,13 @@ function padR(s: string, w: number): string {
   return need <= 0 ? s : s + " ".repeat(need);
 }
 
-function fmtHourLine(label: string, h: { clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number }): string {
+function fmtDate(d: Date): string {
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())}`;
+}
+
+function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number }): string {
+  const dt = h.date ?? "";
   const hr = `hour ${fmtHour(h.clockHour)}`;
   const ticks = String(h.ticks);
   const avg = h.ticks > 0 ? fmtSigma(h.avgIl) : "—";
@@ -200,11 +207,11 @@ function fmtHourLine(label: string, h: { clockHour: number; ticks: number; avgIl
   const dlP = fmtDelta(h.deltaLPos ?? 0);
   const dlN = fmtDelta(h.deltaLNeg ?? 0);
   const sc = String(h.signChanges);
-  return `${label} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)}`;
+  return `${label} ${padR(dt, 10)} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)}`;
 }
 
-const HOUR_HEADER = `  ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)}`;
-const HOUR_SEP = `  ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 12)} ${padR("", 12)} ${padR("", 12)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)} ${padR("chgs", 4)}`;
+const HOUR_HEADER = `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)}`;
+const HOUR_SEP = `  ${padR("", 10)} ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 12)} ${padR("", 12)} ${padR("", 12)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)} ${padR("chgs", 4)}`;
 
 /* ── WebSocket message handling ── */
 
@@ -311,6 +318,7 @@ const ws = new ReconnectingWs(WS_URL, {
         console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
         console.log(HOUR_HEADER);
         console.log(fmtHourLine("  ", {
+          date: fmtDate(new Date()),
           clockHour: currentHour % 24,
           ticks: hourTicks,
           avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
@@ -325,6 +333,7 @@ const ws = new ReconnectingWs(WS_URL, {
         console.log();
 
         saveHour({
+          date: fmtDate(new Date()),
           hour: currentHour,
           clockHour: localHour(),
           ticks: hourTicks,
