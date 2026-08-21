@@ -34,7 +34,7 @@ Options:
   --help              Show this help and exit
 
 Hourly summary prints:
-  ΔL      = I-L end − I-L start (net change over hour)
+  Δ(I-L)      = I-L end − I-L start (net change over hour)
   Σ(I-L)  = cumulative sum of I-L values (positive = index > last dominated)
   Crossings = zero-crossings during hour
 `;
@@ -107,7 +107,7 @@ interface IlState {
   prevIndexRp: number | null;
   prevLastRp: number | null;
 
-  // Hour tracking: I-L at start of hour for ΔL
+  // Hour tracking: I-L at start of hour for Δ(I-L)
   hourStartIl: number | null;
   hourLastIl: number | null;
   hourHour: number;  // which hour we're tracking
@@ -258,7 +258,7 @@ function loadState(): boolean {
   }
 }
 
-/* ── Hourly ΔL summary ── */
+/* ── Hourly Δ(I-L) summary ── */
 
 function printHourlyDeltaL(): void {
   const now = new Date();
@@ -268,12 +268,12 @@ function printHourlyDeltaL(): void {
 
   const endStamp = `${hh}:59:59.999`;
   console.log("");
-  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
+  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — Δ(I-L) + Σ(I-L) + Σ+ + Σ- + Crossings`);
   console.log(
     "Symbol".padEnd(12) +
     " I-L Start".padStart(12) +
     "  I-L End".padStart(12) +
-    "      ΔL".padStart(12) +
+    "      Δ(I-L)".padStart(12) +
     "    Σ(I-L)".padStart(12) +
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
@@ -311,13 +311,13 @@ function printStartupHistory(): void {
   if (!hasAny) return;
 
   console.log("");
-  console.log(`  LAST 24 HOURS — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
+  console.log(`  LAST 24 HOURS — Δ(I-L) + Σ(I-L) + Σ+ + Σ- + Crossings`);
   console.log(
     "Hour".padEnd(6) +
     "Symbol".padEnd(12) +
     " I-L Start".padStart(12) +
     "  I-L End".padStart(12) +
-    "      ΔL".padStart(12) +
+    "      Δ(I-L)".padStart(12) +
     "    Σ(I-L)".padStart(12) +
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
@@ -636,7 +636,7 @@ const ws = new ReconnectingWs(WS_URL, {
         hourlyLinesPrinted++;
       }
     }
-    // Print hourly ΔL report after all symbols processed for this batch
+    // Print hourly Δ(I-L) report after all symbols processed for this batch
     const hour = new Date().getHours();
     if (hour !== lastPrintedHour) {
       lastPrintedHour = hour;
