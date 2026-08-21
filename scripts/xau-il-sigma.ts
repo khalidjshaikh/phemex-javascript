@@ -127,9 +127,9 @@ function padL(s: string, w: number): string {
   return need <= 0 ? s : " ".repeat(need) + s;
 }
 
-const W_IL = DECIMALS + 5;   // sign + digits + dot + decimals
-const W_DL = DECIMALS + 4;   // sign + digits + dot + decimals
-const W_SG = DECIMALS + 7;   // sign + digits + dot + decimals
+const W_IL = 10;  // price column width
+const W_DL = 10;  // delta column width
+const W_SG = 12;  // sigma column width
 
 function localHour(): number { const d = new Date(); return d.getHours(); }
 function localMinute(): number { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
@@ -289,7 +289,7 @@ if (lastHour && lastHour.clockHour === nowHour) {
   console.log();
 }
 
-const TICK_HEADER = `             I           ΔI           L           ΔL         I-L       Δ(I-L)     Σ(I−L)       Σ+=       Σ-=`;
+const TICK_HEADER = `             ${padR("I", W_IL)}  ${padR("ΔI", W_DL)}  ${padR("L", W_IL)}  ${padR("ΔL", W_DL)}  ${padR("I-L", W_IL)}  ${padR("Δ(I-L)", W_DL)}  ${padR("Σ(I−L)", W_SG)}  ${padR("Σ+", W_SG)}  ${padR("Σ-", W_SG)}`;
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
@@ -314,6 +314,7 @@ const ws = new ReconnectingWs(WS_URL, {
         console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  sign changes: ${minuteSignChanges}`);
         console.log();
       }
+      tickHeaderPrinted = false;
 
       // Hour rollover
       const hour = localHour();
