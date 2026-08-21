@@ -42,7 +42,7 @@ Hourly summary prints:
 if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
 
 const SYMBOLS = (getArg("--symbol") ?? "XBRUSDT").split(",").filter(Boolean);
-const WINDOW = Number(getArg("--window") ?? 5);
+const WINDOW = Number(getArg("--window") ?? 1);
 const HOLD = Number(getArg("--hold") ?? 3);
 const DECIMALS = Number(getArg("--decimals") ?? 4);
 const HOURLY_ONLY = hasFlag("--hourlyOnly");
@@ -98,6 +98,7 @@ interface IlState {
   hourHour: number;  // which hour we're tracking
   hourCrossings: number;
   hourSigmaIl: number;  // Σ(I-L) cumulative I-L sum during hour
+  hourTicks: number;    // ticks captured this hour
 }
 
 function initState(): IlState {
@@ -128,11 +129,14 @@ function initState(): IlState {
     hourHour: now.getHours(),
     hourCrossings: 0,
     hourSigmaIl: 0,
+    hourTicks: 0,
   };
 }
 
 const states = new Map<string, IlState>();
 for (const sym of SYMBOLS) states.set(sym, initState());
+
+let hourlyLinesPrinted = 0;
 
 /* ── Persistence ── */
 
@@ -155,6 +159,7 @@ interface PersistedState {
     hourHour: number;
     hourCrossings: number;
     hourSigmaIl: number;
+    hourTicks: number;
   }>;
 }
 
@@ -178,6 +183,7 @@ function saveState(): void {
       hourHour: s.hourHour,
       hourCrossings: s.hourCrossings,
       hourSigmaIl: s.hourSigmaIl,
+      hourTicks: s.hourTicks,
     };
   }
   writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
@@ -208,6 +214,7 @@ function loadState(): boolean {
       s.hourHour = saved.hourHour;
       s.hourCrossings = saved.hourCrossings;
       s.hourSigmaIl = saved.hourSigmaIl;
+      s.hourTicks = saved.hourTicks ?? 0;
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
     return true;
@@ -332,10 +339,14 @@ function processTicker(data: Record<string, unknown>): void {
     state.hourCrossings++;
   }
 
-  // Compute slope
-  const slopeVal = computeSlope(state.history, now);
-  const newSlope: "rising" | "falling" | "flat" =
-    slopeVal !== null ? (slopeVal > 0 ? "rising" : slopeVal < 0 ? "falling" : "flat") : "flat";
+  // Compute slope: direction of change from previous tick
+  let newSlope: "rising" | "falling" | "flat";
+  if (state.lastIl !== null) {
+    const diff = il - state.lastIl;
+    newSlope = diff > 0 ? "rising" : diff < 0 ? "falling" : "flat";
+  } else {
+    newSlope = "flat";
+  }
 
   // Regime tracking: when sign or slope changes, reset regime timer
   if (newSign !== state.sign || newSlope !== state.slope) {
@@ -378,6 +389,7 @@ function processTicker(data: Record<string, unknown>): void {
     state.hourStartIl = il;  // start of new hour
     state.hourCrossings = 0;
     state.hourSigmaIl = 0;
+    state.hourTicks = 0;
   }
   if (state.hourStartIl === null) {
     state.hourStartIl = il;  // first tick
@@ -385,19 +397,21 @@ function processTicker(data: Record<string, unknown>): void {
   // Accumulate Σ(I-L) — sum of I-L values during hour
   state.hourSigmaIl += il;
   state.hourLastIl = il;
+  state.hourTicks++;
 
-  // Update state
+  // Update state (assign prev BEFORE last so prev captures old value)
   state.prevSign = state.sign;
+  state.prevPrevIl = state.prevIl;
+  state.prevIl = state.lastIl;
+  state.lastIl = il;
   state.sign = newSign;
   state.slope = newSlope;
-  state.lastIl = il;
-  state.prevIl = state.lastIl;
-  state.prevPrevIl = state.prevIl;
 
   // Print summary for this symbol
   const tick = tsHMS(now);
   const ilStr = fmtSign(il);
-  const slopeStr = slopeVal !== null ? fmtSign(slopeVal, 6) : "      ";
+  const slopeDiff = state.lastIl !== null ? il - state.lastIl : null;
+  const slopeStr = slopeDiff !== null ? fmtSign(slopeDiff, 6) : "      ";
   const signChar = newSign === "positive" ? "+" : newSign === "negative" ? "-" : "0";
   const slopeChar = newSlope === "rising" ? "↑" : newSlope === "falling" ? "↓" : "→";
   const sigStr = state.signal ?? "—";
@@ -475,7 +489,17 @@ if (!HOURLY_ONLY) {
 
 loadState();
 
+if (HOURLY_ONLY) {
+  const hh = String(new Date().getHours()).padStart(2, "0");
+  console.log(`\n⟐  Loaded saved ticks for hour ${hh}:00:`);
+  for (const [sym, s] of states) {
+    console.log(`  ${sym.padEnd(12)} ticks=${String(s.hourTicks).padStart(5)}  crosses=${String(s.hourCrossings).padStart(4)}`);
+  }
+  console.log("");
+}
+
 const ws = new ReconnectingWs(WS_URL, {
+  registerSigint: false,
   onOpen: () => {
     if (IS_USDT_M) {
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
@@ -486,10 +510,25 @@ const ws = new ReconnectingWs(WS_URL, {
   onMessage: (msg) => {
     const tickers = handleMessage(msg);
     for (const data of tickers) processTicker(data);
+    if (HOURLY_ONLY && tickers.length > 0) {
+      if (hourlyLinesPrinted > 0) {
+        process.stdout.write(`\x1b[${hourlyLinesPrinted}A`);
+      }
+      hourlyLinesPrinted = 0;
+      for (const [sym, s] of states) {
+        const hh = String(new Date().getHours()).padStart(2, "0");
+        const ilStr = fmtSign(s.lastIl);
+        const prevIlStr = fmtSign(s.prevIl);
+        const slopeChar = s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→";
+        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} lastIL=${prevIlStr.padStart(10)}  I-L=${ilStr.padStart(10)}  slope=${slopeChar}  crosses=${String(s.hourCrossings).padStart(4)}  ticks=${String(s.hourTicks).padStart(5)}   [${hh}:00]\n`);
+        hourlyLinesPrinted++;
+      }
+    }
     // Print hourly ΔL report after all symbols processed for this batch
     const hour = new Date().getHours();
     if (hour !== lastPrintedHour) {
       lastPrintedHour = hour;
+      hourlyLinesPrinted = 0;
       printHourlyDeltaL();
       saveState();
     }
@@ -506,12 +545,22 @@ const ws = new ReconnectingWs(WS_URL, {
 
 ws.connect();
 
-// Save state every 5 minutes
-setInterval(saveState, 5 * 60 * 1000);
+// Save state every 30 seconds
+setInterval(saveState, 30 * 1000);
 
 process.on("SIGINT", () => {
+  console.log("\n⟐  Saving state...");
+  try {
+    saveState();
+    console.log("⟐  State saved.");
+  } catch (e) {
+    console.error("⟐  Failed to save state:", e);
+  }
   printHourlyDeltaL();
   printSummary();
-  saveState();
   process.exit(0);
+});
+
+process.on("beforeExit", () => {
+  saveState();
 });
