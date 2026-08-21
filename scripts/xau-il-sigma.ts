@@ -127,9 +127,9 @@ function padL(s: string, w: number): string {
   return need <= 0 ? s : " ".repeat(need) + s;
 }
 
-const W_IL = 10;  // price column width
-const W_DL = 10;  // delta column width
-const W_SG = 12;  // sigma column width
+const W_IL = 9;   // price column width
+const W_DL = 9;   // delta column width
+const W_SG = 11;  // sigma column width
 
 function localHour(): number { const d = new Date(); return d.getHours(); }
 function localMinute(): number { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
