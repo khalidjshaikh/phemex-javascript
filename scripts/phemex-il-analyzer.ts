@@ -51,6 +51,21 @@ const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
 /* ── Per-symbol state ── */
 
+const MAX_HISTORY_HOURS = 24;
+
+interface HourRecord {
+  hour: number;          // 0-23
+  startIl: number | null;
+  endIl: number | null;
+  deltaL: number | null;
+  sigmaIl: number;
+  sigmaIlPos: number;
+  sigmaIlNeg: number;
+  crossings: number;
+  ticks: number;
+  signal: string | null;
+}
+
 interface IlState {
   // Last I-L value and history for slope
   lastIl: number | null;
@@ -102,17 +117,8 @@ interface IlState {
   hourSigmaIlNeg: number;  // Σ(I-L) where I-L < 0
   hourTicks: number;    // ticks captured this hour
 
-  // Saved previous hour data for END OF HOUR report
-  lastHourStartIl: number | null;
-  lastHourEndIl: number | null;
-  lastHourDeltaL: number | null;
-  lastHourSigmaIl: number;
-  lastHourSigmaIlPos: number;
-  lastHourSigmaIlNeg: number;
-  lastHourCrossings: number;
-  lastHourTicks: number;
-  lastHourSignal: string | null;
-  hasLastHour: boolean;
+  // Ring buffer of last 24 hourly records
+  hourHistory: HourRecord[];
 }
 
 function initState(): IlState {
@@ -146,16 +152,7 @@ function initState(): IlState {
     hourSigmaIlPos: 0,
     hourSigmaIlNeg: 0,
     hourTicks: 0,
-    lastHourStartIl: null,
-    lastHourEndIl: null,
-    lastHourDeltaL: null,
-    lastHourSigmaIl: 0,
-    lastHourSigmaIlPos: 0,
-    lastHourSigmaIlNeg: 0,
-    lastHourCrossings: 0,
-    lastHourTicks: 0,
-    lastHourSignal: null,
-    hasLastHour: false,
+    hourHistory: [],
   };
 }
 
@@ -188,16 +185,7 @@ interface PersistedState {
     hourSigmaIlPos: number;
     hourSigmaIlNeg: number;
     hourTicks: number;
-    lastHourStartIl: number | null;
-    lastHourEndIl: number | null;
-    lastHourDeltaL: number | null;
-    lastHourSigmaIl: number;
-    lastHourSigmaIlPos: number;
-    lastHourSigmaIlNeg: number;
-    lastHourCrossings: number;
-    lastHourTicks: number;
-    lastHourSignal: string | null;
-    hasLastHour: boolean;
+    hourHistory: HourRecord[];
   }>;
 }
 
@@ -224,16 +212,7 @@ function saveState(): void {
       hourSigmaIlPos: s.hourSigmaIlPos,
       hourSigmaIlNeg: s.hourSigmaIlNeg,
       hourTicks: s.hourTicks,
-      lastHourStartIl: s.lastHourStartIl,
-      lastHourEndIl: s.lastHourEndIl,
-      lastHourDeltaL: s.lastHourDeltaL,
-      lastHourSigmaIl: s.lastHourSigmaIl,
-      lastHourSigmaIlPos: s.lastHourSigmaIlPos,
-      lastHourSigmaIlNeg: s.lastHourSigmaIlNeg,
-      lastHourCrossings: s.lastHourCrossings,
-      lastHourTicks: s.lastHourTicks,
-      lastHourSignal: s.lastHourSignal,
-      hasLastHour: s.hasLastHour,
+      hourHistory: s.hourHistory,
     };
   }
   writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
@@ -267,16 +246,7 @@ function loadState(): boolean {
       s.hourSigmaIlPos = saved.hourSigmaIlPos ?? 0;
       s.hourSigmaIlNeg = saved.hourSigmaIlNeg ?? 0;
       s.hourTicks = saved.hourTicks ?? 0;
-      s.lastHourStartIl = saved.lastHourStartIl ?? null;
-      s.lastHourEndIl = saved.lastHourEndIl ?? null;
-      s.lastHourDeltaL = saved.lastHourDeltaL ?? null;
-      s.lastHourSigmaIl = saved.lastHourSigmaIl ?? 0;
-      s.lastHourSigmaIlPos = saved.lastHourSigmaIlPos ?? 0;
-      s.lastHourSigmaIlNeg = saved.lastHourSigmaIlNeg ?? 0;
-      s.lastHourCrossings = saved.lastHourCrossings ?? 0;
-      s.lastHourTicks = saved.lastHourTicks ?? 0;
-      s.lastHourSignal = saved.lastHourSignal ?? null;
-      s.hasLastHour = saved.hasLastHour ?? false;
+      s.hourHistory = saved.hourHistory ?? [];
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
     return true;
@@ -312,22 +282,73 @@ function printHourlyDeltaL(): void {
   );
   console.log("─".repeat(100));
   for (const [sym, s] of states) {
-    if (!s.hasLastHour) continue;
-    const startIl = s.lastHourStartIl;
-    const endIl = s.lastHourEndIl;
-    const deltaL = s.lastHourDeltaL;
+    if (s.hourHistory.length === 0) continue;
+    const rec = s.hourHistory[s.hourHistory.length - 1];
     console.log(
       sym.padEnd(12) +
-      fmtSign(startIl).padStart(12) +
-      fmtSign(endIl).padStart(12) +
-      fmtSign(deltaL).padStart(12) +
-      fmt(s.lastHourSigmaIl).padStart(12) +
-      fmt(s.lastHourSigmaIlPos).padStart(12) +
-      fmt(s.lastHourSigmaIlNeg).padStart(12) +
-      String(s.lastHourCrossings).padStart(10) +
-      String(s.lastHourTicks).padStart(10) +
-      (s.lastHourSignal ?? "—").padStart(10)
+      fmtSign(rec.startIl).padStart(12) +
+      fmtSign(rec.endIl).padStart(12) +
+      fmtSign(rec.deltaL).padStart(12) +
+      fmt(rec.sigmaIl).padStart(12) +
+      fmt(rec.sigmaIlPos).padStart(12) +
+      fmt(rec.sigmaIlNeg).padStart(12) +
+      String(rec.crossings).padStart(10) +
+      String(rec.ticks).padStart(10) +
+      (rec.signal ?? "—").padStart(10)
     );
+  }
+  console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log("");
+}
+
+/* ── Startup history: print last 24 hours ── */
+
+function printStartupHistory(): void {
+  let hasAny = false;
+  for (const s of states.values()) {
+    if (s.hourHistory.length > 0) { hasAny = true; break; }
+  }
+  if (!hasAny) return;
+
+  console.log("");
+  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log(`  LAST 24 HOURS — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
+  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
+  console.log(
+    "Hour".padEnd(6) +
+    "Symbol".padEnd(12) +
+    " I-L Start".padStart(12) +
+    "  I-L End".padStart(12) +
+    "      ΔL".padStart(12) +
+    "    Σ(I-L)".padStart(12) +
+    "      Σ+".padStart(12) +
+    "      Σ-".padStart(12) +
+    "  Crosses".padStart(10) +
+    "    Ticks".padStart(10) +
+    "  Signal".padStart(10)
+  );
+  console.log("─".repeat(106));
+
+  for (const [sym, s] of states) {
+    if (s.hourHistory.length === 0) continue;
+    // Print oldest to newest
+    for (const rec of s.hourHistory) {
+      const hh = String(rec.hour).padStart(2, "0");
+      console.log(
+        `${hh}:00`.padEnd(6) +
+        sym.padEnd(12) +
+        fmtSign(rec.startIl).padStart(12) +
+        fmtSign(rec.endIl).padStart(12) +
+        fmtSign(rec.deltaL).padStart(12) +
+        fmt(rec.sigmaIl).padStart(12) +
+        fmt(rec.sigmaIlPos).padStart(12) +
+        fmt(rec.sigmaIlNeg).padStart(12) +
+        String(rec.crossings).padStart(10) +
+        String(rec.ticks).padStart(10) +
+        (rec.signal ?? "—").padStart(10)
+      );
+    }
+    console.log("─".repeat(106));
   }
   console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log("");
@@ -453,18 +474,26 @@ function processTicker(data: Record<string, unknown>): void {
   // Hour tracking
   const hour = new Date(now).getHours();
   if (state.hourHour !== hour) {
-    // Hour boundary — save previous hour's data for the END OF HOUR report
-    state.lastHourStartIl = state.hourStartIl;
-    state.lastHourEndIl = state.hourLastIl;
-    state.lastHourDeltaL = (state.hourStartIl !== null && state.hourLastIl !== null)
-      ? state.hourLastIl - state.hourStartIl : null;
-    state.lastHourSigmaIl = state.hourSigmaIl;
-    state.lastHourSigmaIlPos = state.hourSigmaIlPos;
-    state.lastHourSigmaIlNeg = state.hourSigmaIlNeg;
-    state.lastHourCrossings = state.hourCrossings;
-    state.lastHourTicks = state.hourTicks;
-    state.lastHourSignal = state.signal;
-    state.hasLastHour = true;
+    // Hour boundary — push completed hour record into history
+    const prevHour = (hour + 23) % 24;
+    const startIl = state.hourStartIl;
+    const endIl = state.hourLastIl;
+    state.hourHistory.push({
+      hour: prevHour,
+      startIl,
+      endIl,
+      deltaL: (startIl !== null && endIl !== null) ? endIl - startIl : null,
+      sigmaIl: state.hourSigmaIl,
+      sigmaIlPos: state.hourSigmaIlPos,
+      sigmaIlNeg: state.hourSigmaIlNeg,
+      crossings: state.hourCrossings,
+      ticks: state.hourTicks,
+      signal: state.signal,
+    });
+    // Keep only last 24 hours
+    if (state.hourHistory.length > MAX_HISTORY_HOURS) {
+      state.hourHistory.shift();
+    }
 
     // Reset for new hour
     state.hourHour = hour;
@@ -576,6 +605,7 @@ if (!HOURLY_ONLY) {
 }
 
 loadState();
+printStartupHistory();
 
 if (HOURLY_ONLY) {
   const hh = String(new Date().getHours()).padStart(2, "0");
