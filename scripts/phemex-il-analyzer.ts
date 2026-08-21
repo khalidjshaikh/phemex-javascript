@@ -161,6 +161,7 @@ for (const sym of SYMBOLS) states.set(sym, initState());
 
 let hourlyLinesPrinted = 0;
 let tickHeaderPrinted = false;
+let tickCount = 0;
 
 /* ── Persistence ── */
 
@@ -263,7 +264,7 @@ function printHourlyDeltaL(): void {
   const now = new Date();
   const prevHour = (now.getHours() + 23) % 24; // previous hour
   const hh = String(prevHour).padStart(2, "0");
-  const stamp = `${hh}:00`;
+  const stamp = `${hh}:00:00.000`;
 
   const endStamp = `${hh}:59:59.999`;
   console.log("");
@@ -536,16 +537,18 @@ function processTicker(data: Record<string, unknown>): void {
   const crossStr = String(state.crossCount).padStart(4);
 
   if (!HOURLY_ONLY) {
-    if (!tickHeaderPrinted) {
+    const maxRows = process.stdout.rows ?? 24;
+    if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
       console.log(`  tick            symbol       I-L      sign  slope    slopeΔ    regime  crosses       Σ+         Σ-     signal`);
-      console.log(`  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────`);
       tickHeaderPrinted = true;
+      tickCount = 0;
     }
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
     console.log(
       `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${pad(slopeStr, 10)}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}    ${pad(sigStr, 6)}`,
     );
+    tickCount++;
   }
 }
 
@@ -557,15 +560,13 @@ function printSummary(): void {
   console.log("═══════════════════════════════════════════════════════════════");
   console.log(
     "Symbol".padEnd(12) +
-    "Crossings".padStart(10) +
-    "  Last Sig".padStart(10)
+    "Crossings".padStart(10)
   );
-  console.log("─".repeat(32));
+  console.log("─".repeat(22));
   for (const [sym, s] of states) {
     console.log(
       sym.padEnd(12) +
-      String(s.crossCount).padStart(10) +
-      (s.signal ?? "—").padStart(10)
+      String(s.crossCount).padStart(10)
     );
   }
   console.log("═══════════════════════════════════════════════════════════════");
