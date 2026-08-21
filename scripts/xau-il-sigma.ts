@@ -151,6 +151,7 @@ let cumDeltaLPos = 0;
 let cumDeltaLNeg = 0;
 let minuteSignChanges = 0;
 let prevSign: "pos" | "neg" | "zero" | null = null;
+let tickHeaderPrinted = false;
 let hourSignChanges = 0;
 let hourTicks = 0;
 let hourSigma = 0;
@@ -288,6 +289,9 @@ if (lastHour && lastHour.clockHour === nowHour) {
   console.log();
 }
 
+const TICK_HEADER = `             I           ΔI           L           ΔL         I-L       Δ(I-L)     Σ(I−L)       Σ+=       Σ-=`;
+const TICK_SEP = `          ───────── ─────────── ───────── ─────────── ───────── ─────────── ─────────── ─────────── ───────────`;
+
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
     ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
@@ -406,6 +410,11 @@ const ws = new ReconnectingWs(WS_URL, {
     }
 
     if (!QUIET) {
+      if (!tickHeaderPrinted) {
+        console.log(TICK_HEADER);
+        console.log(TICK_SEP);
+        tickHeaderPrinted = true;
+      }
       console.log(
         `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ(I-L)=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}  Σ+=${padL(fmtSigma(cumSigmaPos), W_SG)}  Σ-=${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
       );
