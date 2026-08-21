@@ -223,7 +223,6 @@ function handleMessage(msg: Record<string, unknown>): Record<string, unknown> | 
 const nodeVersion = process.version;
 console.log(`Node: ${nodeVersion}`);
 console.log(`⟐  Connecting to ${WS_URL} — tracking ${SYMBOL} …`);
-console.log(`   I-L = index − last  |  Σ|I−L| = cumulative |I−L| within the minute`);
 console.log(`   Decimals: ${DECIMALS}`);
 console.log();
 
@@ -368,7 +367,7 @@ const ws = new ReconnectingWs(WS_URL, {
 
     if (!QUIET) {
       console.log(
-        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}`,
+        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}  Σ+=${padL(fmtSigma(cumSigmaPos), W_SG)}  Σ-=${padL(fmtSigma(cumSigmaNeg), W_SG)}`,
       );
     }
   },
