@@ -264,9 +264,10 @@ function printHourlyDeltaL(): void {
   const hh = String(prevHour).padStart(2, "0");
   const stamp = `${hh}:00`;
 
+  const endStamp = `${hh}:59:59.999`;
   console.log("");
   console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
-  console.log(`  END OF HOUR ${stamp} — ΔL (I-L change over hour) + Σ(I-L) + Σ+ + Σ- + Crossings`);
+  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
   console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(
     "Symbol".padEnd(12) +
@@ -547,26 +548,17 @@ function processTicker(data: Record<string, unknown>): void {
 function printSummary(): void {
   console.log("\n═══════════════════════════════════════════════════════════════");
   console.log("  I-L ANALYSIS SUMMARY");
-  console.log("  Long Tks  = ticks where I-L > 0, slope rising, sustained ≥ HOLD ticks → LONG signal");
-  console.log("  Short Tks = ticks where I-L < 0, slope falling, sustained ≥ HOLD ticks → SHORT signal");
-  console.log("  Neu Tks   = ticks with no clear signal (I-L zero, or not sustained long enough)");
   console.log("═══════════════════════════════════════════════════════════════");
   console.log(
     "Symbol".padEnd(12) +
     "Crossings".padStart(10) +
-    "  Long Tks".padStart(10) +
-    "Short Tks".padStart(10) +
-    "  Neu Tks".padStart(10) +
     "  Last Sig".padStart(10)
   );
-  console.log("─".repeat(62));
+  console.log("─".repeat(32));
   for (const [sym, s] of states) {
     console.log(
       sym.padEnd(12) +
       String(s.crossCount).padStart(10) +
-      String(s.longTicks).padStart(10) +
-      String(s.shortTicks).padStart(10) +
-      String(s.neutralTicks).padStart(10) +
       (s.signal ?? "—").padStart(10)
     );
   }
@@ -605,6 +597,8 @@ if (!HOURLY_ONLY) {
   console.log(`  LONG  signal: I-L > 0, slope > 0, sustained ${HOLD}+ ticks`);
   console.log(`  SHORT signal: I-L < 0, slope < 0, sustained ${HOLD}+ ticks`);
   console.log(`  Crossings = sign changes of I-L\n`);
+  console.log(`  tick       symbol       I-L      sign  slope   slopeΔ   regime  crosses      Σ+        Σ-    signal`);
+  console.log(`  ─────────────────────────────────────────────────────────────────────────────────────────────────────`);
 }
 
 loadState();
