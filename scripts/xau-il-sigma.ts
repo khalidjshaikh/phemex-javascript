@@ -431,3 +431,30 @@ const ws = new ReconnectingWs(WS_URL, {
 });
 
 ws.connect();
+
+/* ── Save on exit ── */
+
+function saveCurrentHour(): void {
+  if (hourTicks === 0) return;
+  console.log(`\n  ⟐  Saving partial hour ${fmtHour(localHour())} (${hourTicks} ticks) …`);
+  saveHour({
+    date: fmtDate(new Date()),
+    hour: localHour(),
+    clockHour: localHour(),
+    ticks: hourTicks,
+    sigma: hourSigma,
+    sigmaPos: hourSigmaPos,
+    sigmaNeg: hourSigmaNeg,
+    avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
+    deltas: hourDeltaCount,
+    deltaSum: hourDeltaSum,
+    avgDelta: hourDeltaCount > 0 ? hourDeltaSum / hourDeltaCount : 0,
+    deltaL: hourDeltaL,
+    deltaLPos: hourDeltaLPos,
+    deltaLNeg: hourDeltaLNeg,
+    signChanges: hourSignChanges,
+  });
+}
+
+process.on("SIGINT", () => { saveCurrentHour(); process.exit(0); });
+process.on("SIGTERM", () => { saveCurrentHour(); process.exit(0); });
