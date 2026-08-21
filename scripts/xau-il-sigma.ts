@@ -256,7 +256,7 @@ if (lastHour && lastHour.clockHour === nowHour) {
   hourDeltaLPos = lastHour.deltaLPos ?? 0;
   hourDeltaLNeg = lastHour.deltaLNeg ?? 0;
   hourSignChanges = lastHour.signChanges;
-  currentHour = lastHour.hour;
+  currentHour = lastHour.clockHour;
   console.log(`  ⟳  Restored hour ${fmtHour(lastHour.clockHour)} state: ${hourTicks} ticks, Σ(I−L): ${fmtSigma(hourSigma)}`);
   console.log();
 }
