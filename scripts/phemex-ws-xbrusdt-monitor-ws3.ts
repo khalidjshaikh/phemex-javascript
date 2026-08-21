@@ -206,7 +206,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
 
   // Update index price for I-L column (Index - Last)
-  TradeBatchProcessor.indexPrice = Number(ticker.indexPriceRp ?? 0);
+  TradeBatchProcessor.indexPrice = Number(ticker.indexRp ?? ticker.indexEp ?? 0);
 
   const now = fmtTime();
   const sign = changePct >= 0 ? "+" : "";
@@ -320,7 +320,7 @@ class TradeBatchProcessor {
   static printHeaders(): void {
     if (this.headersPrinted) return;
     console.log(
-      `${"Timestamp".padEnd(22)} ${"Side".padEnd(4)} ${"Price".padStart(10)} ${"Qty".padStart(8)} ${"Last Δ".padStart(10)} ${"Dir".padStart(4)} ${"Δ".padStart(10)} ${"I-L".padStart(10)} ${"Ask".padStart(10)} ${"Bid".padStart(10)} ${"Spread".padStart(8)}`
+      `${"Timestamp".padEnd(22)} ${"Side".padEnd(4)} ${"Price".padStart(10)} ${"Qty".padStart(8)} ${"Last Δ".padStart(10)} ${"Dir".padStart(4)} ${"Δ".padStart(10)} ${"Index".padStart(10)} ${"Last".padStart(10)} ${"I-L".padStart(10)} ${"Ask".padStart(10)} ${"Bid".padStart(10)} ${"Spread".padStart(8)}`
     );
     this.headersPrinted = true;
   }
@@ -380,8 +380,10 @@ class TradeBatchProcessor {
     const spread = bestBid > 0 && bestAsk > 0 ? (bestAsk - bestBid).toFixed(DECIMALS) : '';
     const il = this.indexPrice > 0 ? this.indexPrice - p : 0;
     const ilStr = this.indexPrice > 0 ? `${il >= 0 ? "+" : ""}${il.toFixed(DECIMALS)}` : "";
+    const indexStr = this.indexPrice > 0 ? `$${this.indexPrice.toFixed(DECIMALS)}` : "";
+    const lastStr = `$${p.toFixed(DECIMALS)}`;
     console.log(
-      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(10)} ${Number(quantity).toFixed(DECIMALS).padStart(8)} ${lastDeltaStr.padStart(10)} ${dirStr.padStart(4)} ${deltaDispStr.padStart(10)} ${ilStr.padStart(10)} ${askStr.padStart(10)} ${bidStr.padStart(10)} ${spread.padStart(8)}`
+      `${date.toLocaleString().padEnd(22)} ${side.padEnd(4)} ${('$' + Number(price).toFixed(DECIMALS)).padStart(10)} ${Number(quantity).toFixed(DECIMALS).padStart(8)} ${lastDeltaStr.padStart(10)} ${dirStr.padStart(4)} ${deltaDispStr.padStart(10)} ${indexStr.padStart(10)} ${lastStr.padStart(10)} ${ilStr.padStart(10)} ${askStr.padStart(10)} ${bidStr.padStart(10)} ${spread.padStart(8)}`
     );
     this.prevPrice = p;
   }
