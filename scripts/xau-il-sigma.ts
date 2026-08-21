@@ -25,6 +25,7 @@ Track XAUUSDT I-L (index − last) with per-minute and per-hour Σ(I−L) summar
 
 Options:
   --decimals <N>  Decimal places for display (default: 4)
+  --quiet         Suppress per-tick output, show only minute/hour summaries
   --help          Show this help and exit
 
 Output columns:
@@ -42,6 +43,7 @@ Per-minute / per-hour summaries include:
 `;
 
 if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
+const QUIET = hasFlag("--quiet");
 
 const DECIMALS = Number(hasFlag("--decimals") ? process.argv[process.argv.indexOf("--decimals") + 1] : 4);
 const WS_URL = "wss://ws.phemex.com";
@@ -361,9 +363,11 @@ const ws = new ReconnectingWs(WS_URL, {
       else if (deltaLast < 0) hourDeltaLNeg += deltaLast;
     }
 
-    console.log(
-      `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}`,
-    );
+    if (!QUIET) {
+      console.log(
+        `[${tsToHMS(now)}]  I=${padL(fmtPrice(index), W_IL)}  ΔI=${padL(fmtDelta(deltaIndex), W_DL)}  L=${padL(fmtPrice(last), W_IL)}  ΔL=${padL(fmtDelta(deltaLast), W_DL)}  I-L=${padL(fmtDelta(iMinusL), W_IL)}  Δ=${padL(fmtDelta(deltaIl), W_DL)}  Σ(I−L)=${padL(fmtSigma(cumSigma), W_SG)}`,
+      );
+    }
   },
   onReconnect: (delayMs) => {
     process.stdout.write("\n");
