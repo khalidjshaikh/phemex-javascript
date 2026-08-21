@@ -290,7 +290,6 @@ if (lastHour && lastHour.clockHour === nowHour) {
 }
 
 const TICK_HEADER = `             I           ΔI           L           ΔL         I-L       Δ(I-L)     Σ(I−L)       Σ+=       Σ-=`;
-const TICK_SEP = `          ───────── ─────────── ───────── ─────────── ───────── ─────────── ─────────── ─────────── ───────────`;
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
@@ -412,7 +411,6 @@ const ws = new ReconnectingWs(WS_URL, {
     if (!QUIET) {
       if (!tickHeaderPrinted) {
         console.log(TICK_HEADER);
-        console.log(TICK_SEP);
         tickHeaderPrinted = true;
       }
       console.log(
