@@ -593,15 +593,21 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`);
+      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}${"ΣΔL".padStart(11)}${"ΣΔL+".padStart(11)}${"ΣΔL-".padStart(11)}${"ΔL(h)".padStart(11)}`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
     const sigmaIl = fmt(state.hourSigmaIl);
+    const sigmaDeltaL = fmt(state.hourSigmaDeltaL);
+    const sigmaDeltaLPos = fmt(state.hourSigmaDeltaLPos);
+    const sigmaDeltaLNeg = fmt(state.hourSigmaDeltaLNeg);
+    const deltaLh = (state.hourStartLast !== null && state.hourLastLast !== null)
+      ? fmt(state.hourLastLast - state.hourStartLast)
+      : fmt(null);
     console.log(
-      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}`,
+      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}${pad(sigmaDeltaL, 10).padStart(11)}${pad(sigmaDeltaLPos, 10).padStart(11)}${pad(sigmaDeltaLNeg, 10).padStart(11)}${pad(deltaLh, 10).padStart(11)}`,
     );
     tickCount++;
   }
