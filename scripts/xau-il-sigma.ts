@@ -309,7 +309,19 @@ const ws = new ReconnectingWs(WS_URL, {
       const hour = localHour();
       if (currentHour >= 0 && hour !== currentHour) {
         console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
-        console.log(`  ticks: ${hourTicks}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}  Σ(I−L): ${fmtSigma(hourSigma)}  Σ(I−L)>0: ${fmtSigma(hourSigmaPos)}  Σ(I−L)<0: ${fmtSigma(hourSigmaNeg)}  ΣΔL: ${fmtDelta(hourDeltaL)}  ΣΔL>0: ${fmtDelta(hourDeltaLPos)}  ΣΔL<0: ${fmtDelta(hourDeltaLNeg)}  sign changes: ${hourSignChanges}`);
+        console.log(HOUR_HEADER);
+        console.log(fmtHourLine("  ", {
+          clockHour: currentHour % 24,
+          ticks: hourTicks,
+          avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
+          sigma: hourSigma,
+          sigmaPos: hourSigmaPos,
+          sigmaNeg: hourSigmaNeg,
+          deltaL: hourDeltaL,
+          deltaLPos: hourDeltaLPos,
+          deltaLNeg: hourDeltaLNeg,
+          signChanges: hourSignChanges,
+        }));
         console.log();
 
         saveHour({
