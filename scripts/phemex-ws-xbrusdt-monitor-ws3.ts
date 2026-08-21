@@ -125,8 +125,8 @@ async function fetchInitialTicker(symbol: string): Promise<void> {
   try {
     const resp = await publicGet("/md/v2/ticker/24hr", `symbol=${symbol}`);
     const result = resp.result as Record<string, unknown> | undefined;
-    if (result?.indexPriceRp) {
-      TradeBatchProcessor.indexPrice = Number(result.indexPriceRp);
+    if (result?.indexRp) {
+      TradeBatchProcessor.indexPrice = Number(result.indexRp);
       console.log(`[${fmtTime()}]  Initial Index: $${TradeBatchProcessor.indexPrice.toFixed(DECIMALS)}`);
     }
   } catch (err) {
