@@ -289,7 +289,7 @@ if (lastHour && lastHour.clockHour === nowHour) {
   console.log();
 }
 
-const TICK_HEADER = `             ${padR("I", W_IL)}  ${padR("ΔI", W_DL)}  ${padR("L", W_IL)}  ${padR("ΔL", W_DL)}  ${padR("I-L", W_IL)}  ${padR("Δ(I-L)", W_DL)}  ${padR("Σ(I−L)", W_SG)}  ${padR("Σ+", W_SG)}  ${padR("Σ-", W_SG)}`;
+const TICK_HEADER = `             ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("Σ(I−L)", W_SG)}  ${padL("Σ+", W_SG)}  ${padL("Σ-", W_SG)}`;
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
