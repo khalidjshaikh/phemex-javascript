@@ -19,6 +19,30 @@ import { join } from "path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { hasFlag } from "../src/cli-utils.js";
 
+const USAGE = `Usage: npx tsx xau-il-sigma.ts [options]
+
+Track XAUUSDT I-L (index − last) with per-minute and per-hour Σ(I−L) summaries.
+
+Options:
+  --decimals <N>  Decimal places for display (default: 4)
+  --help          Show this help and exit
+
+Output columns:
+  I       = index price
+  ΔI      = index tick delta
+  L       = last (mark) price
+  ΔL      = last tick delta
+  I-L     = index − last
+  Δ       = change in I-L from previous tick
+  Σ(I−L)  = cumulative I-L within the minute
+
+Per-minute / per-hour summaries include:
+  Σ(I−L)>0  Σ(I−L)<0   positive/negative I-L sums
+  ΣΔL>0     ΣΔL<0      positive/negative ΔL sums
+`;
+
+if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
+
 const DECIMALS = Number(hasFlag("--decimals") ? process.argv[process.argv.indexOf("--decimals") + 1] : 4);
 const WS_URL = "wss://ws.phemex.com";
 const SYMBOL = "XAUUSDT";
