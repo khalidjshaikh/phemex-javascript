@@ -335,7 +335,7 @@ const ws = new ReconnectingWs(WS_URL, {
         saveHour({
           date: fmtDate(new Date()),
           hour: currentHour,
-          clockHour: localHour(),
+          clockHour: currentHour,
           ticks: hourTicks,
           sigma: hourSigma,
           sigmaPos: hourSigmaPos,
