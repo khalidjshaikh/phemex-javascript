@@ -160,6 +160,7 @@ const states = new Map<string, IlState>();
 for (const sym of SYMBOLS) states.set(sym, initState());
 
 let hourlyLinesPrinted = 0;
+let tickHeaderPrinted = false;
 
 /* ── Persistence ── */
 
@@ -535,10 +536,15 @@ function processTicker(data: Record<string, unknown>): void {
   const crossStr = String(state.crossCount).padStart(4);
 
   if (!HOURLY_ONLY) {
+    if (!tickHeaderPrinted) {
+      console.log(`  tick            symbol       I-L      sign  slope    slopeΔ    regime  crosses       Σ+         Σ-     signal`);
+      console.log(`  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────`);
+      tickHeaderPrinted = true;
+    }
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
     console.log(
-      `[${tick}] ${pad(sym, 10)} I-L=${ilStr}  sign=${signChar}  slope=${slopeChar}${pad(slopeStr, 10)}  regime=${regimeStr}  crosses=${crossStr}  Σ+=${pad(sigPos, 10)}  Σ-=${pad(sigNeg, 10)}  sig=${pad(sigStr, 6)}`,
+      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${pad(slopeStr, 10)}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}    ${pad(sigStr, 6)}`,
     );
   }
 }
@@ -597,8 +603,6 @@ if (!HOURLY_ONLY) {
   console.log(`  LONG  signal: I-L > 0, slope > 0, sustained ${HOLD}+ ticks`);
   console.log(`  SHORT signal: I-L < 0, slope < 0, sustained ${HOLD}+ ticks`);
   console.log(`  Crossings = sign changes of I-L\n`);
-  console.log(`  tick       symbol       I-L      sign  slope   slopeΔ   regime  crosses      Σ+        Σ-    signal`);
-  console.log(`  ─────────────────────────────────────────────────────────────────────────────────────────────────────`);
 }
 
 loadState();
