@@ -268,9 +268,7 @@ function printHourlyDeltaL(): void {
 
   const endStamp = `${hh}:59:59.999`;
   console.log("");
-  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
-  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(
     "Symbol".padEnd(12) +
     " I-L Start".padStart(12) +
@@ -300,7 +298,6 @@ function printHourlyDeltaL(): void {
       (rec.signal ?? "—").padStart(10)
     );
   }
-  console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log("");
 }
 
@@ -314,9 +311,7 @@ function printStartupHistory(): void {
   if (!hasAny) return;
 
   console.log("");
-  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(`  LAST 24 HOURS — ΔL + Σ(I-L) + Σ+ + Σ- + Crossings`);
-  console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(
     "Hour".padEnd(6) +
     "Symbol".padEnd(12) +
@@ -349,7 +344,6 @@ function printStartupHistory(): void {
       );
     }
   }
-  console.log(`═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log("");
 }
 
@@ -606,8 +600,9 @@ printStartupHistory();
 if (HOURLY_ONLY) {
   const hh = String(new Date().getHours()).padStart(2, "0");
   console.log(`\n⟐  Loaded saved ticks for hour ${hh}:00:`);
+  console.log(`  ${"Symbol".padEnd(12)} ${"ticks".padStart(5)}  ${"crosses".padStart(7)}`);
   for (const [sym, s] of states) {
-    console.log(`  ${sym.padEnd(12)} ticks=${String(s.hourTicks).padStart(5)}  crosses=${String(s.hourCrossings).padStart(4)}`);
+    console.log(`  ${sym.padEnd(12)} ${String(s.hourTicks).padStart(5)}  ${String(s.hourCrossings).padStart(7)}`);
   }
   console.log("");
 }
@@ -629,12 +624,14 @@ const ws = new ReconnectingWs(WS_URL, {
         process.stdout.write(`\x1b[${hourlyLinesPrinted}A`);
       }
       hourlyLinesPrinted = 0;
+      const hh = String(new Date().getHours()).padStart(2, "0");
+      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)} ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}  ${"ticks".padStart(5)}   [${hh}:00]\n`);
+      hourlyLinesPrinted++;
       for (const [sym, s] of states) {
-        const hh = String(new Date().getHours()).padStart(2, "0");
         const ilStr = fmtSign(s.lastIl);
         const prevIlStr = fmtSign(s.prevIl);
         const slopeChar = s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→";
-        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} lastIL=${prevIlStr.padStart(10)}  I-L=${ilStr.padStart(10)}  slope=${slopeChar}  crosses=${String(s.hourCrossings).padStart(4)}  ticks=${String(s.hourTicks).padStart(5)}   [${hh}:00]\n`);
+        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} ${prevIlStr.padStart(10)}  ${ilStr.padStart(10)}  ${slopeChar.padStart(5)}  ${String(s.hourCrossings).padStart(7)}  ${String(s.hourTicks).padStart(5)}   [${hh}:00]\n`);
         hourlyLinesPrinted++;
       }
     }
