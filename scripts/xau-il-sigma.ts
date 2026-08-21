@@ -127,6 +127,9 @@ const W_IL = DECIMALS + 5;   // sign + digits + dot + decimals
 const W_DL = DECIMALS + 4;   // sign + digits + dot + decimals
 const W_SG = DECIMALS + 7;   // sign + digits + dot + decimals
 
+function localHour(): number { const d = new Date(); return d.getHours(); }
+function localMinute(): number { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+
 /* ── Per-minute state ── */
 
 let cumSigma = 0;
@@ -239,8 +242,8 @@ if (pastHours.length > 0) {
 
 // Restore last hour state if we're still in the same hour
 const lastHour = loadLastHour();
-const nowHour = Math.floor(Date.now() / 3600000);
-if (lastHour && lastHour.hour === nowHour) {
+const nowHour = localHour();
+if (lastHour && lastHour.clockHour === nowHour) {
   hourTicks = lastHour.ticks;
   hourSigma = lastHour.sigma;
   hourSigmaPos = lastHour.sigmaPos ?? 0;
@@ -270,7 +273,7 @@ const ws = new ReconnectingWs(WS_URL, {
 
     const iMinusL = index - last;
     const now = Date.now();
-    const minute = Math.floor(now / 60000);
+    const minute = localMinute();
 
     // Minute rollover: print summary, then reset
     if (currentMinute >= 0 && minute !== currentMinute) {
@@ -282,7 +285,7 @@ const ws = new ReconnectingWs(WS_URL, {
       console.log();
 
       // Hour rollover
-      const hour = Math.floor(minute / 60);
+      const hour = localHour();
       if (currentHour >= 0 && hour !== currentHour) {
         console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
         console.log(`  ticks: ${hourTicks}  Σ(I−L): ${fmtSigma(hourSigma)}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}`);
@@ -293,7 +296,7 @@ const ws = new ReconnectingWs(WS_URL, {
 
         saveHour({
           hour: currentHour,
-          clockHour: currentHour % 24,
+          clockHour: localHour(),
           ticks: hourTicks,
           sigma: hourSigma,
           sigmaPos: hourSigmaPos,
