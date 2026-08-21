@@ -234,10 +234,8 @@ const pastHours = loadHours();
 if (pastHours.length > 0) {
   console.log(`  ── past hours (${pastHours.length}) ──`);
   for (const h of pastHours) {
-    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  Σ(I−L): ${fmtSigma(h.sigma)}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}`);
-    console.log(`    Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}`);
-    console.log(`    ΣΔL: ${fmtDelta(h.deltaL)}  sign changes: ${h.signChanges}`);
-    console.log(`    ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}`);
+    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}  Σ(I−L): ${fmtSigma(h.sigma)}  Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}`);
+    console.log(`    ΣΔL: ${fmtDelta(h.deltaL)}  ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}  sign changes: ${h.signChanges}`);
   }
   console.log();
 }
