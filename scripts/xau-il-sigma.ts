@@ -26,6 +26,8 @@ Track XAUUSDT I-L (index − last) with per-minute and per-hour Σ(I−L) summar
 Options:
   --decimals <N>  Decimal places for display (default: 4)
   --quiet         Suppress per-tick output, show only minute/hour summaries
+  --no-ticker     Suppress per-tick output (same as --quiet)
+  --no-minute     Suppress per-minute summary reports
   --help          Show this help and exit
 
 Output columns:
@@ -43,7 +45,8 @@ Per-minute / per-hour summaries include:
 `;
 
 if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
-const QUIET = hasFlag("--quiet");
+const QUIET = hasFlag("--quiet") || hasFlag("--no-ticker");
+const NO_MINUTE = hasFlag("--no-minute");
 
 const DECIMALS = Number(hasFlag("--decimals") ? process.argv[process.argv.indexOf("--decimals") + 1] : 4);
 const WS_URL = "wss://ws.phemex.com";
@@ -276,12 +279,14 @@ const ws = new ReconnectingWs(WS_URL, {
 
     // Minute rollover: print summary, then reset
     if (currentMinute >= 0 && minute !== currentMinute) {
-      console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
-      console.log(`  ticks: ${tickCount}  Σ(I−L): ${fmtSigma(cumSigma)}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}`);
-      console.log(`  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}`);
-      console.log(`  ΣΔL: ${fmtDelta(cumDeltaL)}  sign changes: ${minuteSignChanges}`);
-      console.log(`  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
-      console.log();
+      if (!NO_MINUTE) {
+        console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
+        console.log(`  ticks: ${tickCount}  Σ(I−L): ${fmtSigma(cumSigma)}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}`);
+        console.log(`  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}`);
+        console.log(`  ΣΔL: ${fmtDelta(cumDeltaL)}  sign changes: ${minuteSignChanges}`);
+        console.log(`  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
+        console.log();
+      }
 
       // Hour rollover
       const hour = localHour();
