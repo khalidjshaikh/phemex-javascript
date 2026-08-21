@@ -153,8 +153,8 @@ let prevDirection: "↑" | "↓" = "↑";
 /** Best bid/ask from orderbook WebSocket */
 let bestBid = 0;
 let bestAsk = 0;
-/** Flag to log pack fields only once */
-let fieldsLogged = false;
+/** Flag to log ticker fields only once */
+let tickerFieldsLogged = false;
 /** API credentials, set once in main() */
 let apiKey = "";
 let secretRaw: Buffer = Buffer.alloc(0);
@@ -200,19 +200,21 @@ function savePrice(price: number): void {
 /* ------------------------------------------------------------------ */
 
 function printTicker(symbol: string, ticker: Record<string, unknown>): void {
-  const open = Number(ticker.openRp ?? 0);
-  const high = Number(ticker.highRp ?? 0);
-  const low = Number(ticker.lowRp ?? 0);
-  const last = Number(ticker.lastRp ?? 0);
-  const volume = Number(ticker.volumeRq ?? 0);
+  const open = Number(ticker.openRp ?? ticker.open ?? 0);
+  const high = Number(ticker.highRp ?? ticker.high ?? 0);
+  const low = Number(ticker.lowRp ?? ticker.low ?? 0);
+  const last = Number(ticker.lastRp ?? ticker.closeRp ?? ticker.last ?? 0);
+  const volume = Number(ticker.volumeRq ?? ticker.volume ?? 0);
+  const index = Number(ticker.indexPriceRp ?? ticker.indexRp ?? ticker.index ?? 0);
   const changePct = open > 0 ? ((last - open) / open) * 100 : 0;
 
   // Update index price for I-L column (Index - Last)
-  TradeBatchProcessor.indexPrice = Number(ticker.indexRp ?? ticker.indexEp ?? 0);
+  if (index > 0) TradeBatchProcessor.indexPrice = index;
 
   const now = fmtTime();
   const sign = changePct >= 0 ? "+" : "";
   const priceStr = `$${last.toFixed(DECIMALS)}`;
+  const indexStr = index > 0 ? `Idx: $${index.toFixed(DECIMALS)}` : "";
   const highStr = `H: $${high.toFixed(DECIMALS)}`;
   const lowStr = `L: $${low.toFixed(DECIMALS)}`;
   const chgStr = `Chg: ${sign}${changePct.toFixed(DECIMALS)}%`;
@@ -220,7 +222,7 @@ function printTicker(symbol: string, ticker: Record<string, unknown>): void {
   const bidStr = bestBid > 0 ? `Bid: $${bestBid.toFixed(DECIMALS)}` : "";
   const askStr = bestAsk > 0 ? `Ask: $${bestAsk.toFixed(DECIMALS)}` : "";
 
-  const line = `${now}  ${symbol}  ${priceStr}  ${bidStr}  ${askStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
+  const line = `${now}  ${symbol}  ${priceStr}  ${indexStr}  ${bidStr}  ${askStr}  ${highStr}  ${lowStr}  ${chgStr}  ${volStr}`;
 
   // if (last !== lastTickerPrice) {
     updateDirection(last, lastTickerPrice);
@@ -505,7 +507,7 @@ async function main(): Promise<void> {
   // ---------------------------------------------------------------
   const ws = new ReconnectingWs(WS_URL, {
     onOpen: () => {
-      ws.send({ method: "perp_market24h_pack_p.subscribe", params: [SYMBOL], id: 1 });
+      ws.send({ method: "market24h_p.subscribe", params: [SYMBOL], id: 1 });
       ws.send({ method: "trade_p.subscribe", params: [SYMBOL], id: 2 });
       ws.send({ method: "orderbook_p.subscribe", params: [SYMBOL, 5], id: 3 });
     },
@@ -531,20 +533,10 @@ async function main(): Promise<void> {
         }
         // lastTradePrice = TradeBatchProcessor.prevPrice
       }
-      // 24h ticker (columnar USDT-M format)
-      if (
-        m.method === "perp_market24h_pack_p.update" &&
-        Array.isArray(m.fields) &&
-        Array.isArray(m.data)
-      ) {
-        if (!fieldsLogged) {
-          console.log(`[${fmtTime()}]  pack fields: ${(m.fields as string[]).join(", ")}`);
-          fieldsLogged = true;
-        }
-        const ticker = findSymbolRow(m.data as unknown[][], m.fields as string[], SYMBOL);
-        if (ticker) {
-          printTicker(SYMBOL, ticker);
-        }
+      // 24h ticker (market24h_p — per-symbol with indexPriceRp)
+      const tickerData = (m.market24h_p ?? (m.method === "market24h_p.update" ? m.data : null)) as Record<string, unknown> | null;
+      if (tickerData) {
+        printTicker(SYMBOL, tickerData);
         return;
       }
 
