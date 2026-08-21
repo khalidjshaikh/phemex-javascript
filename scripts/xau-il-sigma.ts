@@ -33,11 +33,15 @@ interface HourRecord {
   clockHour: number;
   ticks: number;
   sigma: number;
+  sigmaPos: number;
+  sigmaNeg: number;
   avgIl: number;
   deltas: number;
   deltaSum: number;
   avgDelta: number;
   deltaL: number;
+  deltaLPos: number;
+  deltaLNeg: number;
   signChanges: number;
 }
 
@@ -100,6 +104,8 @@ const W_SG = DECIMALS + 7;   // sign + digits + dot + decimals
 /* ── Per-minute state ── */
 
 let cumSigma = 0;
+let cumSigmaPos = 0;
+let cumSigmaNeg = 0;
 let currentMinute = -1;
 let tickCount = 0;
 let prevIl: number | null = null;
@@ -108,25 +114,35 @@ let prevIndex: number | null = null;
 let cumDelta = 0;
 let deltaCount = 0;
 let cumDeltaL = 0;
+let cumDeltaLPos = 0;
+let cumDeltaLNeg = 0;
 let minuteSignChanges = 0;
 let prevSign: "pos" | "neg" | "zero" | null = null;
 let hourSignChanges = 0;
 let hourTicks = 0;
 let hourSigma = 0;
+let hourSigmaPos = 0;
+let hourSigmaNeg = 0;
 let hourDeltaSum = 0;
 let hourDeltaL = 0;
+let hourDeltaLPos = 0;
+let hourDeltaLNeg = 0;
 let hourDeltaCount = 0;
 let currentHour = -1;
 
 function resetMinute(minute: number): void {
   currentMinute = minute;
   cumSigma = 0;
+  cumSigmaPos = 0;
+  cumSigmaNeg = 0;
   tickCount = 0;
   prevIl = null;
   prevLast = null;
   prevIndex = null;
   cumDelta = 0;
   cumDeltaL = 0;
+  cumDeltaLPos = 0;
+  cumDeltaLNeg = 0;
   deltaCount = 0;
   minuteSignChanges = 0;
   prevSign = null;
@@ -188,7 +204,9 @@ if (pastHours.length > 0) {
   console.log(`  ── past hours (${pastHours.length}) ──`);
   for (const h of pastHours) {
     console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  Σ(I−L): ${fmtSigma(h.sigma)}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}`);
-    console.log(`    deltas: ${h.deltas}  avg(Δ): ${h.deltas > 0 ? fmtDelta(h.avgDelta) : "—"}  ΣΔL: ${fmtDelta(h.deltaL)}  sign changes: ${h.signChanges}`);
+    console.log(`    Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}`);
+    console.log(`    ΣΔL: ${fmtDelta(h.deltaL)}  sign changes: ${h.signChanges}`);
+    console.log(`    ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}`);
   }
   console.log();
 }
@@ -199,9 +217,13 @@ const nowHour = Math.floor(Date.now() / 3600000);
 if (lastHour && lastHour.hour === nowHour) {
   hourTicks = lastHour.ticks;
   hourSigma = lastHour.sigma;
+  hourSigmaPos = lastHour.sigmaPos ?? 0;
+  hourSigmaNeg = lastHour.sigmaNeg ?? 0;
   hourDeltaCount = lastHour.deltas;
   hourDeltaSum = lastHour.deltaSum;
   hourDeltaL = lastHour.deltaL;
+  hourDeltaLPos = lastHour.deltaLPos ?? 0;
+  hourDeltaLNeg = lastHour.deltaLNeg ?? 0;
   hourSignChanges = lastHour.signChanges;
   currentHour = lastHour.hour;
   console.log(`  ⟳  Restored hour ${fmtHour(lastHour.clockHour)} state: ${hourTicks} ticks, Σ(I−L): ${fmtSigma(hourSigma)}`);
@@ -228,7 +250,9 @@ const ws = new ReconnectingWs(WS_URL, {
     if (currentMinute >= 0 && minute !== currentMinute) {
       console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
       console.log(`  ticks: ${tickCount}  Σ(I−L): ${fmtSigma(cumSigma)}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}`);
-      console.log(`  deltas: ${deltaCount}  avg(Δ): ${deltaCount > 0 ? fmtDelta(cumDelta / deltaCount) : "—"}  ΣΔL: ${fmtDelta(cumDeltaL)}  sign changes: ${minuteSignChanges}`);
+      console.log(`  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}`);
+      console.log(`  ΣΔL: ${fmtDelta(cumDeltaL)}  sign changes: ${minuteSignChanges}`);
+      console.log(`  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
       console.log();
 
       // Hour rollover
@@ -236,7 +260,9 @@ const ws = new ReconnectingWs(WS_URL, {
       if (currentHour >= 0 && hour !== currentHour) {
         console.log(`  ═══ hour ${fmtHour(currentHour % 24)} end ═══`);
         console.log(`  ticks: ${hourTicks}  Σ(I−L): ${fmtSigma(hourSigma)}  avg(I−L): ${hourTicks > 0 ? fmtSigma(hourSigma / hourTicks) : "—"}`);
-        console.log(`  deltas: ${hourDeltaCount}  avg(Δ): ${hourDeltaCount > 0 ? fmtDelta(hourDeltaSum / hourDeltaCount) : "—"}  ΣΔL: ${fmtDelta(hourDeltaL)}  sign changes: ${hourSignChanges}`);
+        console.log(`  Σ(I−L)>0: ${fmtSigma(hourSigmaPos)}  Σ(I−L)<0: ${fmtSigma(hourSigmaNeg)}`);
+        console.log(`  ΣΔL: ${fmtDelta(hourDeltaL)}  sign changes: ${hourSignChanges}`);
+        console.log(`  ΣΔL>0: ${fmtDelta(hourDeltaLPos)}  ΣΔL<0: ${fmtDelta(hourDeltaLNeg)}`);
         console.log();
 
         saveHour({
@@ -244,19 +270,27 @@ const ws = new ReconnectingWs(WS_URL, {
           clockHour: currentHour % 24,
           ticks: hourTicks,
           sigma: hourSigma,
+          sigmaPos: hourSigmaPos,
+          sigmaNeg: hourSigmaNeg,
           avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
           deltas: hourDeltaCount,
           deltaSum: hourDeltaSum,
           avgDelta: hourDeltaCount > 0 ? hourDeltaSum / hourDeltaCount : 0,
           deltaL: hourDeltaL,
+          deltaLPos: hourDeltaLPos,
+          deltaLNeg: hourDeltaLNeg,
           signChanges: hourSignChanges,
         });
 
         hourSignChanges = 0;
         hourTicks = 0;
         hourSigma = 0;
+        hourSigmaPos = 0;
+        hourSigmaNeg = 0;
         hourDeltaSum = 0;
         hourDeltaL = 0;
+        hourDeltaLPos = 0;
+        hourDeltaLNeg = 0;
         hourDeltaCount = 0;
       }
       currentHour = hour;
@@ -274,9 +308,13 @@ const ws = new ReconnectingWs(WS_URL, {
     if (curSign !== "zero") prevSign = curSign;
 
     cumSigma += iMinusL;
+    if (iMinusL > 0) cumSigmaPos += iMinusL;
+    else if (iMinusL < 0) cumSigmaNeg += iMinusL;
     tickCount++;
     hourTicks++;
     hourSigma += iMinusL;
+    if (iMinusL > 0) hourSigmaPos += iMinusL;
+    else if (iMinusL < 0) hourSigmaNeg += iMinusL;
 
     const deltaIl = prevIl !== null ? iMinusL - prevIl : null;
     prevIl = iMinusL;
@@ -292,7 +330,11 @@ const ws = new ReconnectingWs(WS_URL, {
     }
     if (deltaLast !== null) {
       cumDeltaL += deltaLast;
+      if (deltaLast > 0) cumDeltaLPos += deltaLast;
+      else if (deltaLast < 0) cumDeltaLNeg += deltaLast;
       hourDeltaL += deltaLast;
+      if (deltaLast > 0) hourDeltaLPos += deltaLast;
+      else if (deltaLast < 0) hourDeltaLNeg += deltaLast;
     }
 
     console.log(
