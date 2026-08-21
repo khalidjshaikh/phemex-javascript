@@ -527,14 +527,15 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  tick            symbol       I-L      sign  slope    regime  crosses       Σ+         Σ-`);
+      console.log(`  tick            symbol       I-L      sign  slope    regime  crosses    Σ(I-L)       Σ+         Σ-`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
+    const sigmaIl = fmt(state.hourSigmaIl);
     console.log(
-      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}`,
+      `[${tick}]  ${pad(sym, 10)}  ${pad(ilStr, 10)}    ${signChar}    ${slopeChar}    ${regimeStr.padStart(3)}      ${crossStr.padStart(4)}    ${pad(sigmaIl, 10)}  ${pad(sigPos, 10)}  ${pad(sigNeg, 10)}`,
     );
     tickCount++;
   }
