@@ -244,7 +244,7 @@ function printHourlyDeltaL(): void {
 
   console.log("");
   console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
-  console.log(`  END OF HOUR ${stamp} — ΔL (I-L change over hour) + Σ(I-L) + Crossings`);
+  console.log(`  END OF HOUR ${stamp} — ΔL (I-L change over hour) + Σ(I-L) + Σ+ + Σ- + Crossings`);
   console.log(`══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════`);
   console.log(
     "Symbol".padEnd(12) +
