@@ -184,6 +184,28 @@ function fmtHour(v: number): string {
   return String(v).padStart(2, "0");
 }
 
+function padR(s: string, w: number): string {
+  const need = w - s.length;
+  return need <= 0 ? s : s + " ".repeat(need);
+}
+
+function fmtHourLine(label: string, h: { clockHour: number; ticks: number; avgIl: number; sigma: number; sigmaPos?: number; sigmaNeg?: number; deltaL: number; deltaLPos?: number; deltaLNeg?: number; signChanges: number }): string {
+  const hr = `hour ${fmtHour(h.clockHour)}`;
+  const ticks = String(h.ticks);
+  const avg = h.ticks > 0 ? fmtSigma(h.avgIl) : "—";
+  const sig = fmtSigma(h.sigma);
+  const sigP = fmtSigma(h.sigmaPos ?? 0);
+  const sigN = fmtSigma(h.sigmaNeg ?? 0);
+  const dl = fmtDelta(h.deltaL);
+  const dlP = fmtDelta(h.deltaLPos ?? 0);
+  const dlN = fmtDelta(h.deltaLNeg ?? 0);
+  const sc = String(h.signChanges);
+  return `${label} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)}`;
+}
+
+const HOUR_HEADER = `  ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)}`;
+const HOUR_SEP = `  ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 12)} ${padR("", 12)} ${padR("", 12)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)} ${padR("chgs", 4)}`;
+
 /* ── WebSocket message handling ── */
 
 let cachedFields: string[] | null = null;
@@ -233,8 +255,9 @@ console.log();
 const pastHours = loadHours();
 if (pastHours.length > 0) {
   console.log(`  ── past hours (${pastHours.length}) ──`);
+  console.log(HOUR_HEADER);
   for (const h of pastHours) {
-    console.log(`  hour ${fmtHour(h.clockHour)}  ticks: ${h.ticks}  avg(I−L): ${h.ticks > 0 ? fmtSigma(h.avgIl) : "—"}  Σ(I−L): ${fmtSigma(h.sigma)}  Σ(I−L)>0: ${fmtSigma(h.sigmaPos ?? 0)}  Σ(I−L)<0: ${fmtSigma(h.sigmaNeg ?? 0)}  ΣΔL: ${fmtDelta(h.deltaL)}  ΣΔL>0: ${fmtDelta(h.deltaLPos ?? 0)}  ΣΔL<0: ${fmtDelta(h.deltaLNeg ?? 0)}  sign changes: ${h.signChanges}`);
+    console.log(fmtHourLine("  ", h));
   }
   console.log();
 }
