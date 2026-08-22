@@ -121,9 +121,7 @@ let prevLast: number | null = null;
 let longCooldown = 0;
 let shortCooldown = 0;
 let rowsPrinted = 0;
-let longEntries = 0;
-let shortEntries = 0;
-let rateMinuteStart = Date.now();
+let changeTimestamps: number[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
@@ -288,8 +286,7 @@ function printHeaders(): void {
     p("Δbid", 3 + DECIMALS) + " " +
     p("cdL", 2) + " " +
     p("cdS", 2) + " " +
-    p("L/m", 4) + " " +
-    p("S/m", 4);
+    p("#ΔL/m", 5);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -354,17 +351,18 @@ async function main(): Promise<void> {
 
       const ab = snapAsk - snapBid;
 
-      // Calculate rate per minute
-      const elapsed = (Date.now() - rateMinuteStart) / 60000;
-      const longRate = elapsed > 0 ? (longEntries / elapsed).toFixed(1) : "0.0";
-      const shortRate = elapsed > 0 ? (shortEntries / elapsed).toFixed(1) : "0.0";
-      if (Date.now() - rateMinuteStart >= 60000) {
-        longEntries = 0;
-        shortEntries = 0;
-        rateMinuteStart = Date.now();
+      // Count last changes (rolling window of 60 seconds)
+      if (deltaLast !== null && deltaLast !== 0) {
+        changeTimestamps.push(Date.now());
       }
+      // Remove entries older than 60 seconds
+      const cutoff = Date.now() - 60000;
+      while (changeTimestamps.length > 0 && changeTimestamps[0] < cutoff) {
+        changeTimestamps.shift();
+      }
+      const rate = String(changeTimestamps.length);
 
-      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${longRate} ${shortRate}`);
+      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate}`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
@@ -414,14 +412,12 @@ async function main(): Promise<void> {
             console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openLong();
             longCooldown = CD_LONG;
-            longEntries++;
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT) {
           if (FORCE || shortSize === 0) {
             console.log(`[${tsNow()}]  ENTRY SHORT — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openShort();
             shortCooldown = CD_SHORT;
-            shortEntries++;
           }
         }
       } catch (e) {
