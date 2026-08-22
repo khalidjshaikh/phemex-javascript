@@ -1,3 +1,4 @@
+.*.json
 2026*
 .phemex-ticker-cache.json
 .phemex-ticker-prefs.json
