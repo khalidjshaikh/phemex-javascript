@@ -236,6 +236,7 @@ function handleCoinmTicker(msg: Record<string, unknown>): void {
 
 function startWebSocket(): ReconnectingWs {
   const ws = new ReconnectingWs(WS_URL, {
+    registerSigint: false,
     onOpen: () => {
       if (isUsdtM) {
         ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
