@@ -43,8 +43,9 @@ const SAVE_INTERVAL = 30_000;
 /* ------------------------------------------------------------------ */
 
 const RESOLUTION_MAP: Record<string, number> = {
-  '1m': 60, '5m': 300, '15m': 900, '30m': 1800,
+  '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
   '1h': 3600, '4h': 14400, '1D': 86400, '1W': 604800, '1M': 2592000,
+  '3M': 7776000, '6M': 15552000, '1Y': 31536000,
 };
 const KLINE_CACHE = new Map<string, { data: unknown[]; ts: number }>();
 const KLINE_TTL_SHORT = 60_000;   // 60s for intervals ≤ 1h
@@ -442,8 +443,8 @@ const LS_ROTATE_KEY = 'phemex_ticker_rotate';
 const LS_RESOLUTION_KEY = 'phemex_ticker_resolution';
 const MAX_TICKS = 180;
 
-const RESOLUTIONS = ['1m','5m','15m','30m','1h','4h','1D','1W','1M'];
-const RESOLUTION_VALUES = { '1m':60, '5m':300, '15m':900, '30m':1800, '1h':3600, '4h':14400, '1D':86400, '1W':604800, '1M':2592000 };
+const RESOLUTIONS = ['1m','3m','5m','15m','30m','1h','4h','1D','1W','1M','3M','6M','1Y'];
+const RESOLUTION_VALUES = { '1m':60, '3m':180, '5m':300, '15m':900, '30m':1800, '1h':3600, '4h':14400, '1D':86400, '1W':604800, '1M':2592000, '3M':7776000, '6M':15552000, '1Y':31536000 };
 const KLINE_FIELDS = ['open','high','low','close','volume'];
 
 function loadData() {
