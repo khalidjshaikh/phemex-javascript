@@ -99,11 +99,11 @@ Options:
                       #ΔL/h, ΣΔL/h) — hidden by default
   --help              Show this help and exit
 
-Per-minute / per-hour delta L columns (ΔL = index − last):
-  #ΔL/m               Count of ticks where ΔL > 0 in the current minute
-  ΣΔL/m               Cumulative sum of ΔL in the current minute
-  #ΔL/h               Count of ticks where ΔL > 0 in the current hour
-  ΣΔL/h               Cumulative sum of ΔL in the current hour
+Per-minute / per-hour delta L columns (ΔL = index − last, rolling windows):
+  #ΔL/m               Count of ticks where ΔL > 0 in the last 60 seconds
+  ΣΔL/m               Sum of ΔL in the last 60 seconds
+  #ΔL/h               Count of ticks where ΔL > 0 in the last hour
+  ΣΔL/h               Sum of ΔL in the last hour
   Persisted to data/<SYMBOL>-{countPosDeltaLMinute,sumDeltaLMinute,
   countPosDeltaLHour,sumDeltaLHour}.txt; flushed on SIGINT and every 5 min.
 `;
@@ -308,10 +308,10 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   ma30s:             { label: "ma30s",   full: "Δindex MA 30s" },
   ma60s:             { label: "ma60s",    full: "Δindex MA 60s" },
   // Per-minute/hour delta L metrics.
-  countPosDeltaLMinute: { label: "#ΔL/m",  full: "count delta L > 0 per minute" },
-  sumDeltaLMinute:      { label: "ΣΔL/m",  full: "cumsum delta L per minute" },
-  countPosDeltaLHour:   { label: "#ΔL/h",  full: "count delta L > 0 per hour" },
-  sumDeltaLHour:        { label: "ΣΔL/h",  full: "cumsum delta L per hour" },
+  countPosDeltaLMinute: { label: "#ΔL/m",  full: "count ΔL > 0, last 60s" },
+  sumDeltaLMinute:      { label: "ΣΔL/m",  full: "sum ΔL, last 60s" },
+  countPosDeltaLHour:   { label: "#ΔL/h",  full: "count ΔL > 0, last hour" },
+  sumDeltaLHour:        { label: "ΣΔL/h",  full: "sum ΔL, last hour" },
 };
 
 if (hasFlag("--help")) {
@@ -503,24 +503,31 @@ function getPerMinuteHourFiles(sym: string) {
 }
 
 function flushPerMinuteHour(sym: string, state: {
-  perMinuteCountPos: number;
-  perMinuteSumDeltaL: number;
-  perHourCountPos: number;
-  perHourSumDeltaL: number;
+  minuteSamples: Array<{ t: number; v: number }>;
+  hourSamples: Array<{ t: number; v: number }>;
 }) {
+  const nowSec = Date.now() / 1000;
+  const cutoffMin = nowSec - 60;
+  const cutoffHour = nowSec - 3600;
+  const minuteInside = state.minuteSamples.filter((s) => s.t >= cutoffMin);
+  const hourInside = state.hourSamples.filter((s) => s.t >= cutoffHour);
+  const countMin = minuteInside.filter((s) => s.v > 0).length;
+  const sumMin = minuteInside.reduce((a, s) => a + s.v, 0);
+  const countHour = hourInside.filter((s) => s.v > 0).length;
+  const sumHour = hourInside.reduce((a, s) => a + s.v, 0);
   const files = getPerMinuteHourFiles(sym);
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(files.countMin, String(state.perMinuteCountPos), "utf8");
-  fs.writeFileSync(files.sumMin, fmtExact(state.perMinuteSumDeltaL), "utf8");
-  fs.writeFileSync(files.countHour, String(state.perHourCountPos), "utf8");
-  fs.writeFileSync(files.sumHour, fmtExact(state.perHourSumDeltaL), "utf8");
+  fs.writeFileSync(files.countMin, String(countMin), "utf8");
+  fs.writeFileSync(files.sumMin, fmtExact(sumMin), "utf8");
+  fs.writeFileSync(files.countHour, String(countHour), "utf8");
+  fs.writeFileSync(files.sumHour, fmtExact(sumHour), "utf8");
 }
 
 function updatePerMinuteHour(
-  sym: string,
+  _sym: string,
   state: {
-    prevMinute: number;
-    prevHour: number;
+    minuteSamples: Array<{ t: number; v: number }>;
+    hourSamples: Array<{ t: number; v: number }>;
     perMinuteCountPos: number;
     perMinuteSumDeltaL: number;
     perHourCountPos: number;
@@ -528,39 +535,29 @@ function updatePerMinuteHour(
   },
   deltaL: number,
 ) {
-  const now = Date.now();
-  const currentMinute = Math.floor(now / 60000);
-  const currentHour = Math.floor(now / 3600000);
+  if (!Number.isFinite(deltaL)) return;
 
-  if (currentMinute !== state.prevMinute) {
-    if (state.prevMinute >= 0) {
-      flushPerMinuteHour(sym, state);
-    }
-    state.prevMinute = currentMinute;
-    state.perMinuteCountPos = 0;
-    state.perMinuteSumDeltaL = 0;
+  const nowSec = Date.now() / 1000;
+  const cutoffMin = nowSec - 60;
+  const cutoffHour = nowSec - 3600;
+
+  // Add new sample.
+  state.minuteSamples.push({ t: nowSec, v: deltaL });
+  state.hourSamples.push({ t: nowSec, v: deltaL });
+
+  // Prune expired samples.
+  while (state.minuteSamples.length > 0 && state.minuteSamples[0].t < cutoffMin) {
+    state.minuteSamples.shift();
+  }
+  while (state.hourSamples.length > 0 && state.hourSamples[0].t < cutoffHour) {
+    state.hourSamples.shift();
   }
 
-  if (currentHour !== state.prevHour) {
-    if (state.prevHour >= 0) {
-      const files = getPerMinuteHourFiles(sym);
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      fs.writeFileSync(files.countHour, String(state.perHourCountPos), "utf8");
-      fs.writeFileSync(files.sumHour, fmtExact(state.perHourSumDeltaL), "utf8");
-    }
-    state.prevHour = currentHour;
-    state.perHourCountPos = 0;
-    state.perHourSumDeltaL = 0;
-  }
-
-  if (Number.isFinite(deltaL)) {
-    if (deltaL > 0) {
-      state.perMinuteCountPos++;
-      state.perHourCountPos++;
-    }
-    state.perMinuteSumDeltaL += deltaL;
-    state.perHourSumDeltaL += deltaL;
-  }
+  // Compute rolling window metrics.
+  state.perMinuteCountPos = state.minuteSamples.filter((s) => s.v > 0).length;
+  state.perMinuteSumDeltaL = state.minuteSamples.reduce((a, s) => a + s.v, 0);
+  state.perHourCountPos = state.hourSamples.filter((s) => s.v > 0).length;
+  state.perHourSumDeltaL = state.hourSamples.reduce((a, s) => a + s.v, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -786,8 +783,8 @@ const symbolState = new Map<string, {
   prevIndexRp: number | null;
   prevLastRp: number | null;
   histogram: HistogramState;
-  prevMinute: number;
-  prevHour: number;
+  minuteSamples: Array<{ t: number; v: number }>;
+  hourSamples: Array<{ t: number; v: number }>;
   perMinuteCountPos: number;
   perMinuteSumDeltaL: number;
   perHourCountPos: number;
@@ -818,8 +815,8 @@ function getSymbolState(sym: string) {
       prevIndexRp: null,
       prevLastRp: null,
       histogram: initHistogramState(),
-      prevMinute: -1,
-      prevHour: -1,
+      minuteSamples: [],
+      hourSamples: [],
       perMinuteCountPos: 0,
       perMinuteSumDeltaL: 0,
       perHourCountPos: 0,
