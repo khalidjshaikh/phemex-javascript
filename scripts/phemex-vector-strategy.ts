@@ -45,6 +45,7 @@ const CREDENTIAL = getArg("--credential");
 const FORCE = hasFlag("--force");
 const NO_SHORT = hasFlag("--noShort");
 const NO_LONG = hasFlag("--noLong");
+const NO_TRADE = hasFlag("--noTrade");
 const DECIMALS = Number(getArg("--decimals") ?? 6);
 const DELTA_LAST_THRESHOLD = Number(getArg("--deltaLastThreshold") ?? 0);
 const NO_VECTOR = hasFlag("--noVector");
@@ -68,6 +69,7 @@ Options:
   --force                Open regardless of current position
   --noShort              Disable short entries
   --noLong               Disable long entries
+  --noTrade              Disable all entries (long and short)
   --cdLong <N>           Long cooldown in seconds (default: 60)
   --cdShort <N>          Short cooldown in seconds (default: 60)
   --decimals <N>         Digits below decimal for printed numbers (default: 6)
@@ -122,6 +124,7 @@ let longCooldown = 0;
 let shortCooldown = 0;
 let rowsPrinted = 0;
 let changeTimestamps: number[] = [];
+let deltaLastWindow: { ts: number; val: number }[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
@@ -286,7 +289,8 @@ function printHeaders(): void {
     p("Δbid", 3 + DECIMALS) + " " +
     p("cdL", 2) + " " +
     p("cdS", 2) + " " +
-    p("#ΔL/m", 5);
+    p("#ΔL/m", 5) + " " +
+    p("ΣΔL/m", 6);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -362,7 +366,16 @@ async function main(): Promise<void> {
       }
       const rate = String(changeTimestamps.length);
 
-      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate}`);
+      // Aggregate deltaLast over rolling 60 second window
+      if (deltaLast !== null) {
+        deltaLastWindow.push({ ts: Date.now(), val: deltaLast });
+      }
+      while (deltaLastWindow.length > 0 && deltaLastWindow[0].ts < cutoff) {
+        deltaLastWindow.shift();
+      }
+      const deltaLastSum = deltaLastWindow.reduce((acc, x) => acc + x.val, 0);
+
+      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate} ${fmtSign(deltaLastSum)}`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
@@ -407,13 +420,13 @@ async function main(): Promise<void> {
         const longTrigger = (!NO_VECTOR && vector > THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast >= DELTA_LAST_THRESHOLD);
         const shortTrigger = (!NO_VECTOR && vector < -THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast <= -DELTA_LAST_THRESHOLD);
 
-        if (longTrigger && longCooldown === 0 && !NO_LONG) {
+        if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
             console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openLong();
             longCooldown = CD_LONG;
           }
-        } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT) {
+        } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
             console.log(`[${tsNow()}]  ENTRY SHORT — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openShort();
