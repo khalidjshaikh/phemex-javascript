@@ -129,6 +129,49 @@ let changeTimestampsHour: number[] = [];
 let deltaLastWindowHour: { ts: number; val: number }[] = [];
 
 /* ------------------------------------------------------------------ */
+/*  State persistence                                                  */
+/* ------------------------------------------------------------------ */
+
+interface State {
+  changeTimestamps: number[];
+  deltaLastWindow: { ts: number; val: number }[];
+  changeTimestampsHour: number[];
+  deltaLastWindowHour: { ts: number; val: number }[];
+}
+
+const STATE_FILE = path.resolve(process.cwd(), `.vector-state-${SYMBOL}.json`);
+
+function loadState(): void {
+  if (!fs.existsSync(STATE_FILE)) return;
+  try {
+    const raw = fs.readFileSync(STATE_FILE, "utf8");
+    const saved = JSON.parse(raw) as State;
+    const cutoff = Date.now() - 3600000;
+    changeTimestamps = (saved.changeTimestamps ?? []).filter(ts => ts > cutoff);
+    deltaLastWindow = (saved.deltaLastWindow ?? []).filter(x => x.ts > cutoff);
+    changeTimestampsHour = (saved.changeTimestampsHour ?? []).filter(ts => ts > cutoff);
+    deltaLastWindowHour = (saved.deltaLastWindowHour ?? []).filter(x => x.ts > cutoff);
+    console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes`);
+  } catch (e) {
+    console.error(`[${tsNow()}]  ⚠  Failed to load state: ${(e as Error).message}`);
+  }
+}
+
+function saveState(): void {
+  const state: State = {
+    changeTimestamps,
+    deltaLastWindow,
+    changeTimestampsHour,
+    deltaLastWindowHour,
+  };
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+  } catch (e) {
+    console.error(`[${tsNow()}]  ⚠  Failed to save state: ${(e as Error).message}`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -289,8 +332,8 @@ function printHeaders(): void {
     p("ΔL", 3 + DECIMALS) + " " +
     p("Δask", 3 + DECIMALS) + " " +
     p("Δbid", 3 + DECIMALS) + " " +
-    p("cdL", 2) + " " +
-    p("cdS", 2) + " " +
+    p("cdL", 3) + " " +
+    p("cdS", 3) + " " +
     p("#ΔL/m", 5) + " " +
     p("ΣΔL/m", 6) + " " +
     p("#ΔL/h", 5) + " " +
@@ -321,6 +364,9 @@ async function main(): Promise<void> {
     console.log(`[${tsNow()}]  ✓  Leverage set to ${LEVERAGE}x`);
   }
 
+  // Load persisted state
+  loadState();
+
   // Start WebSocket
   const ws = startWebSocket();
 
@@ -337,11 +383,13 @@ async function main(): Promise<void> {
   // Graceful shutdown
   process.on("SIGINT", () => {
     console.log(`\n[${tsNow()}] ⏹  Stopped.`);
+    saveState();
     ws.shutdown();
     process.exit(0);
   });
 
   // Trading loop
+  let loopCount = 0;
   for (;;) {
     const started = Date.now();
     if (longCooldown > 0) longCooldown--;
@@ -398,7 +446,7 @@ async function main(): Promise<void> {
       }
       const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
 
-      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate} ${fmtSign(deltaLastSum)} ${rateHour} ${fmtSign(deltaLastSumHour)}`);
+      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${String(longCooldown).padStart(2)}s ${String(shortCooldown).padStart(2)}s ${rate} ${fmtSign(deltaLastSum)} ${rateHour} ${fmtSign(deltaLastSumHour)}`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
@@ -464,6 +512,12 @@ async function main(): Promise<void> {
       prevBid = snapBid;
       prevAsk = snapAsk;
       prevLast = snapLast;
+    }
+
+    // Save state every 30 seconds
+    loopCount++;
+    if (loopCount % 30 === 0) {
+      saveState();
     }
 
     const elapsed = Date.now() - started;
