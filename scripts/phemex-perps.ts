@@ -93,12 +93,14 @@ async function main(): Promise<void> {
     const minQty = parseFloat(p.qtyStepSize ?? "1");
     const notional = last * minQty;
     const takerFee = notional * 0.0006; // 0.06% taker fee
+    const maxLev = Number(p.maxLeverage ?? p.defaultLeverage ?? 0);
 
     rows.push({
       symbol: p.symbol,
       last,
       index,
       iMinusL: index - last,
+      maxLev,
       minQty: p.qtyStepSize ?? "—",
       notional,
       takerFee,
@@ -115,14 +117,15 @@ async function main(): Promise<void> {
   const wLast = Math.max(7, ...rows.map((r) => fmtNum(r.last).length));
   const wIdx = Math.max(7, ...rows.map((r) => fmtNum(r.index).length));
   const wIL = Math.max(5, ...rows.map((r) => fmtDelta(r.iMinusL).length));
+  const wLev = Math.max(8, ...rows.map((r) => fmtLev(r.maxLev).length));
   const wMinQ = Math.max(8, ...rows.map((r) => String(r.minQty).length));
   const wNotional = Math.max(10, ...rows.map((r) => fmtFee(r.notional).length));
   const wTaker = Math.max(10, ...rows.map((r) => fmtFee(r.takerFee).length));
   const wRoundTrip = Math.max(10, ...rows.map((r) => fmtFee(r.roundTrip).length));
 
-  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wMinQ + wNotional + wTaker + wRoundTrip + 20);
+  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wLev + wMinQ + wNotional + wTaker + wRoundTrip + 22);
   console.log(
-    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"MinQty".padEnd(wMinQ)}  ${"Notional".padStart(wNotional)}  ${"Taker".padStart(wTaker)}  ${"2×Taker".padStart(wRoundTrip)}`,
+    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"Lev".padStart(wLev)}  ${"MinQty".padEnd(wMinQ)}  ${"Notional".padStart(wNotional)}  ${"Taker".padStart(wTaker)}  ${"2×Taker".padStart(wRoundTrip)}`,
   );
   console.log(`  ${sep}`);
 
@@ -132,6 +135,7 @@ async function main(): Promise<void> {
       `${fmtNum(r.last).padStart(wLast)}  ` +
       `${fmtNum(r.index).padStart(wIdx)}  ` +
       `${fmtDelta(r.iMinusL).padStart(wIL)}  ` +
+      `${fmtLev(r.maxLev).padStart(wLev)}  ` +
       `${String(r.minQty).padEnd(wMinQ)}  ` +
       `${fmtFee(r.notional).padStart(wNotional)}  ` +
       `${fmtFee(r.takerFee).padStart(wTaker)}  ` +
@@ -145,6 +149,11 @@ async function main(): Promise<void> {
 function fmtNum(v: unknown): string {
   const n = Number(v);
   return Number.isFinite(n) ? n.toFixed(2) : "—";
+}
+
+function fmtLev(v: unknown): string {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? `${n}×` : "—";
 }
 
 function fmtDelta(v: unknown): string {
