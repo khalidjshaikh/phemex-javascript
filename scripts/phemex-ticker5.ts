@@ -95,15 +95,17 @@ Options:
   --scientific        Print all variables in scientific notation
   --noMark            Remove mark and Δmark columns
   --noIL              Remove index and I-L columns
-  --deltaL            Show per-minute/hour delta L columns (#ΔL/m, ΣΔL/m,
-                      #ΔL/h, ΣΔL/h) — hidden by default
+  --noIndex           Remove index and Δindex columns
+  --noIndexDelta      Remove only Δindex column (index − previous index)
+  --deltaL            Show per-minute/hour delta last columns (#|ΔL|>0/m, ΣΔL/m,
+                      #|ΔL|>0/h, ΣΔL/h) — hidden by default
   --help              Show this help and exit
 
-Per-minute / per-hour delta L columns (ΔL = index − last, rolling windows):
-  #ΔL/m               Count of ticks where ΔL > 0 in the last 60 seconds
-  ΣΔL/m               Sum of ΔL in the last 60 seconds
-  #ΔL/h               Count of ticks where ΔL > 0 in the last hour
-  ΣΔL/h               Sum of ΔL in the last hour
+Per-minute / per-hour delta last columns (Δlast = last − previous last, rolling windows):
+  #|ΔL|>0/m           Count of ticks where |Δlast| > 0 in the last 60 seconds
+  ΣΔL/m               Sum of Δlast in the last 60 seconds
+  #|ΔL|>0/h           Count of ticks where |Δlast| > 0 in the last hour
+  ΣΔL/h               Sum of Δlast in the last hour
   Persisted to data/<SYMBOL>-{countPosDeltaLMinute,sumDeltaLMinute,
   countPosDeltaLHour,sumDeltaLHour}.txt; flushed on SIGINT and every 5 min.
 `;
@@ -126,6 +128,8 @@ const DECIMALS = Number(getArg("--decimals") ?? 2);
 const SCIENTIFIC = hasFlag("--scientific");
 const NO_MARK = hasFlag("--noMark");
 const NO_IL = hasFlag("--noIL");
+const NO_INDEX = hasFlag("--noIndex");
+const NO_INDEX_DELTA = hasFlag("--noIndexDelta");
 const DELTA_L = hasFlag("--deltaL");
 
 const WS_URL = "wss://ws.phemex.com";
@@ -149,6 +153,16 @@ const NO_MARK_HIDDEN = new Set([
 // Columns hidden when --noIL is set.
 const NO_IL_HIDDEN = new Set([
   ...(NO_IL ? ["indexRp", "indexRpDelta"] : []),
+]);
+
+// Columns hidden when --noIndex is set.
+const NO_INDEX_HIDDEN = new Set([
+  ...(NO_INDEX ? ["indexRp", "indexRpDelta"] : []),
+]);
+
+// Columns hidden when --noIndexDelta is set.
+const NO_INDEX_DELTA_HIDDEN = new Set([
+  ...(NO_INDEX_DELTA ? ["indexRpPrevDelta"] : []),
 ]);
 
 // Columns hidden when --deltaL is NOT set.
@@ -190,7 +204,6 @@ const COLUMN_ORDER_BASE = [
   "timestamp", "turnoverRv", "volumeRq",
   "askRpDelta", "bidRpDelta", "indexRpDelta",
   "markRpDelta",
-  "askRpPrevDelta", "bidRpPrevDelta",
   "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
   "countPosDeltaLMinute", "sumDeltaLMinute",
@@ -295,8 +308,6 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   indexRpDelta:      { label: "I-L",     full: "index − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
   // Previous-tick delta columns (--prevDelta): change from prior tick.
-  askRpPrevDelta:    { label: "Δask",    full: "ask − previous ask" },
-  bidRpPrevDelta:    { label: "Δbid",    full: "bid − previous bid" },
   indexRpPrevDelta:  { label: "Δindex",  full: "index − previous index" },
   lastRpPrevDelta:   { label: "Δlast",   full: "last − previous last" },
   // Moving average columns (--ma): time-weighted avg of Δindex over N seconds.
@@ -307,11 +318,11 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   ma15s:             { label: "ma15s",   full: "Δindex MA 15s" },
   ma30s:             { label: "ma30s",   full: "Δindex MA 30s" },
   ma60s:             { label: "ma60s",    full: "Δindex MA 60s" },
-  // Per-minute/hour delta L metrics.
-  countPosDeltaLMinute: { label: "#ΔL/m",  full: "count ΔL > 0, last 60s" },
-  sumDeltaLMinute:      { label: "ΣΔL/m",  full: "sum ΔL, last 60s" },
-  countPosDeltaLHour:   { label: "#ΔL/h",  full: "count ΔL > 0, last hour" },
-  sumDeltaLHour:        { label: "ΣΔL/h",  full: "sum ΔL, last hour" },
+  // Per-minute/hour delta last metrics.
+  countPosDeltaLMinute: { label: "#|ΔL|>0/m",  full: "count |Δlast|>0, last 60s" },
+  sumDeltaLMinute:      { label: "ΣΔL/m",      full: "sum Δlast, last 60s" },
+  countPosDeltaLHour:   { label: "#|ΔL|>0/h",  full: "count |Δlast|>0, last hour" },
+  sumDeltaLHour:        { label: "ΣΔL/h",      full: "sum Δlast, last hour" },
 };
 
 if (hasFlag("--help")) {
@@ -319,6 +330,8 @@ if (hasFlag("--help")) {
     .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
     .filter((k) => !NO_MARK_HIDDEN.has(k))
     .filter((k) => !NO_IL_HIDDEN.has(k))
+    .filter((k) => !NO_INDEX_HIDDEN.has(k))
+    .filter((k) => !NO_INDEX_DELTA_HIDDEN.has(k))
     .sort(
       (a, b) =>
         (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
@@ -361,7 +374,7 @@ function colWidth(key: string): number {
   if (key.startsWith("ma")) return Math.max(label, 11);
   // Per-minute/hour delta L metrics: integer count or signed 8-decimal sum.
   if (key === "countPosDeltaLMinute" || key === "countPosDeltaLHour")
-    return Math.max(label, 8);
+    return Math.max(label, 10);
   if (key === "sumDeltaLMinute" || key === "sumDeltaLHour")
     return Math.max(label, 11);
   return Math.max(label, deltaW); // N-decimal numbers: sign + digits + decimals
@@ -490,7 +503,7 @@ function weightedMa(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Per-minute / per-hour delta L metrics (ΔL = index − last)         */
+/*  Per-minute / per-hour delta last metrics (Δlast = last − prev)     */
 /* ------------------------------------------------------------------ */
 
 function getPerMinuteHourFiles(sym: string) {
@@ -499,6 +512,7 @@ function getPerMinuteHourFiles(sym: string) {
     sumMin:    resolve(DATA_DIR, `${sym}-sumDeltaLMinute.txt`),
     countHour: resolve(DATA_DIR, `${sym}-countPosDeltaLHour.txt`),
     sumHour:   resolve(DATA_DIR, `${sym}-sumDeltaLHour.txt`),
+    samples:   resolve(DATA_DIR, `${sym}-deltaLSamples.json`),
   };
 }
 
@@ -521,6 +535,38 @@ function flushPerMinuteHour(sym: string, state: {
   fs.writeFileSync(files.sumMin, fmtExact(sumMin), "utf8");
   fs.writeFileSync(files.countHour, String(countHour), "utf8");
   fs.writeFileSync(files.sumHour, fmtExact(sumHour), "utf8");
+  // Save samples for restoration on restart.
+  fs.writeFileSync(files.samples, JSON.stringify({
+    minute: minuteInside,
+    hour: hourInside,
+  }), "utf8");
+}
+
+function loadSamples(sym: string): {
+  minuteSamples: Array<{ t: number; v: number }>;
+  hourSamples: Array<{ t: number; v: number }>;
+} {
+  const files = getPerMinuteHourFiles(sym);
+  if (!fs.existsSync(files.samples)) {
+    return { minuteSamples: [], hourSamples: [] };
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(files.samples, "utf8"));
+    const nowSec = Date.now() / 1000;
+    const cutoffMin = nowSec - 60;
+    const cutoffHour = nowSec - 3600;
+    const minuteSamples = Array.isArray(data.minute)
+      ? data.minute.filter((s: { t: number; v: number }) =>
+          typeof s.t === "number" && typeof s.v === "number" && s.t >= cutoffMin)
+      : [];
+    const hourSamples = Array.isArray(data.hour)
+      ? data.hour.filter((s: { t: number; v: number }) =>
+          typeof s.t === "number" && typeof s.v === "number" && s.t >= cutoffHour)
+      : [];
+    return { minuteSamples, hourSamples };
+  } catch {
+    return { minuteSamples: [], hourSamples: [] };
+  }
 }
 
 function updatePerMinuteHour(
@@ -554,9 +600,9 @@ function updatePerMinuteHour(
   }
 
   // Compute rolling window metrics.
-  state.perMinuteCountPos = state.minuteSamples.filter((s) => s.v > 0).length;
+  state.perMinuteCountPos = state.minuteSamples.filter((s) => s.v !== 0).length;
   state.perMinuteSumDeltaL = state.minuteSamples.reduce((a, s) => a + s.v, 0);
-  state.perHourCountPos = state.hourSamples.filter((s) => s.v > 0).length;
+  state.perHourCountPos = state.hourSamples.filter((s) => s.v !== 0).length;
   state.perHourSumDeltaL = state.hourSamples.reduce((a, s) => a + s.v, 0);
 }
 
@@ -703,6 +749,9 @@ function fmtField(k: string, v: unknown): string {
   if (k === "markRp") return fmt(v, DECIMALS);
   if (k.endsWith("Delta")) return fmtDelta(v, DECIMALS);
   if (k.startsWith("ma")) return fmtDelta(v, 8);
+  if (k === "countPosDeltaLMinute" || k === "countPosDeltaLHour") {
+    return v == null ? "—" : String(Math.round(Number(v)));
+  }
   return fmt(v);
 }
 
@@ -848,6 +897,14 @@ function getSymbolState(sym: string) {
         }
       }
     }
+    // Restore deltaL samples from previous session if available.
+    const restored = loadSamples(sym);
+    s.minuteSamples = restored.minuteSamples;
+    s.hourSamples = restored.hourSamples;
+    s.perMinuteCountPos = s.minuteSamples.filter((s) => s.v !== 0).length;
+    s.perMinuteSumDeltaL = s.minuteSamples.reduce((a, s) => a + s.v, 0);
+    s.perHourCountPos = s.hourSamples.filter((s) => s.v !== 0).length;
+    s.perHourSumDeltaL = s.hourSamples.reduce((a, s) => a + s.v, 0);
     symbolState.set(sym, s);
   }
   return s;
@@ -868,6 +925,12 @@ function processTicker(data: Record<string, unknown>): void {
   const idxDelta = Number.isFinite(indexRp) && Number.isFinite(last)
     ? indexRp - last : NaN;
 
+  // Compute delta last (last − previous last) for per-minute/hour metrics.
+  const prevLtp = state.prevLastRp;
+  const lastDelta = Number.isFinite(last) && Number.isFinite(prevLtp)
+    ? last - prevLtp : NaN;
+  if (Number.isFinite(last)) state.prevLastRp = last;
+
   const tickerTs = Number(data.timestamp);
   const tsValid = Number.isFinite(tickerTs) && tickerTs > 0;
 
@@ -884,27 +947,15 @@ function processTicker(data: Record<string, unknown>): void {
     data.askBidSpread = Number.isFinite(ask) && Number.isFinite(bid) ? ask - bid : null;
   }
 
-  // --prevDelta: ΔaskPrev, ΔbidPrev, ΔindexPrev and ΔlastPrev — change from prior tick.
+  // --prevDelta: ΔindexPrev (index − previous index) and ΔlastPrev (last − previous last).
   if (PREV_DELTA) {
-    const prevAsk = state.prevAskRp;
-    const prevBid = state.prevBidRp;
     const prevIdx = state.prevIndexRp;
-    const prevLtp = state.prevLastRp;
-    const ask = Number(data.askRp);
-    const bid = Number(data.bidRp);
-    data.askRpPrevDelta =
-      Number.isFinite(ask) && Number.isFinite(prevAsk) ? ask - prevAsk : null;
-    data.bidRpPrevDelta =
-      Number.isFinite(bid) && Number.isFinite(prevBid) ? bid - prevBid : null;
     data.indexRpPrevDelta =
       Number.isFinite(indexRp) && Number.isFinite(prevIdx) ? indexRp - prevIdx : null;
     data.lastRpPrevDelta =
       Number.isFinite(last) && Number.isFinite(prevLtp) ? last - prevLtp : null;
-    // Store current values as previous for next tick.
-    if (Number.isFinite(ask)) state.prevAskRp = ask;
-    if (Number.isFinite(bid)) state.prevBidRp = bid;
+    // Store current index as previous for next tick.
     if (Number.isFinite(indexRp)) state.prevIndexRp = indexRp;
-    if (Number.isFinite(last)) state.prevLastRp = last;
   }
 
   // --ma: time-weighted moving average of Δindex over each window.
@@ -1003,8 +1054,8 @@ function processTicker(data: Record<string, unknown>): void {
     if (sampled) state.cumCount++;
   }
 
-  // Per-minute / per-hour delta L metrics (ΔL = index − last).
-  updatePerMinuteHour(sym, state, idxDelta);
+  // Per-minute / per-hour delta last metrics (Δlast = last − previous last).
+  updatePerMinuteHour(sym, state, lastDelta);
   data.countPosDeltaLMinute = state.perMinuteCountPos;
   data.sumDeltaLMinute = state.perMinuteSumDeltaL;
   data.countPosDeltaLHour = state.perHourCountPos;
@@ -1014,6 +1065,8 @@ function processTicker(data: Record<string, unknown>): void {
     .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
     .filter((k) => !NO_MARK_HIDDEN.has(k))
     .filter((k) => !NO_IL_HIDDEN.has(k))
+    .filter((k) => !NO_INDEX_HIDDEN.has(k))
+    .filter((k) => !NO_INDEX_DELTA_HIDDEN.has(k))
     .filter((k) => !DELTA_L_HIDDEN.has(k))
     .sort(
       (a, b) =>
@@ -1131,6 +1184,7 @@ console.log(`Node: ${nodeVersion}  npm: ${npmVersion}`);
 console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(", ")} …`);
 
 const ws = new ReconnectingWs(WS_URL, {
+  registerSigint: false,
   onOpen: () => {
     if (IS_USDT_M) {
       ws.send({ method: "perp_market24h_pack_p.subscribe", params: [], id: 1 });
