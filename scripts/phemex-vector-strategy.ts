@@ -16,7 +16,7 @@
  *   npx tsx scripts/phemex-vector-strategy.ts --dry-run        # signals only, no orders
  *   npx tsx scripts/phemex-vector-strategy.ts --symbol BTCUSDT
  *   npx tsx scripts/phemex-vector-strategy.ts --size 0.01 --leverage 50
- *   npx tsx scripts/phemex-vector-strategy.ts --threshold 0.005
+ *   npx tsx scripts/phemex-vector-strategy.ts --noLong
  *
  * Hedge mode: both long and short can be held simultaneously.
  */
@@ -44,6 +44,7 @@ const CREDENTIAL = getArg("--credential");
 const FORCE = hasFlag("--force");
 const COOLDOWN_TICKS = Number(getArg("--cooldown") ?? 3);
 const NO_SHORT = hasFlag("--noShort");
+const NO_LONG = hasFlag("--noLong");
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -59,6 +60,7 @@ Options:
   --credential <name>    Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --force                Open regardless of current position
   --noShort              Disable short entries
+  --noLong               Disable long entries
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -344,7 +346,7 @@ async function main(): Promise<void> {
         }
 
         // Entry logic
-        if (vector > THRESHOLD && longCooldown === 0) {
+        if (vector > THRESHOLD && longCooldown === 0 && !NO_LONG) {
           if (FORCE || longSize === 0) {
             console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)} greater than +${THRESHOLD}`);
             await openLong();
