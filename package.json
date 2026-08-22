@@ -11,6 +11,8 @@
     "closed-positions": "tsx scripts/phemex-closed-positions.ts",
     "graph": "tsx scripts/graph-ticker.ts",
     "number-line": "tsx scripts/number-line.ts",
+    "price": "tsx scripts/phemex-price.ts",
+    "symbols": "tsx scripts/phemex-symbols.ts",
     "log-viewer": "tsx scripts/log-viewer.ts"
   },
   "dependencies": {
