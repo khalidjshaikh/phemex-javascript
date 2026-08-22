@@ -73,18 +73,20 @@ async function main(): Promise<void> {
     return;
   }
 
-  const rows: Record<string, unknown>[] = [];
-
-  for (const p of products) {
-    const tickerResp = (await publicGet(
-      "/md/v2/ticker/24hr",
-      `symbol=${p.symbol}`,
-    )) as unknown as {
+  // Fetch all tickers in parallel
+  const tickerPromises = products.map((p) =>
+    publicGet("/md/v2/ticker/24hr", `symbol=${p.symbol}`) as Promise<{
       error?: unknown;
       result?: TickerResult;
-    };
+    }>,
+  );
+  const tickerResults = await Promise.all(tickerPromises);
 
-    const t = tickerResp.result;
+  const rows: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
+    const t = tickerResults[i].result;
     const last = parseFloat(t?.closeRp ?? "0");
     const index = parseFloat(t?.indexPriceRp ?? "0");
 
@@ -98,7 +100,9 @@ async function main(): Promise<void> {
       index,
       iMinusL: index - last,
       minQty: p.qtyStepSize ?? "—",
+      notional,
       takerFee,
+      roundTrip: takerFee * 2,
     });
   }
 
@@ -112,11 +116,13 @@ async function main(): Promise<void> {
   const wIdx = Math.max(7, ...rows.map((r) => fmtNum(r.index).length));
   const wIL = Math.max(5, ...rows.map((r) => fmtDelta(r.iMinusL).length));
   const wMinQ = Math.max(8, ...rows.map((r) => String(r.minQty).length));
+  const wNotional = Math.max(10, ...rows.map((r) => fmtFee(r.notional).length));
   const wTaker = Math.max(10, ...rows.map((r) => fmtFee(r.takerFee).length));
+  const wRoundTrip = Math.max(10, ...rows.map((r) => fmtFee(r.roundTrip).length));
 
-  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wMinQ + wTaker + 18);
+  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wMinQ + wNotional + wTaker + wRoundTrip + 20);
   console.log(
-    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"MinQty".padEnd(wMinQ)}  ${"Taker Fee".padStart(wTaker)}`,
+    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"MinQty".padEnd(wMinQ)}  ${"Notional".padStart(wNotional)}  ${"Taker".padStart(wTaker)}  ${"2×Taker".padStart(wRoundTrip)}`,
   );
   console.log(`  ${sep}`);
 
@@ -127,7 +133,9 @@ async function main(): Promise<void> {
       `${fmtNum(r.index).padStart(wIdx)}  ` +
       `${fmtDelta(r.iMinusL).padStart(wIL)}  ` +
       `${String(r.minQty).padEnd(wMinQ)}  ` +
-      `${fmtFee(r.takerFee).padStart(wTaker)}`,
+      `${fmtFee(r.notional).padStart(wNotional)}  ` +
+      `${fmtFee(r.takerFee).padStart(wTaker)}  ` +
+      `${fmtFee(r.roundTrip).padStart(wRoundTrip)}`,
     );
   }
 
@@ -149,8 +157,7 @@ function fmtDelta(v: unknown): string {
 function fmtFee(v: unknown): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
-  if (n < 0.01) return `$${n.toFixed(6)}`;
-  return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(6)}`;
 }
 
 main().catch((e) => {
