@@ -121,6 +121,9 @@ let prevLast: number | null = null;
 let longCooldown = 0;
 let shortCooldown = 0;
 let rowsPrinted = 0;
+let longEntries = 0;
+let shortEntries = 0;
+let rateMinuteStart = Date.now();
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
@@ -266,7 +269,7 @@ function fmt(v: number | null, decimals = DECIMALS): string {
 }
 
 function fmtSign(v: number | null, decimals = DECIMALS): string {
-  if (v == null || !Number.isFinite(v)) return "—".padEnd(4 + decimals);
+  if (v == null || !Number.isFinite(v)) return "—".padEnd(3 + decimals);
   const s = v.toFixed(decimals);
   return v > 0 ? `+${s}` : v < 0 ? s : ` ${s}`;
 }
@@ -274,17 +277,19 @@ function fmtSign(v: number | null, decimals = DECIMALS): string {
 function printHeaders(): void {
   const p = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
   const h =
-    `[YYYY-MM-DD HH:MM:SS]  ` +
-    p("ask", 3 + DECIMALS) + "  " +
-    p("bid", 3 + DECIMALS) + "  " +
-    p("last", 3 + DECIMALS) + "  " +
-    p("ab", 3 + DECIMALS) + "  " +
-    (NO_IL ? "" : p("I-L", 4 + DECIMALS) + "  ") +
-    p("ΔL", 4 + DECIMALS) + "  " +
-    p("Δask", 4 + DECIMALS) + "  " +
-    p("Δbid", 4 + DECIMALS) + "  " +
-    p("cdL", 2) + "  " +
-    p("cdS", 2);
+    `[YYYY-MM-DD HH:MM:SS] ` +
+    p("ask", 2 + DECIMALS) + " " +
+    p("bid", 2 + DECIMALS) + " " +
+    p("last", 2 + DECIMALS) + " " +
+    p("ab", 2 + DECIMALS) + " " +
+    (NO_IL ? "" : p("I-L", 3 + DECIMALS) + " ") +
+    p("ΔL", 3 + DECIMALS) + " " +
+    p("Δask", 3 + DECIMALS) + " " +
+    p("Δbid", 3 + DECIMALS) + " " +
+    p("cdL", 2) + " " +
+    p("cdS", 2) + " " +
+    p("L/m", 4) + " " +
+    p("S/m", 4);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -348,7 +353,18 @@ async function main(): Promise<void> {
       const deltaLast = prevLast !== null ? snapLast - prevLast : null;
 
       const ab = snapAsk - snapBid;
-      console.log(`[${tsNow()}]  ${fmt(snapAsk)}  ${fmt(snapBid)}  ${fmt(snapLast)}  ${fmt(ab)}${NO_IL ? "" : `  ${fmtSign(vector)}`}  ${fmtSign(deltaLast)}  ${fmtSign(deltaAsk)}  ${fmtSign(deltaBid)}  ${longCooldown}s  ${shortCooldown}s`);
+
+      // Calculate rate per minute
+      const elapsed = (Date.now() - rateMinuteStart) / 60000;
+      const longRate = elapsed > 0 ? (longEntries / elapsed).toFixed(1) : "0.0";
+      const shortRate = elapsed > 0 ? (shortEntries / elapsed).toFixed(1) : "0.0";
+      if (Date.now() - rateMinuteStart >= 60000) {
+        longEntries = 0;
+        shortEntries = 0;
+        rateMinuteStart = Date.now();
+      }
+
+      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${longRate} ${shortRate}`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
@@ -398,12 +414,14 @@ async function main(): Promise<void> {
             console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openLong();
             longCooldown = CD_LONG;
+            longEntries++;
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT) {
           if (FORCE || shortSize === 0) {
             console.log(`[${tsNow()}]  ENTRY SHORT — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openShort();
             shortCooldown = CD_SHORT;
+            shortEntries++;
           }
         }
       } catch (e) {
