@@ -28,7 +28,8 @@ const VERSION = "1.0.0";
 const PORT = Number(getArg("--port") ?? 3200);
 const ALL_SYMBOLS = [
   "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT",
-  "BNBUSDT", "SUIUSDT", "LINKUSDT", "XAUUSDT", "XTIUSDT", "XBRUSDT",
+  "BNBUSDT", "SUIUSDT", "LINKUSDT", "ATOMUSDT", "PUMPUSDT",
+  "XAUUSDT", "XTIUSDT", "XBRUSDT",
 ];
 const SYMBOLS = (getArg("--symbols") ?? ALL_SYMBOLS.join(","))
   .split(",").filter(Boolean);
