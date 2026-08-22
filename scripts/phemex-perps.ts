@@ -127,7 +127,6 @@ async function main(): Promise<void> {
   console.log(
     `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"Lev".padStart(wLev)}  ${"MinQty".padEnd(wMinQ)}  ${"Notional".padStart(wNotional)}  ${"Taker".padStart(wTaker)}  ${"2×Taker".padStart(wRoundTrip)}`,
   );
-  console.log(`  ${sep}`);
 
   for (const r of rows) {
     console.log(
