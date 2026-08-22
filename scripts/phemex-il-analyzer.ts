@@ -365,8 +365,30 @@ function printStartupHistory(): void {
     "      ΔL(h)".padStart(12)
   );
 
+  let prevSym: string | null = null;
   for (const [sym, s] of states) {
     if (s.hourHistory.length === 0) continue;
+    // Print header between symbols
+    if (prevSym !== null) {
+      console.log("");
+      console.log(
+        "Hour".padEnd(6) +
+        "Symbol".padEnd(12) +
+        " I-L Start".padStart(12) +
+        "  I-L End".padStart(12) +
+        "      Δ(I-L)".padStart(12) +
+        "    Σ(I-L)".padStart(12) +
+        "      Σ+".padStart(12) +
+        "      Σ-".padStart(12) +
+        "  Crosses".padStart(10) +
+        "    Ticks".padStart(10) +
+        "       ΣΔL".padStart(12) +
+        "      ΣΔL+".padStart(12) +
+        "      ΣΔL-".padStart(12) +
+        "      ΔL(h)".padStart(12)
+      );
+    }
+    prevSym = sym;
     // Print oldest to newest
     for (const rec of s.hourHistory) {
       const hh = String(rec.hour).padStart(2, "0");
