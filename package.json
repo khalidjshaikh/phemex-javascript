@@ -12,6 +12,7 @@
     "graph": "tsx scripts/graph-ticker.ts",
     "number-line": "tsx scripts/number-line.ts",
     "price": "tsx scripts/phemex-price.ts",
+    "perps": "tsx scripts/phemex-perps.ts",
     "symbols": "tsx scripts/phemex-symbols.ts",
     "log-viewer": "tsx scripts/log-viewer.ts"
   },
