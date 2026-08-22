@@ -311,17 +311,19 @@ function colFull(key: string): string {
  */
 function colWidth(key: string): number {
   const label = visWidth(colLabel(key));
+  const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 4;
+  const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
   if (key === "timestamp") return Math.max(label, 12); // HH:MM:SS.mmm
-  if (key === "markRp") return Math.max(label, DECIMALS + 4); // sign + "0." + decimals
-  if (key === "markRpDelta") return Math.max(label, DECIMALS + 4);
-  if (key === "askBidSpread") return Math.max(label, DECIMALS + 3); // spread
+  if (key === "markRp") return Math.max(label, priceW);
+  if (key === "markRpDelta") return Math.max(label, priceW);
+  if (key === "askBidSpread") return Math.max(label, deltaW);
   if (key === "dt") return Math.max(label, 12);
   // Cumulative counters can grow; everything else is a small price/delta.
   if (key === "volumeRq" || key === "turnoverRv" || key === "openInterestRv")
     return Math.max(label, 8);
   // MA columns: signed 8-decimal values (e.g. +0.06000000 = 11 chars).
   if (key.startsWith("ma")) return Math.max(label, 11);
-  return Math.max(label, DECIMALS + 3); // N-decimal numbers: sign + digits + decimals
+  return Math.max(label, deltaW); // N-decimal numbers: sign + digits + decimals
 }
 
 /**
@@ -359,7 +361,7 @@ function fmt(v: unknown, decimals = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
-  return n.toFixed(decimals);
+  return SCIENTIFIC ? n.toExponential(decimals) : n.toFixed(decimals);
 }
 
 /**
@@ -371,7 +373,7 @@ function fmtDelta(v: unknown, decimals = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
-  const s = n.toFixed(decimals);
+  const s = SCIENTIFIC ? n.toExponential(decimals) : n.toFixed(decimals);
   return n > 0 ? `+${s}` : n < 0 ? s : ` ${s}`;
 }
 
