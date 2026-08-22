@@ -57,8 +57,9 @@ async function main(): Promise<void> {
   const symbol = getArg("--symbol") ?? DEFAULT_SYMBOL;
   const minMode = hasFlag("--min");
   const jsonMode = hasFlag("--json");
+  const leverageMode = hasFlag("--leverage");
 
-  if (minMode) {
+  if (minMode || leverageMode) {
     const prodResp = (await publicGet("/public/products", null)) as unknown as {
       code?: number;
       data?: {
@@ -76,6 +77,12 @@ async function main(): Promise<void> {
     if (!product) {
       console.error(`No product info found for "${symbol}"`);
       process.exit(1);
+    }
+
+    if (leverageMode) {
+      const maxLev = product.maxLeverage ?? product.defaultLeverage;
+      console.log(`${symbol} max leverage: ${maxLev ?? "N/A"}×`);
+      return;
     }
 
     console.log(`${symbol} min trade size:`);
