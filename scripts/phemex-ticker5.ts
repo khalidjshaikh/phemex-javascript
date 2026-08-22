@@ -95,13 +95,18 @@ Options:
   --scientific        Print all variables in scientific notation
   --noMark            Remove mark and Δmark columns
   --noIL              Remove index and I-L columns
+  --deltaL            Show per-minute/hour delta L columns (#ΔL/m, ΣΔL/m,
+                      #ΔL/h, ΣΔL/h) — hidden by default
   --help              Show this help and exit
-`;
 
-if (hasFlag("--help")) {
-  console.log(USAGE);
-  process.exit(0);
-}
+Per-minute / per-hour delta L columns (ΔL = index − last):
+  #ΔL/m               Count of ticks where ΔL > 0 in the current minute
+  ΣΔL/m               Cumulative sum of ΔL in the current minute
+  #ΔL/h               Count of ticks where ΔL > 0 in the current hour
+  ΣΔL/h               Cumulative sum of ΔL in the current hour
+  Persisted to data/<SYMBOL>-{countPosDeltaLMinute,sumDeltaLMinute,
+  countPosDeltaLHour,sumDeltaLHour}.txt; flushed on SIGINT and every 5 min.
+`;
 
 const SYMBOLS = (getArg("--symbol") ?? "XBRUSDT").split(",").filter(Boolean);
 const STORE = hasFlag("--store");
@@ -121,6 +126,7 @@ const DECIMALS = Number(getArg("--decimals") ?? 2);
 const SCIENTIFIC = hasFlag("--scientific");
 const NO_MARK = hasFlag("--noMark");
 const NO_IL = hasFlag("--noIL");
+const DELTA_L = hasFlag("--deltaL");
 
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
@@ -143,6 +149,13 @@ const NO_MARK_HIDDEN = new Set([
 // Columns hidden when --noIL is set.
 const NO_IL_HIDDEN = new Set([
   ...(NO_IL ? ["indexRp", "indexRpDelta"] : []),
+]);
+
+// Columns hidden when --deltaL is NOT set.
+const DELTA_L_HIDDEN = new Set([
+  ...(!DELTA_L
+    ? ["countPosDeltaLMinute", "sumDeltaLMinute", "countPosDeltaLHour", "sumDeltaLHour"]
+    : []),
 ]);
 
 // --ma: time-weighted moving average of Δindex over fixed windows.
@@ -180,6 +193,8 @@ const COLUMN_ORDER_BASE = [
   "askRpPrevDelta", "bidRpPrevDelta",
   "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
+  "countPosDeltaLMinute", "sumDeltaLMinute",
+  "countPosDeltaLHour", "sumDeltaLHour",
 ];
 const COLUMN_ORDER = (() => {
   let order = [...COLUMN_ORDER_BASE];
@@ -291,8 +306,29 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   ma10s:             { label: "ma10s",   full: "Δindex MA 10s" },
   ma15s:             { label: "ma15s",   full: "Δindex MA 15s" },
   ma30s:             { label: "ma30s",   full: "Δindex MA 30s" },
-  ma60s:             { label: "ma60s",   full: "Δindex MA 60s" },
+  ma60s:             { label: "ma60s",    full: "Δindex MA 60s" },
+  // Per-minute/hour delta L metrics.
+  countPosDeltaLMinute: { label: "#ΔL/m",  full: "count delta L > 0 per minute" },
+  sumDeltaLMinute:      { label: "ΣΔL/m",  full: "cumsum delta L per minute" },
+  countPosDeltaLHour:   { label: "#ΔL/h",  full: "count delta L > 0 per hour" },
+  sumDeltaLHour:        { label: "ΣΔL/h",  full: "cumsum delta L per hour" },
 };
+
+if (hasFlag("--help")) {
+  const legendKeys = Object.keys(COLUMNS)
+    .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
+    .filter((k) => !NO_MARK_HIDDEN.has(k))
+    .filter((k) => !NO_IL_HIDDEN.has(k))
+    .sort(
+      (a, b) =>
+        (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
+        (COLUMN_RANK.get(b) ?? COLUMN_ORDER.length),
+    );
+  const legend = legendKeys.map((k) => `${colLabel(k)}=${colFull(k)}`).join(", ");
+  console.log(USAGE);
+  console.log(`Columns: ${legend}`);
+  process.exit(0);
+}
 
 /** Header label for a response field (falls back to the raw field name). */
 function colLabel(key: string): string {
@@ -323,6 +359,11 @@ function colWidth(key: string): number {
     return Math.max(label, 8);
   // MA columns: signed 8-decimal values (e.g. +0.06000000 = 11 chars).
   if (key.startsWith("ma")) return Math.max(label, 11);
+  // Per-minute/hour delta L metrics: integer count or signed 8-decimal sum.
+  if (key === "countPosDeltaLMinute" || key === "countPosDeltaLHour")
+    return Math.max(label, 8);
+  if (key === "sumDeltaLMinute" || key === "sumDeltaLHour")
+    return Math.max(label, 11);
   return Math.max(label, deltaW); // N-decimal numbers: sign + digits + decimals
 }
 
@@ -446,6 +487,80 @@ function weightedMa(
     sumWV += inside[inside.length - 1].v * tailDt;
   }
   return sumW > 0 ? sumWV / sumW : null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Per-minute / per-hour delta L metrics (ΔL = index − last)         */
+/* ------------------------------------------------------------------ */
+
+function getPerMinuteHourFiles(sym: string) {
+  return {
+    countMin:  resolve(DATA_DIR, `${sym}-countPosDeltaLMinute.txt`),
+    sumMin:    resolve(DATA_DIR, `${sym}-sumDeltaLMinute.txt`),
+    countHour: resolve(DATA_DIR, `${sym}-countPosDeltaLHour.txt`),
+    sumHour:   resolve(DATA_DIR, `${sym}-sumDeltaLHour.txt`),
+  };
+}
+
+function flushPerMinuteHour(sym: string, state: {
+  perMinuteCountPos: number;
+  perMinuteSumDeltaL: number;
+  perHourCountPos: number;
+  perHourSumDeltaL: number;
+}) {
+  const files = getPerMinuteHourFiles(sym);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(files.countMin, String(state.perMinuteCountPos), "utf8");
+  fs.writeFileSync(files.sumMin, fmtExact(state.perMinuteSumDeltaL), "utf8");
+  fs.writeFileSync(files.countHour, String(state.perHourCountPos), "utf8");
+  fs.writeFileSync(files.sumHour, fmtExact(state.perHourSumDeltaL), "utf8");
+}
+
+function updatePerMinuteHour(
+  sym: string,
+  state: {
+    prevMinute: number;
+    prevHour: number;
+    perMinuteCountPos: number;
+    perMinuteSumDeltaL: number;
+    perHourCountPos: number;
+    perHourSumDeltaL: number;
+  },
+  deltaL: number,
+) {
+  const now = Date.now();
+  const currentMinute = Math.floor(now / 60000);
+  const currentHour = Math.floor(now / 3600000);
+
+  if (currentMinute !== state.prevMinute) {
+    if (state.prevMinute >= 0) {
+      flushPerMinuteHour(sym, state);
+    }
+    state.prevMinute = currentMinute;
+    state.perMinuteCountPos = 0;
+    state.perMinuteSumDeltaL = 0;
+  }
+
+  if (currentHour !== state.prevHour) {
+    if (state.prevHour >= 0) {
+      const files = getPerMinuteHourFiles(sym);
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(files.countHour, String(state.perHourCountPos), "utf8");
+      fs.writeFileSync(files.sumHour, fmtExact(state.perHourSumDeltaL), "utf8");
+    }
+    state.prevHour = currentHour;
+    state.perHourCountPos = 0;
+    state.perHourSumDeltaL = 0;
+  }
+
+  if (Number.isFinite(deltaL)) {
+    if (deltaL > 0) {
+      state.perMinuteCountPos++;
+      state.perHourCountPos++;
+    }
+    state.perMinuteSumDeltaL += deltaL;
+    state.perHourSumDeltaL += deltaL;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -671,6 +786,12 @@ const symbolState = new Map<string, {
   prevIndexRp: number | null;
   prevLastRp: number | null;
   histogram: HistogramState;
+  prevMinute: number;
+  prevHour: number;
+  perMinuteCountPos: number;
+  perMinuteSumDeltaL: number;
+  perHourCountPos: number;
+  perHourSumDeltaL: number;
 }>();
 
 function getSymbolState(sym: string) {
@@ -697,6 +818,12 @@ function getSymbolState(sym: string) {
       prevIndexRp: null,
       prevLastRp: null,
       histogram: initHistogramState(),
+      prevMinute: -1,
+      prevHour: -1,
+      perMinuteCountPos: 0,
+      perMinuteSumDeltaL: 0,
+      perHourCountPos: 0,
+      perHourSumDeltaL: 0,
     };
     // Initialize maxDelta from stored files if they exist.
     if (MAX_DELTA) {
@@ -879,10 +1006,18 @@ function processTicker(data: Record<string, unknown>): void {
     if (sampled) state.cumCount++;
   }
 
+  // Per-minute / per-hour delta L metrics (ΔL = index − last).
+  updatePerMinuteHour(sym, state, idxDelta);
+  data.countPosDeltaLMinute = state.perMinuteCountPos;
+  data.sumDeltaLMinute = state.perMinuteSumDeltaL;
+  data.countPosDeltaLHour = state.perHourCountPos;
+  data.sumDeltaLHour = state.perHourSumDeltaL;
+
   const keys = Object.keys(data)
     .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
     .filter((k) => !NO_MARK_HIDDEN.has(k))
     .filter((k) => !NO_IL_HIDDEN.has(k))
+    .filter((k) => !DELTA_L_HIDDEN.has(k))
     .sort(
       (a, b) =>
         (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
@@ -998,22 +1133,6 @@ const npmVersion = execSync("npm --version", { encoding: "utf8" }).trim();
 console.log(`Node: ${nodeVersion}  npm: ${npmVersion}`);
 console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(", ")} …`);
 
-const legendKeys = Object.keys(COLUMNS)
-  .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
-  .filter((k) => !NO_MARK_HIDDEN.has(k))
-  .filter((k) => !NO_IL_HIDDEN.has(k))
-  .sort(
-    (a, b) =>
-      (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
-      (COLUMN_RANK.get(b) ?? COLUMN_ORDER.length),
-  );
-console.log(
-  "Columns: " +
-    legendKeys
-      .map((k) => `${colLabel(k)}=${colFull(k)}`)
-      .join(", "),
-);
-
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
     if (IS_USDT_M) {
@@ -1041,10 +1160,25 @@ const ws = new ReconnectingWs(WS_URL, {
 
 ws.connect();
 
+// Periodic flush: write per-minute/hour delta L metrics to disk every 5 minutes.
+setInterval(() => {
+  for (const [sym, state] of symbolState) {
+    flushPerMinuteHour(sym, state);
+  }
+}, 300_000);
+
 if (HISTOGRAM) {
   process.on("SIGINT", () => {
     for (const [sym, state] of symbolState) {
       writeHistogramFile(sym, state.histogram);
+      flushPerMinuteHour(sym, state);
+    }
+    process.exit(0);
+  });
+} else {
+  process.on("SIGINT", () => {
+    for (const [sym, state] of symbolState) {
+      flushPerMinuteHour(sym, state);
     }
     process.exit(0);
   });
