@@ -255,7 +255,9 @@ async function closePos(pos: Position): Promise<void> {
 function tsNow(): string {
   const d = new Date();
   const p = (x: number) => String(x).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const date = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  const time = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  return `${date} ${time}`;
 }
 
 function fmt(v: number | null, decimals = DECIMALS): string {
@@ -264,7 +266,7 @@ function fmt(v: number | null, decimals = DECIMALS): string {
 }
 
 function fmtSign(v: number | null, decimals = DECIMALS): string {
-  if (v == null || !Number.isFinite(v)) return "—";
+  if (v == null || !Number.isFinite(v)) return "—".padEnd(4 + decimals);
   const s = v.toFixed(decimals);
   return v > 0 ? `+${s}` : v < 0 ? s : ` ${s}`;
 }
@@ -272,15 +274,15 @@ function fmtSign(v: number | null, decimals = DECIMALS): string {
 function printHeaders(): void {
   const p = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
   const h =
-    `[HH:MM:SS]  ` +
+    `[YYYY-MM-DD HH:MM:SS]  ` +
     p("ask", 3 + DECIMALS) + "  " +
     p("bid", 3 + DECIMALS) + "  " +
     p("last", 3 + DECIMALS) + "  " +
     p("ab", 3 + DECIMALS) + "  " +
     (NO_IL ? "" : p("I-L", 4 + DECIMALS) + "  ") +
     p("ΔL", 4 + DECIMALS) + "  " +
-    p("Δask", 5 + DECIMALS) + "  " +
-    p("Δbid", 5 + DECIMALS) + "  " +
+    p("Δask", 4 + DECIMALS) + "  " +
+    p("Δbid", 4 + DECIMALS) + "  " +
     p("cdL", 2) + "  " +
     p("cdS", 2);
   console.log(h);
@@ -346,7 +348,7 @@ async function main(): Promise<void> {
       const deltaLast = prevLast !== null ? snapLast - prevLast : null;
 
       const ab = snapAsk - snapBid;
-      console.log(`[${tsNow()}]  ${fmt(snapAsk)}  ${fmt(snapBid)}  ${fmt(snapLast)}  ${fmt(ab)}${NO_IL ? "" : `  ${fmtSign(vector)}`}  ${deltaLast !== null ? fmtSign(deltaLast) : "—"}  ${deltaAsk !== null ? fmtSign(deltaAsk) : "—"}  ${deltaBid !== null ? fmtSign(deltaBid) : "—"}  ${longCooldown}s  ${shortCooldown}s`);
+      console.log(`[${tsNow()}]  ${fmt(snapAsk)}  ${fmt(snapBid)}  ${fmt(snapLast)}  ${fmt(ab)}${NO_IL ? "" : `  ${fmtSign(vector)}`}  ${fmtSign(deltaLast)}  ${fmtSign(deltaAsk)}  ${fmtSign(deltaBid)}  ${longCooldown}s  ${shortCooldown}s`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
