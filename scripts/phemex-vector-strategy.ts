@@ -17,6 +17,7 @@
  *   npx tsx scripts/phemex-vector-strategy.ts --symbol BTCUSDT
  *   npx tsx scripts/phemex-vector-strategy.ts --size 0.01 --leverage 50
  *   npx tsx scripts/phemex-vector-strategy.ts --noLong
+ *   npx tsx scripts/phemex-vector-strategy.ts --deltaLastThreshold 0.000010
  *
  * Hedge mode: both long and short can be held simultaneously.
  */
@@ -42,9 +43,14 @@ const THRESHOLD = Number(getArg("--threshold") ?? 0.003);
 const VERBOSE = hasFlag("--verbose");
 const CREDENTIAL = getArg("--credential");
 const FORCE = hasFlag("--force");
-const COOLDOWN_TICKS = Number(getArg("--cooldown") ?? 3);
 const NO_SHORT = hasFlag("--noShort");
 const NO_LONG = hasFlag("--noLong");
+const DECIMALS = Number(getArg("--decimals") ?? 6);
+const DELTA_LAST_THRESHOLD = Number(getArg("--deltaLastThreshold") ?? 0);
+const NO_VECTOR = hasFlag("--noVector");
+const NO_IL = hasFlag("--noIL");
+const CD_LONG = Number(getArg("--cdLong") ?? 60);
+const CD_SHORT = Number(getArg("--cdShort") ?? 60);
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -56,11 +62,15 @@ Options:
   --size <N>             Position size in base asset (default: 0.01)
   --leverage <N>         Leverage (default: 50)
   --threshold <N>        Vector threshold for entry (default: 0.003)
-  --cooldown <N>         Ticks to wait after opening before another entry (default: 3)
+  --deltaLastThreshold <N>  Delta last threshold for entry (default: 0)
+  --noVector             Ignore vector threshold, use only deltaLastThreshold
   --credential <name>    Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --force                Open regardless of current position
   --noShort              Disable short entries
   --noLong               Disable long entries
+  --cdLong <N>           Long cooldown in seconds (default: 60)
+  --cdShort <N>          Short cooldown in seconds (default: 60)
+  --decimals <N>         Digits below decimal for printed numbers (default: 6)
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -107,8 +117,10 @@ let cachedFields: string[] | null = null;
 let ticker: TickerData | null = null;
 let prevBid: number | null = null;
 let prevAsk: number | null = null;
+let prevLast: number | null = null;
 let longCooldown = 0;
 let shortCooldown = 0;
+let rowsPrinted = 0;
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
@@ -246,15 +258,33 @@ function tsNow(): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-function fmt(v: number | null, decimals = 6): string {
+function fmt(v: number | null, decimals = DECIMALS): string {
   if (v == null || !Number.isFinite(v)) return "—";
   return v.toFixed(decimals);
 }
 
-function fmtSign(v: number | null, decimals = 6): string {
+function fmtSign(v: number | null, decimals = DECIMALS): string {
   if (v == null || !Number.isFinite(v)) return "—";
   const s = v.toFixed(decimals);
   return v > 0 ? `+${s}` : v < 0 ? s : ` ${s}`;
+}
+
+function printHeaders(): void {
+  const p = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
+  const h =
+    `[HH:MM:SS]  ` +
+    p("ask", 3 + DECIMALS) + "  " +
+    p("bid", 3 + DECIMALS) + "  " +
+    p("last", 3 + DECIMALS) + "  " +
+    p("ab", 3 + DECIMALS) + "  " +
+    (NO_IL ? "" : p("I-L", 4 + DECIMALS) + "  ") +
+    p("ΔL", 4 + DECIMALS) + "  " +
+    p("Δask", 5 + DECIMALS) + "  " +
+    p("Δbid", 5 + DECIMALS) + "  " +
+    p("cdL", 2) + "  " +
+    p("cdS", 2);
+  console.log(h);
+  rowsPrinted = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -267,6 +297,8 @@ async function main(): Promise<void> {
   console.log(`  Size:       ${SIZE}`);
   console.log(`  Leverage:   ${LEVERAGE}x`);
   console.log(`  Threshold:  ±${THRESHOLD}`);
+  console.log(`  Cd Long:    ${CD_LONG}s`);
+  console.log(`  Cd Short:   ${CD_SHORT}s`);
   console.log(`  Mode:       ${DRY_RUN ? "DRY-RUN (no orders)" : "LIVE"}`);
   console.log(`═══════════════════════════════════════════════════════════════\n`);
 
@@ -287,6 +319,9 @@ async function main(): Promise<void> {
   }
   console.log(" connected.\n");
 
+  // Print column headers
+  printHeaders();
+
   // Graceful shutdown
   process.on("SIGINT", () => {
     console.log(`\n[${tsNow()}] ⏹  Stopped.`);
@@ -303,12 +338,19 @@ async function main(): Promise<void> {
     if (ticker) {
       const snapBid = ticker.bid;
       const snapAsk = ticker.ask;
-      const vector = ticker.index - ticker.last;
+      const snapLast = ticker.last;
+      const snapIndex = ticker.index;
+      const vector = snapIndex - snapLast;
       const deltaBid = prevBid !== null ? snapBid - prevBid : null;
       const deltaAsk = prevAsk !== null ? snapAsk - prevAsk : null;
+      const deltaLast = prevLast !== null ? snapLast - prevLast : null;
 
-      const ab = ticker.ask - ticker.bid;
-      console.log(`[${tsNow()}]  ask=${fmt(ticker.ask)}  bid=${fmt(ticker.bid)}  ab=${fmt(ab)}  I-L=${fmtSign(vector)}  Δask=${deltaAsk !== null ? fmtSign(deltaAsk) : "—"}  Δbid=${deltaBid !== null ? fmtSign(deltaBid) : "—"}`);
+      const ab = snapAsk - snapBid;
+      console.log(`[${tsNow()}]  ${fmt(snapAsk)}  ${fmt(snapBid)}  ${fmt(snapLast)}  ${fmt(ab)}${NO_IL ? "" : `  ${fmtSign(vector)}`}  ${deltaLast !== null ? fmtSign(deltaLast) : "—"}  ${deltaAsk !== null ? fmtSign(deltaAsk) : "—"}  ${deltaBid !== null ? fmtSign(deltaBid) : "—"}  ${longCooldown}s  ${shortCooldown}s`);
+      rowsPrinted++;
+      if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
+        printHeaders();
+      }
 
       if (VERBOSE) {
         console.log(`[${tsNow()}]  📊  vector=${fmt(vector)}  bid=${fmt(ticker.bid)}  ask=${fmt(ticker.ask)}  deltaBid=${deltaBid !== null ? fmt(deltaBid) : "—"}  deltaAsk=${deltaAsk !== null ? fmt(deltaAsk) : "—"}`);
@@ -346,17 +388,20 @@ async function main(): Promise<void> {
         }
 
         // Entry logic
-        if (vector > THRESHOLD && longCooldown === 0 && !NO_LONG) {
+        const longTrigger = (!NO_VECTOR && vector > THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast >= DELTA_LAST_THRESHOLD);
+        const shortTrigger = (!NO_VECTOR && vector < -THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast <= -DELTA_LAST_THRESHOLD);
+
+        if (longTrigger && longCooldown === 0 && !NO_LONG) {
           if (FORCE || longSize === 0) {
-            console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)} greater than +${THRESHOLD}`);
+            console.log(`[${tsNow()}]  ENTRY LONG — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openLong();
-            longCooldown = COOLDOWN_TICKS;
+            longCooldown = CD_LONG;
           }
-        } else if (vector < -THRESHOLD && shortCooldown === 0 && !NO_SHORT) {
+        } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT) {
           if (FORCE || shortSize === 0) {
-            console.log(`[${tsNow()}]  ENTRY SHORT — vector=${fmtSign(vector)} less than -${THRESHOLD}`);
+            console.log(`[${tsNow()}]  ENTRY SHORT — vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`);
             await openShort();
-            shortCooldown = COOLDOWN_TICKS;
+            shortCooldown = CD_SHORT;
           }
         }
       } catch (e) {
@@ -366,6 +411,7 @@ async function main(): Promise<void> {
       // Update previous values AFTER processing
       prevBid = snapBid;
       prevAsk = snapAsk;
+      prevLast = snapLast;
     }
 
     const elapsed = Date.now() - started;
