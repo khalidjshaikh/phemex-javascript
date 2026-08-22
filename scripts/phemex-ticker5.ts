@@ -91,8 +91,8 @@ Options:
                       data/<SYMBOL>-histogram.json (bucketed frequencies of
                       ask, bid, index, mark, last). Final write on SIGINT.
   --histogramBuckets <N>  Number of histogram buckets (default: 100)
-  --verdict           Print LONG if last < index, SHORT if last > index
   --decimals <N>      Number of decimal places for price display (default: 2)
+  --scientific        Print all variables in scientific notation
   --help              Show this help and exit
 `;
 
@@ -264,7 +264,6 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   askRpDelta:        { label: "Δask",    full: "ask − last" },
   bidRpDelta:        { label: "Δbid",    full: "bid − last" },
   indexRpDelta:      { label: "I-L",     full: "index − last" },
-  lastRpDelta:       { label: "Δlast",   full: "last − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
   // Previous-tick delta columns (--prevDelta): change from prior tick.
   askRpPrevDelta:    { label: "ΔaskPrev",   full: "ask − previous ask" },
@@ -969,16 +968,7 @@ function processTicker(data: Record<string, unknown>): void {
             : padRight(s, widths.get(k)!);
         })
         .join(" ");
-      let outputLine = `[${tsToHMS(Date.now())}] ${line}`;
-      if (VERDICT) {
-        const lastVal = Number(data.lastRp);
-        const indexVal = Number(data.indexRp);
-        if (Number.isFinite(lastVal) && Number.isFinite(indexVal)) {
-          const verdict = lastVal < indexVal ? "LONG" : lastVal > indexVal ? "SHORT" : "NEUTRAL";
-          outputLine += ` ${verdict}`;
-        }
-      }
-      console.log(outputLine);
+      console.log(`[${tsToHMS(Date.now())}] ${line}`);
       rowCounter++;
     }
   }
