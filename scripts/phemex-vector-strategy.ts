@@ -52,6 +52,8 @@ const NO_VECTOR = hasFlag("--noVector");
 const NO_IL = hasFlag("--noIL");
 const CD_LONG = Number(getArg("--cdLong") ?? 60);
 const CD_SHORT = Number(getArg("--cdShort") ?? 60);
+const PROFIT_EXIT = hasFlag("--profitExit");
+const PROFIT = Number(getArg("--profit") ?? 0);
 const SCIENTIFIC = hasFlag("--scientific");
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
@@ -73,6 +75,8 @@ Options:
   --noTrade              Disable all entries (long and short)
   --cdLong <N>           Long cooldown in seconds (default: 60)
   --cdShort <N>          Short cooldown in seconds (default: 60)
+  --profitExit           Exit long when bid >= entry + profit
+  --profit <N>           Profit threshold for profitExit (default: 0)
   --decimals <N>         Digits below decimal for printed numbers (default: 6)
   --scientific           Use scientific notation for numeric columns
   --verbose              Log every tick's vector and deltas
@@ -381,6 +385,7 @@ async function main(): Promise<void> {
   console.log(`  Threshold:  ±${THRESHOLD}`);
   console.log(`  Cd Long:    ${CD_LONG}s`);
   console.log(`  Cd Short:   ${CD_SHORT}s`);
+  console.log(`  ProfitExit: ${PROFIT_EXIT ? `ON (profit=${PROFIT})` : "OFF"}`);
   console.log(`  Mode:       ${DRY_RUN ? "DRY-RUN (no orders)" : "LIVE"}`);
   console.log(`═══════════════════════════════════════════════════════════════\n`);
 
@@ -526,6 +531,14 @@ async function main(): Promise<void> {
         if (longPos && deltaBid !== null && deltaBid < 0) {
           console.log(`[${tsNow()}]  EXIT LONG — deltaBid=${fmt(deltaBid)} < 0`);
           await closePos(longPos);
+        }
+
+        if (PROFIT_EXIT && longPos) {
+          const entry = parseFloat(longPos.avgEntryPriceRp || "0");
+          if (ticker && ticker.bid >= entry + PROFIT) {
+            console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(ticker.bid)} >= entry ${fmt(entry)} + ${fmt(PROFIT)}`);
+            await closePos(longPos);
+          }
         }
 
         if (shortPos && deltaAsk !== null && deltaAsk > 0 && !NO_SHORT) {
