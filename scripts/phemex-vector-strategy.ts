@@ -125,6 +125,8 @@ let shortCooldown = 0;
 let rowsPrinted = 0;
 let changeTimestamps: number[] = [];
 let deltaLastWindow: { ts: number; val: number }[] = [];
+let changeTimestampsHour: number[] = [];
+let deltaLastWindowHour: { ts: number; val: number }[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  WebSocket                                                           */
@@ -290,7 +292,9 @@ function printHeaders(): void {
     p("cdL", 2) + " " +
     p("cdS", 2) + " " +
     p("#ΔL/m", 5) + " " +
-    p("ΣΔL/m", 6);
+    p("ΣΔL/m", 6) + " " +
+    p("#ΔL/h", 5) + " " +
+    p("ΣΔL/h", 6);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -375,7 +379,26 @@ async function main(): Promise<void> {
       }
       const deltaLastSum = deltaLastWindow.reduce((acc, x) => acc + x.val, 0);
 
-      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate} ${fmtSign(deltaLastSum)}`);
+      // Count last changes (rolling window of 1 hour)
+      const cutoffHour = Date.now() - 3600000;
+      if (deltaLast !== null && deltaLast !== 0) {
+        changeTimestampsHour.push(Date.now());
+      }
+      while (changeTimestampsHour.length > 0 && changeTimestampsHour[0] < cutoffHour) {
+        changeTimestampsHour.shift();
+      }
+      const rateHour = String(changeTimestampsHour.length);
+
+      // Aggregate deltaLast over rolling 1 hour window
+      if (deltaLast !== null) {
+        deltaLastWindowHour.push({ ts: Date.now(), val: deltaLast });
+      }
+      while (deltaLastWindowHour.length > 0 && deltaLastWindowHour[0].ts < cutoffHour) {
+        deltaLastWindowHour.shift();
+      }
+      const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
+
+      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${longCooldown}s ${shortCooldown}s ${rate} ${fmtSign(deltaLastSum)} ${rateHour} ${fmtSign(deltaLastSumHour)}`);
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
