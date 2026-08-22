@@ -116,7 +116,7 @@ const HISTOGRAM = hasFlag("--histogram");
 const HISTOGRAM_BUCKETS = Number(getArg("--histogramBuckets") ?? 100);
 // --decimals <N>: number of decimal places for price display (default: 2).
 const DECIMALS = Number(getArg("--decimals") ?? 2);
-const VERDICT = hasFlag("--verdict");
+const SCIENTIFIC = hasFlag("--scientific");
 
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
@@ -138,7 +138,7 @@ const MA_WINDOWS = [1, 3, 5, 10, 15, 30, 60] as const;
 // --delta: fields for which a Δ column (field value minus last price) is added.
 // --ma computes delta internally but does not show the Δ columns unless --delta is also set.
 const DELTA = hasFlag("--delta");
-const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "lastRp", "markRp"] as const;
+const DELTA_FIELDS = ["askRp", "bidRp", "indexRp", "markRp"] as const;
 
 // --prevDelta: ΔindexPrev (index − previous index) and ΔlastPrev (last − previous last).
 const PREV_DELTA = hasFlag("--prevDelta");
@@ -162,7 +162,7 @@ const COLUMN_ORDER_BASE = [
   "lowRp", "openInterestRv", "openRp", "predFundingRateRr", "symbol",
   "timestamp", "turnoverRv", "volumeRq",
   "askRpDelta", "bidRpDelta", "indexRpDelta",
-  "markRpDelta", "lastRpDelta",
+  "markRpDelta",
   "askRpPrevDelta", "bidRpPrevDelta",
   "indexRpPrevDelta", "lastRpPrevDelta",
   "ma1s", "ma3s", "ma5s", "ma10s", "ma15s", "ma30s", "ma60s",
@@ -263,7 +263,7 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   // Delta columns (--delta): Δ<label> = field value minus the last price.
   askRpDelta:        { label: "Δask",    full: "ask − last" },
   bidRpDelta:        { label: "Δbid",    full: "bid − last" },
-  indexRpDelta:      { label: "Δindex",  full: "index − last" },
+  indexRpDelta:      { label: "I-L",     full: "index − last" },
   lastRpDelta:       { label: "Δlast",   full: "last − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
   // Previous-tick delta columns (--prevDelta): change from prior tick.
