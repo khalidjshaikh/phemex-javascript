@@ -52,6 +52,7 @@ const NO_VECTOR = hasFlag("--noVector");
 const NO_IL = hasFlag("--noIL");
 const CD_LONG = Number(getArg("--cdLong") ?? 60);
 const CD_SHORT = Number(getArg("--cdShort") ?? 60);
+const SCIENTIFIC = hasFlag("--scientific");
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -73,6 +74,7 @@ Options:
   --cdLong <N>           Long cooldown in seconds (default: 60)
   --cdShort <N>          Short cooldown in seconds (default: 60)
   --decimals <N>         Digits below decimal for printed numbers (default: 6)
+  --scientific           Use scientific notation for numeric columns
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -127,16 +129,26 @@ let changeTimestamps: number[] = [];
 let deltaLastWindow: { ts: number; val: number }[] = [];
 let changeTimestampsHour: number[] = [];
 let deltaLastWindowHour: { ts: number; val: number }[] = [];
+let savedLong: SavedPosition | null = null;
+let savedShort: SavedPosition | null = null;
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
 /* ------------------------------------------------------------------ */
+
+interface SavedPosition {
+  symbol: string;
+  side: "Buy" | "Sell";
+  size: string;
+}
 
 interface State {
   changeTimestamps: number[];
   deltaLastWindow: { ts: number; val: number }[];
   changeTimestampsHour: number[];
   deltaLastWindowHour: { ts: number; val: number }[];
+  savedLong: SavedPosition | null;
+  savedShort: SavedPosition | null;
 }
 
 const STATE_FILE = path.resolve(process.cwd(), `.vector-state-${SYMBOL}.json`);
@@ -151,7 +163,11 @@ function loadState(): void {
     deltaLastWindow = (saved.deltaLastWindow ?? []).filter(x => x.ts > cutoff);
     changeTimestampsHour = (saved.changeTimestampsHour ?? []).filter(ts => ts > cutoff);
     deltaLastWindowHour = (saved.deltaLastWindowHour ?? []).filter(x => x.ts > cutoff);
-    console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes`);
+    savedLong = saved.savedLong ?? null;
+    savedShort = saved.savedShort ?? null;
+    console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes` +
+      (savedLong ? ` | saved long ${savedLong.size}` : "") +
+      (savedShort ? ` | saved short ${savedShort.size}` : ""));
   } catch (e) {
     console.error(`[${tsNow()}]  ⚠  Failed to load state: ${(e as Error).message}`);
   }
@@ -163,6 +179,8 @@ function saveState(): void {
     deltaLastWindow,
     changeTimestampsHour,
     deltaLastWindowHour,
+    savedLong,
+    savedShort,
   };
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state));
@@ -312,19 +330,25 @@ function tsNow(): string {
 
 function fmt(v: number | null, decimals = DECIMALS): string {
   if (v == null || !Number.isFinite(v)) return "—";
-  return v.toFixed(decimals);
+  return SCIENTIFIC ? v.toExponential(decimals) : v.toFixed(decimals);
 }
 
 function fmtSign(v: number | null, decimals = DECIMALS): string {
-  if (v == null || !Number.isFinite(v)) return "—".padEnd(3 + decimals);
-  const s = v.toFixed(decimals);
+  if (v == null || !Number.isFinite(v)) {
+    return SCIENTIFIC
+      ? "—".padEnd(decimals + 6)
+      : "—".padEnd(3 + decimals);
+  }
+  const s = SCIENTIFIC ? v.toExponential(decimals) : v.toFixed(decimals);
   return v > 0 ? `+${s}` : v < 0 ? s : ` ${s}`;
 }
 
+const r = (s: string, n: number) => " ".repeat(Math.max(0, n - s.length)) + s;
+
 function printHeaders(): void {
-  const r = (s: string, n: number) => " ".repeat(Math.max(0, n - s.length)) + s;
-  const priceW = DECIMALS + 2;
-  const deltaW = DECIMALS + 3;
+  const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
+  const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
+  const deltaSumW = SCIENTIFIC ? DECIMALS + 7 : 6;
   const h =
     `[YYYY-MM-DD HH:MM:SS] ` +
     r("ask", priceW) + " " +
@@ -335,12 +359,12 @@ function printHeaders(): void {
     r("ΔL", deltaW) + " " +
     r("Δask", deltaW) + " " +
     r("Δbid", deltaW) + " " +
-    r("cdL", 2) + " " +
-    r("cdS", 2) + " " +
+    r("cdL", 3) + " " +
+    r("cdS", 3) + " " +
     r("#ΔL/m", 5) + " " +
-    r("ΣΔL/m", 6) + " " +
+    r("ΣΔL/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
-    r("ΣΔL/h", 6);
+    r("ΣΔL/h", deltaSumW);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -449,7 +473,26 @@ async function main(): Promise<void> {
       }
       const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
 
-      console.log(`[${tsNow()}] ${fmt(snapAsk)} ${fmt(snapBid)} ${fmt(snapLast)} ${fmt(ab)}${NO_IL ? "" : ` ${fmtSign(vector)}`} ${fmtSign(deltaLast)} ${fmtSign(deltaAsk)} ${fmtSign(deltaBid)} ${String(longCooldown).padStart(2)}s ${String(shortCooldown).padStart(2)}s ${rate} ${fmtSign(deltaLastSum)} ${rateHour} ${fmtSign(deltaLastSumHour)}`);
+      const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
+      const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
+      const deltaSumW = SCIENTIFIC ? DECIMALS + 7 : 6;
+      console.log(
+        `[${tsNow()}] ` +
+        r(fmt(snapAsk), priceW) + " " +
+        r(fmt(snapBid), priceW) + " " +
+        r(fmt(snapLast), priceW) + " " +
+        r(fmt(ab), priceW) + " " +
+        (NO_IL ? "" : r(fmtSign(vector), deltaW) + " ") +
+        r(fmtSign(deltaLast), deltaW) + " " +
+        r(fmtSign(deltaAsk), deltaW) + " " +
+        r(fmtSign(deltaBid), deltaW) + " " +
+        r(String(longCooldown) + "s", 3) + " " +
+        r(String(shortCooldown) + "s", 3) + " " +
+        r(rate, 5) + " " +
+        r(fmtSign(deltaLastSum), deltaSumW) + " " +
+        r(rateHour, 5) + " " +
+        r(fmtSign(deltaLastSumHour), deltaSumW)
+      );
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
         printHeaders();
