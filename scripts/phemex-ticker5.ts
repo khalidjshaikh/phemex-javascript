@@ -93,6 +93,8 @@ Options:
   --histogramBuckets <N>  Number of histogram buckets (default: 100)
   --decimals <N>      Number of decimal places for price display (default: 2)
   --scientific        Print all variables in scientific notation
+  --noMark            Remove mark and Δmark columns
+  --noIL              Remove index and I-L columns
   --help              Show this help and exit
 `;
 
@@ -117,6 +119,8 @@ const HISTOGRAM_BUCKETS = Number(getArg("--histogramBuckets") ?? 100);
 // --decimals <N>: number of decimal places for price display (default: 2).
 const DECIMALS = Number(getArg("--decimals") ?? 2);
 const SCIENTIFIC = hasFlag("--scientific");
+const NO_MARK = hasFlag("--noMark");
+const NO_IL = hasFlag("--noIL");
 
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
@@ -129,6 +133,16 @@ const CONCISE_HIDDEN = new Set([
   "predFundingRateRr", "symbol",
   ...(SHOW_TIMESTAMP ? [] : ["timestamp"]),
   "turnoverRv", "volumeRq",
+]);
+
+// Columns hidden when --noMark is set.
+const NO_MARK_HIDDEN = new Set([
+  ...(NO_MARK ? ["markRp", "markRpDelta"] : []),
+]);
+
+// Columns hidden when --noIL is set.
+const NO_IL_HIDDEN = new Set([
+  ...(NO_IL ? ["indexRp", "indexRpDelta"] : []),
 ]);
 
 // --ma: time-weighted moving average of Δindex over fixed windows.
@@ -266,10 +280,10 @@ const COLUMNS: Record<string, { label: string; full: string }> = {
   indexRpDelta:      { label: "I-L",     full: "index − last" },
   markRpDelta:       { label: "Δmark",   full: "mark − last" },
   // Previous-tick delta columns (--prevDelta): change from prior tick.
-  askRpPrevDelta:    { label: "ΔaskPrev",   full: "ask − previous ask" },
-  bidRpPrevDelta:    { label: "ΔbidPrev",   full: "bid − previous bid" },
-  indexRpPrevDelta:  { label: "ΔindexPrev", full: "index − previous index" },
-  lastRpPrevDelta:   { label: "ΔlastPrev",  full: "last − previous last" },
+  askRpPrevDelta:    { label: "Δask",    full: "ask − previous ask" },
+  bidRpPrevDelta:    { label: "Δbid",    full: "bid − previous bid" },
+  indexRpPrevDelta:  { label: "Δindex",  full: "index − previous index" },
+  lastRpPrevDelta:   { label: "Δlast",   full: "last − previous last" },
   // Moving average columns (--ma): time-weighted avg of Δindex over N seconds.
   ma1s:              { label: "ma1s",    full: "Δindex MA 1s" },
   ma3s:              { label: "ma3s",    full: "Δindex MA 3s" },
@@ -865,6 +879,8 @@ function processTicker(data: Record<string, unknown>): void {
 
   const keys = Object.keys(data)
     .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
+    .filter((k) => !NO_MARK_HIDDEN.has(k))
+    .filter((k) => !NO_IL_HIDDEN.has(k))
     .sort(
       (a, b) =>
         (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
@@ -982,6 +998,8 @@ console.log(`⟐  Connecting to ${WS_URL} (${type}) — tracking ${SYMBOLS.join(
 
 const legendKeys = Object.keys(COLUMNS)
   .filter((k) => !hasFlag("--concise") || !CONCISE_HIDDEN.has(k))
+  .filter((k) => !NO_MARK_HIDDEN.has(k))
+  .filter((k) => !NO_IL_HIDDEN.has(k))
   .sort(
     (a, b) =>
       (COLUMN_RANK.get(a) ?? COLUMN_ORDER.length) -
