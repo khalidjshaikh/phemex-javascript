@@ -322,23 +322,25 @@ function fmtSign(v: number | null, decimals = DECIMALS): string {
 }
 
 function printHeaders(): void {
-  const p = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
+  const r = (s: string, n: number) => " ".repeat(Math.max(0, n - s.length)) + s;
+  const priceW = DECIMALS + 2;
+  const deltaW = DECIMALS + 3;
   const h =
     `[YYYY-MM-DD HH:MM:SS] ` +
-    p("ask", 2 + DECIMALS) + " " +
-    p("bid", 2 + DECIMALS) + " " +
-    p("last", 2 + DECIMALS) + " " +
-    p("ab", 2 + DECIMALS) + " " +
-    (NO_IL ? "" : p("I-L", 3 + DECIMALS) + " ") +
-    p("ΔL", 3 + DECIMALS) + " " +
-    p("Δask", 3 + DECIMALS) + " " +
-    p("Δbid", 3 + DECIMALS) + " " +
-    p("cdL", 3) + " " +
-    p("cdS", 3) + " " +
-    p("#ΔL/m", 5) + " " +
-    p("ΣΔL/m", 6) + " " +
-    p("#ΔL/h", 5) + " " +
-    p("ΣΔL/h", 6);
+    r("ask", priceW) + " " +
+    r("bid", priceW) + " " +
+    r("last", priceW) + " " +
+    r("ab", priceW) + " " +
+    (NO_IL ? "" : r("I-L", deltaW) + " ") +
+    r("ΔL", deltaW) + " " +
+    r("Δask", deltaW) + " " +
+    r("Δbid", deltaW) + " " +
+    r("cdL", 2) + " " +
+    r("cdS", 2) + " " +
+    r("#ΔL/m", 5) + " " +
+    r("ΣΔL/m", 6) + " " +
+    r("#ΔL/h", 5) + " " +
+    r("ΣΔL/h", 6);
   console.log(h);
   rowsPrinted = 0;
 }
