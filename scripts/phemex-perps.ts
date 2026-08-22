@@ -88,14 +88,17 @@ async function main(): Promise<void> {
     const last = parseFloat(t?.closeRp ?? "0");
     const index = parseFloat(t?.indexPriceRp ?? "0");
 
+    const minQty = parseFloat(p.qtyStepSize ?? "1");
+    const notional = last * minQty;
+    const takerFee = notional * 0.0006; // 0.06% taker fee
+
     rows.push({
       symbol: p.symbol,
       last,
       index,
       iMinusL: index - last,
       minQty: p.qtyStepSize ?? "—",
-      minOrderVal: p.minOrderValueRv ?? "—",
-      maxQty: p.maxOrderQtyRq ?? "—",
+      takerFee,
     });
   }
 
@@ -109,12 +112,11 @@ async function main(): Promise<void> {
   const wIdx = Math.max(7, ...rows.map((r) => fmtNum(r.index).length));
   const wIL = Math.max(5, ...rows.map((r) => fmtDelta(r.iMinusL).length));
   const wMinQ = Math.max(8, ...rows.map((r) => String(r.minQty).length));
-  const wMinV = Math.max(12, ...rows.map((r) => String(r.minOrderVal).length));
-  const wMaxQ = Math.max(8, ...rows.map((r) => String(r.maxQty).length));
+  const wTaker = Math.max(10, ...rows.map((r) => fmtFee(r.takerFee).length));
 
-  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wMinQ + wMinV + wMaxQ + 18);
+  const sep = "─".repeat(wSym + wLast + wIdx + wIL + wMinQ + wTaker + 18);
   console.log(
-    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"MinQty".padEnd(wMinQ)}  ${"MinOrdVal".padEnd(wMinV)}  ${"MaxQty".padEnd(wMaxQ)}`,
+    `  ${"Symbol".padEnd(wSym)}  ${"Last".padStart(wLast)}  ${"Index".padStart(wIdx)}  ${"I-L".padStart(wIL)}  ${"MinQty".padEnd(wMinQ)}  ${"Taker Fee".padStart(wTaker)}`,
   );
   console.log(`  ${sep}`);
 
@@ -125,8 +127,7 @@ async function main(): Promise<void> {
       `${fmtNum(r.index).padStart(wIdx)}  ` +
       `${fmtDelta(r.iMinusL).padStart(wIL)}  ` +
       `${String(r.minQty).padEnd(wMinQ)}  ` +
-      `${String(r.minOrderVal).padEnd(wMinV)}  ` +
-      `${String(r.maxQty).padEnd(wMaxQ)}`,
+      `${fmtFee(r.takerFee).padStart(wTaker)}`,
     );
   }
 
@@ -143,6 +144,13 @@ function fmtDelta(v: unknown): string {
   if (!Number.isFinite(n)) return "—";
   const s = n.toFixed(2);
   return n > 0 ? `+${s}` : s;
+}
+
+function fmtFee(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 0.01) return `$${n.toFixed(6)}`;
+  return `$${n.toFixed(4)}`;
 }
 
 main().catch((e) => {
