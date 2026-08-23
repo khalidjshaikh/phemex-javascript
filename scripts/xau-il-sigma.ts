@@ -28,6 +28,7 @@ Options:
   --quiet         Suppress per-tick output, show only minute/hour summaries
   --no-ticker     Suppress per-tick output (same as --quiet)
   --no-minute     Suppress per-minute summary reports
+  --noIL          Hide I-L cumulative columns (avg(I−L), Σ(I−L), Σ(I−L)>0, Σ(I−L)<0, sign changes)
   --help          Show this help and exit
 
 Output columns:
@@ -47,6 +48,7 @@ Per-minute / per-hour summaries include:
 if (hasFlag("--help")) { console.log(USAGE); process.exit(0); }
 const QUIET = hasFlag("--quiet") || hasFlag("--no-ticker");
 const NO_MINUTE = hasFlag("--no-minute");
+const NO_IL = hasFlag("--noIL");
 
 const DECIMALS = Number(hasFlag("--decimals") ? process.argv[process.argv.indexOf("--decimals") + 1] : 4);
 const WS_URL = "wss://ws.phemex.com";
@@ -203,20 +205,25 @@ function fmtHourLine(label: string, h: { date?: string; clockHour: number; ticks
   const dt = h.date ?? "";
   const hr = fmtHour(h.clockHour);
   const ticks = String(h.ticks);
+  const dl = fmtDelta(h.deltaL);
+  const dlP = fmtDelta(h.deltaLPos ?? 0);
+  const dlN = fmtDelta(h.deltaLNeg ?? 0);
+  const pc = h.priceChange != null ? fmtDelta(h.priceChange) : "—";
+  if (NO_IL) {
+    return `${label} ${padR(dt, 10)} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(pc, 10)}`;
+  }
   const avg = h.ticks > 0 ? fmtSigma(h.avgIl) : "—";
   const sig = fmtSigma(h.sigma);
   const sigP = fmtSigma(h.sigmaPos ?? 0);
   const sigN = fmtSigma(h.sigmaNeg ?? 0);
-  const dl = fmtDelta(h.deltaL);
-  const dlP = fmtDelta(h.deltaLPos ?? 0);
-  const dlN = fmtDelta(h.deltaLNeg ?? 0);
   const sc = String(h.signChanges);
-  const pc = h.priceChange != null ? fmtDelta(h.priceChange) : "—";
   return `${label} ${padR(dt, 10)} ${padR(hr, 8)} ${padR(ticks, 5)} ${padR(avg, 10)} ${padR(sig, 12)} ${padR(sigP, 12)} ${padR(sigN, 12)} ${padR(dl, 10)} ${padR(dlP, 10)} ${padR(dlN, 10)} ${padR(sc, 4)} ${padR(pc, 10)}`;
 }
 
-const HOUR_HEADER = `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)} ${padR("ΔL(h)", 10)}`;
-const HOUR_SEP = `  ${padR("", 10)} ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 12)} ${padR("", 12)} ${padR("", 12)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)} ${padR("chgs", 4)}`;
+const HOUR_HEADER = NO_IL
+  ? `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("ΔL(h)", 10)}`
+  : `  ${padR("date", 10)} ${padR("hour", 8)} ${padR("ticks", 5)} ${padR("avg(I−L)", 10)} ${padR("Σ(I−L)", 12)} ${padR("Σ(I−L)>0", 12)} ${padR("Σ(I−L)<0", 12)} ${padR("ΣΔL", 10)} ${padR("ΣΔL>0", 10)} ${padR("ΣΔL<0", 10)} ${padR("sign", 4)} ${padR("ΔL(h)", 10)}`;
+const HOUR_SEP = `  ${padR("", 10)} ${padR("", 8)} ${padR("", 5)} ${padR("", 10)} ${padR("", 10)} ${padR("", 10)}`;
 
 /* ── WebSocket message handling ── */
 
@@ -295,7 +302,9 @@ if (lastHour && lastHour.clockHour === nowHour) {
   console.log();
 }
 
-const TICK_HEADER = `[             ]  ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("Σ(I−L)", W_SG)}  ${padL("Σ+", W_SG)}  ${padL("Σ-", W_SG)}  ${padL("ΣΔL", W_SG)}  ${padL("ΣΔL+", W_SG)}  ${padL("ΣΔL-", W_SG)}  ${padL("chgs", 4)}  ${padL("ΔL(h)", W_SG)}`;
+const TICK_HEADER = NO_IL
+  ? `[             ]  ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("ΣΔL", W_SG)}  ${padL("ΣΔL+", W_SG)}  ${padL("ΣΔL-", W_SG)}  ${padL("ΔL(h)", W_SG)}`
+  : `[             ]  ${padL("I", W_IL)}  ${padL("ΔI", W_DL)}  ${padL("L", W_IL)}  ${padL("ΔL", W_DL)}  ${padL("I-L", W_IL)}  ${padL("Δ(I-L)", W_DL)}  ${padL("Σ(I−L)", W_SG)}  ${padL("Σ+", W_SG)}  ${padL("Σ-", W_SG)}  ${padL("ΣΔL", W_SG)}  ${padL("ΣΔL+", W_SG)}  ${padL("ΣΔL-", W_SG)}  ${padL("chgs", 4)}  ${padL("ΔL(h)", W_SG)}`;
 
 const ws = new ReconnectingWs(WS_URL, {
   onOpen: () => {
@@ -317,7 +326,11 @@ const ws = new ReconnectingWs(WS_URL, {
     if (currentMinute >= 0 && minute !== currentMinute) {
       if (!NO_MINUTE) {
         console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
-        console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  sign changes: ${minuteSignChanges}`);
+        if (NO_IL) {
+          console.log(`  ticks: ${tickCount}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
+        } else {
+          console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  sign changes: ${minuteSignChanges}`);
+        }
         console.log();
       }
       tickHeaderPrinted = false;
@@ -426,7 +439,9 @@ const ws = new ReconnectingWs(WS_URL, {
         tickHeaderPrinted = true;
       }
       console.log(
-        `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtSigma(cumSigma), W_SG)}  ${padL(fmtSigma(cumSigmaPos), W_SG)}  ${padL(fmtSigma(cumSigmaNeg), W_SG)}  ${padL(fmtDelta(cumDeltaL), W_SG)}  ${padL(fmtDelta(cumDeltaLPos), W_SG)}  ${padL(fmtDelta(cumDeltaLNeg), W_SG)}  ${padL(String(minuteSignChanges), 4)}  ${padL(hourLastLast != null && hourFirstLast != null ? fmtDelta(hourLastLast - hourFirstLast) : "—", W_SG)}`,
+        NO_IL
+          ? `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtDelta(cumDeltaL), W_SG)}  ${padL(fmtDelta(cumDeltaLPos), W_SG)}  ${padL(fmtDelta(cumDeltaLNeg), W_SG)}  ${padL(hourLastLast != null && hourFirstLast != null ? fmtDelta(hourLastLast - hourFirstLast) : "—", W_SG)}`
+          : `[${tsToHMS(now)}]  ${padL(fmtPrice(index), W_IL)}  ${padL(fmtDelta(deltaIndex), W_DL)}  ${padL(fmtPrice(last), W_IL)}  ${padL(fmtDelta(deltaLast), W_DL)}  ${padL(fmtDelta(iMinusL), W_IL)}  ${padL(fmtDelta(deltaIl), W_DL)}  ${padL(fmtSigma(cumSigma), W_SG)}  ${padL(fmtSigma(cumSigmaPos), W_SG)}  ${padL(fmtSigma(cumSigmaNeg), W_SG)}  ${padL(fmtDelta(cumDeltaL), W_SG)}  ${padL(fmtDelta(cumDeltaLPos), W_SG)}  ${padL(fmtDelta(cumDeltaLNeg), W_SG)}  ${padL(String(minuteSignChanges), 4)}  ${padL(hourLastLast != null && hourFirstLast != null ? fmtDelta(hourLastLast - hourFirstLast) : "—", W_SG)}`,
       );
     }
   },
