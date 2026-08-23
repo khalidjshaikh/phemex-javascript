@@ -137,7 +137,8 @@ let changeTimestampsHour: number[] = [];
 let deltaLastWindowHour: { ts: number; val: number }[] = [];
 let savedLong: SavedPosition | null = null;
 let savedShort: SavedPosition | null = null;
-let posOpensHour: number[] = [];
+let longOpensHour: number[] = [];
+let shortOpensHour: number[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
@@ -156,7 +157,8 @@ interface State {
   deltaLastWindowHour: { ts: number; val: number }[];
   savedLong: SavedPosition | null;
   savedShort: SavedPosition | null;
-  posOpensHour: number[];
+  longOpensHour: number[];
+  shortOpensHour: number[];
 }
 
 const STATE_FILE = path.resolve(process.cwd(), `.vector-state-${SYMBOL}.json`);
@@ -171,7 +173,8 @@ function loadState(): void {
     deltaLastWindow = (saved.deltaLastWindow ?? []).filter(x => x.ts > cutoff);
     changeTimestampsHour = (saved.changeTimestampsHour ?? []).filter(ts => ts > cutoff);
     deltaLastWindowHour = (saved.deltaLastWindowHour ?? []).filter(x => x.ts > cutoff);
-    posOpensHour = (saved.posOpensHour ?? []).filter(ts => ts > cutoff);
+    longOpensHour = (saved.longOpensHour ?? []).filter(ts => ts > cutoff);
+    shortOpensHour = (saved.shortOpensHour ?? []).filter(ts => ts > cutoff);
     savedLong = saved.savedLong ?? null;
     savedShort = saved.savedShort ?? null;
     console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes` +
@@ -190,7 +193,8 @@ function saveState(): void {
     deltaLastWindowHour,
     savedLong,
     savedShort,
-    posOpensHour,
+    longOpensHour,
+    shortOpensHour,
   };
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state));
@@ -292,7 +296,7 @@ function startWebSocket(): ReconnectingWs {
 /* ------------------------------------------------------------------ */
 
 async function openLong(): Promise<void> {
-  posOpensHour.push(Date.now());
+  longOpensHour.push(Date.now());
   if (DRY_RUN) {
     console.log(`[${tsNow()}]  📗  DRY-RUN — would open LONG ${SYMBOL} size=${SIZE}`);
     return;
@@ -306,7 +310,7 @@ async function openLong(): Promise<void> {
 }
 
 async function openShort(): Promise<void> {
-  posOpensHour.push(Date.now());
+  shortOpensHour.push(Date.now());
   if (DRY_RUN) {
     console.log(`[${tsNow()}]  📕  DRY-RUN — would open SHORT ${SYMBOL} size=${SIZE}`);
     return;
@@ -379,7 +383,8 @@ function printHeaders(): void {
     r("#ΔL+", 5) + " " +
     r("#ΔL-", 5) + " " +
     r("ΣΔL/h", deltaSumW) + " " +
-    r("#pos/h", 5);
+    r("#L/h", 5) + " " +
+    r("#S/h", 5);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -492,10 +497,14 @@ async function main(): Promise<void> {
       const deltaLastPosHour = deltaLastWindowHour.filter(x => x.val > 0).length;
       const deltaLastNegHour = deltaLastWindowHour.filter(x => x.val < 0).length;
 
-      while (posOpensHour.length > 0 && posOpensHour[0] < cutoffHour) {
-        posOpensHour.shift();
+      while (longOpensHour.length > 0 && longOpensHour[0] < cutoffHour) {
+        longOpensHour.shift();
       }
-      const posOpensCount = posOpensHour.length;
+      while (shortOpensHour.length > 0 && shortOpensHour[0] < cutoffHour) {
+        shortOpensHour.shift();
+      }
+      const longOpensCount = longOpensHour.length;
+      const shortOpensCount = shortOpensHour.length;
 
       const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
       const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
@@ -518,7 +527,8 @@ async function main(): Promise<void> {
         r(String(deltaLastPosHour), 5) + " " +
         r(String(deltaLastNegHour), 5) + " " +
         r(fmtSign(deltaLastSumHour), deltaSumW) + " " +
-        r(String(posOpensCount), 5)
+        r(String(longOpensCount), 5) + " " +
+        r(String(shortOpensCount), 5)
       );
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
