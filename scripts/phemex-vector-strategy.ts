@@ -379,10 +379,12 @@ function printHeaders(): void {
     r("cdS", 3) + " " +
     r("#ΔL/m", 5) + " " +
     r("ΣΔL/m", deltaSumW) + " " +
+    r("ΣΔL+/m", deltaSumW) + " " +
+    r("ΣΔL-/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
-    r("#ΔL+", 5) + " " +
-    r("#ΔL-", 5) + " " +
     r("ΣΔL/h", deltaSumW) + " " +
+    r("ΣΔL+/h", deltaSumW) + " " +
+    r("ΣΔL-/h", deltaSumW) + " " +
     r("#L/h", 5) + " " +
     r("#S/h", 5);
   console.log(h);
@@ -475,6 +477,8 @@ async function main(): Promise<void> {
         deltaLastWindow.shift();
       }
       const deltaLastSum = deltaLastWindow.reduce((acc, x) => acc + x.val, 0);
+      const deltaLastPosSum = deltaLastWindow.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaLastNegSum = deltaLastWindow.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
 
       // Count last changes (rolling window of 1 hour)
       const cutoffHour = Date.now() - 3600000;
@@ -494,8 +498,8 @@ async function main(): Promise<void> {
         deltaLastWindowHour.shift();
       }
       const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
-      const deltaLastPosHour = deltaLastWindowHour.filter(x => x.val > 0).length;
-      const deltaLastNegHour = deltaLastWindowHour.filter(x => x.val < 0).length;
+      const deltaLastPosSumHour = deltaLastWindowHour.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaLastNegSumHour = deltaLastWindowHour.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
 
       while (longOpensHour.length > 0 && longOpensHour[0] < cutoffHour) {
         longOpensHour.shift();
@@ -523,10 +527,12 @@ async function main(): Promise<void> {
         r(String(shortCooldown) + "s", 3) + " " +
         r(rate, 5) + " " +
         r(fmtSign(deltaLastSum), deltaSumW) + " " +
+        r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
+        r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
         r(rateHour, 5) + " " +
-        r(String(deltaLastPosHour), 5) + " " +
-        r(String(deltaLastNegHour), 5) + " " +
         r(fmtSign(deltaLastSumHour), deltaSumW) + " " +
+        r(fmtSign(deltaLastPosSumHour), deltaSumW) + " " +
+        r(fmtSign(deltaLastNegSumHour), deltaSumW) + " " +
         r(String(longOpensCount), 5) + " " +
         r(String(shortOpensCount), 5)
       );
