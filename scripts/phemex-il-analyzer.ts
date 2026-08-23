@@ -31,6 +31,7 @@ Options:
   --interval <MS>     WebSocket poll interval hint (default: 1000)
   --decimals <N>      Decimal places for display (default: 4)
   --hourlyOnly        Suppress per-tick output, show only hourly summary
+  --noIL              Remove I-L Start, I-L End, Δ(I-L), Σ(I-L), Σ+, Σ-, Crosses columns
   --help              Show this help and exit
 
 Hourly summary prints:
@@ -46,6 +47,7 @@ const WINDOW = Number(getArg("--window") ?? 1);
 const HOLD = Number(getArg("--hold") ?? 3);
 const DECIMALS = Number(getArg("--decimals") ?? 4);
 const HOURLY_ONLY = hasFlag("--hourlyOnly");
+const NO_IL = hasFlag("--noIL");
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
@@ -299,16 +301,19 @@ function printHourlyDeltaL(): void {
 
   const endStamp = `${hh}:59:59.999`;
   console.log("");
-  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — Δ(I-L) + Σ(I-L) + Σ+ + Σ- + Crossings`);
+  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΣΔL + ΔL(h)`);
   console.log(
     "Symbol".padEnd(12) +
-    " I-L Start".padStart(12) +
-    "  I-L End".padStart(12) +
-    "      Δ(I-L)".padStart(12) +
-    "    Σ(I-L)".padStart(12) +
-    "      Σ+".padStart(12) +
-    "      Σ-".padStart(12) +
-    "  Crosses".padStart(10) +
+    (NO_IL
+      ? ""
+      : " I-L Start".padStart(12) +
+      "  I-L End".padStart(12) +
+      "      Δ(I-L)".padStart(12) +
+      "    Σ(I-L)".padStart(12) +
+      "      Σ+".padStart(12) +
+      "      Σ-".padStart(12) +
+      "  Crosses".padStart(10)
+    ) +
     "    Ticks".padStart(10) +
     "       ΣΔL".padStart(12) +
     "      ΣΔL+".padStart(12) +
@@ -320,13 +325,16 @@ function printHourlyDeltaL(): void {
     const rec = s.hourHistory[s.hourHistory.length - 1];
     console.log(
       sym.padEnd(12) +
-      fmtSign(rec.startIl).padStart(12) +
-      fmtSign(rec.endIl).padStart(12) +
-      fmtSign(rec.deltaL).padStart(12) +
-      fmt(rec.sigmaIl).padStart(12) +
-      fmt(rec.sigmaIlPos).padStart(12) +
-      fmt(rec.sigmaIlNeg).padStart(12) +
-      String(rec.crossings).padStart(10) +
+      (NO_IL
+        ? ""
+        : fmtSign(rec.startIl).padStart(12) +
+        fmtSign(rec.endIl).padStart(12) +
+        fmtSign(rec.deltaL).padStart(12) +
+        fmt(rec.sigmaIl).padStart(12) +
+        fmt(rec.sigmaIlPos).padStart(12) +
+        fmt(rec.sigmaIlNeg).padStart(12) +
+        String(rec.crossings).padStart(10)
+      ) +
       String(rec.ticks).padStart(10) +
       fmtSign(rec.sigmaDeltaL).padStart(12) +
       fmtSign(rec.sigmaDeltaLPos).padStart(12) +
@@ -347,17 +355,20 @@ function printStartupHistory(): void {
   if (!hasAny) return;
 
   console.log("");
-  console.log(`  LAST 24 HOURS — Δ(I-L) + Σ(I-L) + Σ+ + Σ- + Crossings`);
-  console.log(
-    "Hour".padEnd(6) +
-    "Symbol".padEnd(12) +
-    " I-L Start".padStart(12) +
+  console.log(`  LAST 24 HOURS — ΣΔL + ΔL(h)`);
+  const ilHeader = NO_IL
+    ? ""
+    : " I-L Start".padStart(12) +
     "  I-L End".padStart(12) +
     "      Δ(I-L)".padStart(12) +
     "    Σ(I-L)".padStart(12) +
     "      Σ+".padStart(12) +
     "      Σ-".padStart(12) +
-    "  Crosses".padStart(10) +
+    "  Crosses".padStart(10);
+  console.log(
+    "Hour".padEnd(6) +
+    "Symbol".padEnd(12) +
+    ilHeader +
     "    Ticks".padStart(10) +
     "       ΣΔL".padStart(12) +
     "      ΣΔL+".padStart(12) +
@@ -374,13 +385,7 @@ function printStartupHistory(): void {
       console.log(
         "Hour".padEnd(6) +
         "Symbol".padEnd(12) +
-        " I-L Start".padStart(12) +
-        "  I-L End".padStart(12) +
-        "      Δ(I-L)".padStart(12) +
-        "    Σ(I-L)".padStart(12) +
-        "      Σ+".padStart(12) +
-        "      Σ-".padStart(12) +
-        "  Crosses".padStart(10) +
+        ilHeader +
         "    Ticks".padStart(10) +
         "       ΣΔL".padStart(12) +
         "      ΣΔL+".padStart(12) +
@@ -392,16 +397,19 @@ function printStartupHistory(): void {
     // Print oldest to newest
     for (const rec of s.hourHistory) {
       const hh = String(rec.hour).padStart(2, "0");
-      console.log(
-        `${hh}:00`.padEnd(6) +
-        sym.padEnd(12) +
-        fmtSign(rec.startIl).padStart(12) +
+      const ilData = NO_IL
+        ? ""
+        : fmtSign(rec.startIl).padStart(12) +
         fmtSign(rec.endIl).padStart(12) +
         fmtSign(rec.deltaL).padStart(12) +
         fmt(rec.sigmaIl).padStart(12) +
         fmt(rec.sigmaIlPos).padStart(12) +
         fmt(rec.sigmaIlNeg).padStart(12) +
-        String(rec.crossings).padStart(10) +
+        String(rec.crossings).padStart(10);
+      console.log(
+        `${hh}:00`.padEnd(6) +
+        sym.padEnd(12) +
+        ilData +
         String(rec.ticks).padStart(10) +
         fmtSign(rec.sigmaDeltaL).padStart(12) +
         fmtSign(rec.sigmaDeltaLPos).padStart(12) +
@@ -615,13 +623,19 @@ function processTicker(data: Record<string, unknown>): void {
   if (!HOURLY_ONLY) {
     const maxRows = process.stdout.rows ?? 24;
     if (!tickHeaderPrinted || tickCount >= maxRows - 3) {
-      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}${"ΣΔL".padStart(11)}${"ΣΔL+".padStart(11)}${"ΣΔL-".padStart(11)}${"ΔL(h)".padStart(11)}`);
+      const ilHeader = NO_IL
+        ? ""
+        : `  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`;
+      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}${ilHeader}${"ΣΔL".padStart(11)}${"ΣΔL+".padStart(11)}${"ΣΔL-".padStart(11)}${"ΔL(h)".padStart(11)}`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
+    const sigmaIl = fmt(state.hourSigmaIl);
     const sigPos = fmt(state.hourSigmaIlPos);
     const sigNeg = fmt(state.hourSigmaIlNeg);
-    const sigmaIl = fmt(state.hourSigmaIl);
+    const ilData = NO_IL
+      ? ""
+      : `  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}`;
     const sigmaDeltaL = fmt(state.hourSigmaDeltaL);
     const sigmaDeltaLPos = fmt(state.hourSigmaDeltaLPos);
     const sigmaDeltaLNeg = fmt(state.hourSigmaDeltaLNeg);
@@ -629,7 +643,7 @@ function processTicker(data: Record<string, unknown>): void {
       ? fmt(state.hourLastLast - state.hourStartLast)
       : fmt(null);
     console.log(
-      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}  ${pad(ilStr, 10)}  ${signChar.padEnd(5)}  ${slopeChar.padEnd(6)}${regimeStr.padStart(7)}${crossStr.padStart(9)}${pad(sigmaIl, 10).padStart(11)}${pad(sigPos, 10).padStart(11)}${pad(sigNeg, 10).padStart(11)}${pad(sigmaDeltaL, 10).padStart(11)}${pad(sigmaDeltaLPos, 10).padStart(11)}${pad(sigmaDeltaLNeg, 10).padStart(11)}${pad(deltaLh, 10).padStart(11)}`,
+      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}${ilData}${pad(sigmaDeltaL, 10).padStart(11)}${pad(sigmaDeltaLPos, 10).padStart(11)}${pad(sigmaDeltaLNeg, 10).padStart(11)}${pad(deltaLh, 10).padStart(11)}`,
     );
     tickCount++;
   }
@@ -720,16 +734,19 @@ const ws = new ReconnectingWs(WS_URL, {
       }
       hourlyLinesPrinted = 0;
       const hh = String(new Date().getHours()).padStart(2, "0");
-      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)} ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}  ${"ticks".padStart(5)}  ${"ΣΔL".padStart(10)} ${"ΣΔL+".padStart(10)} ${"ΣΔL-".padStart(10)}  ${"ΔL(h)".padStart(10)}  [${hh}:00]\n`);
+      const ilHeader = NO_IL
+        ? ""
+        : ` ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}`;
+      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)}${ilHeader}  ${"ticks".padStart(5)}  ${"ΣΔL".padStart(10)} ${"ΣΔL+".padStart(10)} ${"ΣΔL-".padStart(10)}  ${"ΔL(h)".padStart(10)}  [${hh}:00]\n`);
       hourlyLinesPrinted++;
       for (const [sym, s] of states) {
-        const ilStr = fmtSign(s.lastIl);
-        const prevIlStr = fmtSign(s.prevIl);
-        const slopeChar = s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→";
         const deltaLh = (s.hourStartLast !== null && s.hourLastLast !== null)
           ? s.hourLastLast - s.hourStartLast
           : null;
-        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)} ${prevIlStr.padStart(10)}  ${ilStr.padStart(10)}  ${slopeChar.padStart(5)}  ${String(s.hourCrossings).padStart(7)}  ${String(s.hourTicks).padStart(5)}  ${fmtSign(s.hourSigmaDeltaL).padStart(10)} ${fmtSign(s.hourSigmaDeltaLPos).padStart(10)} ${fmtSign(s.hourSigmaDeltaLNeg).padStart(10)}  ${fmtSign(deltaLh).padStart(10)}  [${hh}:00]\n`);
+        const ilData = NO_IL
+          ? ""
+          : ` ${fmtSign(s.prevIl).padStart(10)}  ${fmtSign(s.lastIl).padStart(10)}  ${(s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→").padStart(5)}  ${String(s.hourCrossings).padStart(7)}`;
+        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)}${ilData}  ${String(s.hourTicks).padStart(5)}  ${fmtSign(s.hourSigmaDeltaL).padStart(10)} ${fmtSign(s.hourSigmaDeltaLPos).padStart(10)} ${fmtSign(s.hourSigmaDeltaLNeg).padStart(10)}  ${fmtSign(deltaLh).padStart(10)}  [${hh}:00]\n`);
         hourlyLinesPrinted++;
       }
     }
