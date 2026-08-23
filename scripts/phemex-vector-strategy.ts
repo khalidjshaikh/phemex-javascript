@@ -55,6 +55,7 @@ const CD_SHORT = Number(getArg("--cdShort") ?? 60);
 const PROFIT_EXIT = hasFlag("--profitExit");
 const PROFIT = Number(getArg("--profit") ?? 0);
 const SCIENTIFIC = hasFlag("--scientific");
+const HIDE_COLS = new Set((getArg("--hideCols") ?? "").split(",").filter(Boolean).map(s => s.trim().toLowerCase()));
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -79,6 +80,7 @@ Options:
   --profit <N>           Profit threshold for profitExit (default: 0)
   --decimals <N>         Digits below decimal for printed numbers (default: 6)
   --scientific           Use scientific notation for numeric columns
+  --hideCols <list>      Comma-separated columns to hide: ask, bid, ab, deltaAsk, deltaBid
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -135,6 +137,7 @@ let changeTimestampsHour: number[] = [];
 let deltaLastWindowHour: { ts: number; val: number }[] = [];
 let savedLong: SavedPosition | null = null;
 let savedShort: SavedPosition | null = null;
+let posOpensHour: number[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
@@ -153,6 +156,7 @@ interface State {
   deltaLastWindowHour: { ts: number; val: number }[];
   savedLong: SavedPosition | null;
   savedShort: SavedPosition | null;
+  posOpensHour: number[];
 }
 
 const STATE_FILE = path.resolve(process.cwd(), `.vector-state-${SYMBOL}.json`);
@@ -167,6 +171,7 @@ function loadState(): void {
     deltaLastWindow = (saved.deltaLastWindow ?? []).filter(x => x.ts > cutoff);
     changeTimestampsHour = (saved.changeTimestampsHour ?? []).filter(ts => ts > cutoff);
     deltaLastWindowHour = (saved.deltaLastWindowHour ?? []).filter(x => x.ts > cutoff);
+    posOpensHour = (saved.posOpensHour ?? []).filter(ts => ts > cutoff);
     savedLong = saved.savedLong ?? null;
     savedShort = saved.savedShort ?? null;
     console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes` +
@@ -185,6 +190,7 @@ function saveState(): void {
     deltaLastWindowHour,
     savedLong,
     savedShort,
+    posOpensHour,
   };
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state));
@@ -286,6 +292,7 @@ function startWebSocket(): ReconnectingWs {
 /* ------------------------------------------------------------------ */
 
 async function openLong(): Promise<void> {
+  posOpensHour.push(Date.now());
   if (DRY_RUN) {
     console.log(`[${tsNow()}]  📗  DRY-RUN — would open LONG ${SYMBOL} size=${SIZE}`);
     return;
@@ -299,6 +306,7 @@ async function openLong(): Promise<void> {
 }
 
 async function openShort(): Promise<void> {
+  posOpensHour.push(Date.now());
   if (DRY_RUN) {
     console.log(`[${tsNow()}]  📕  DRY-RUN — would open SHORT ${SYMBOL} size=${SIZE}`);
     return;
@@ -355,20 +363,23 @@ function printHeaders(): void {
   const deltaSumW = SCIENTIFIC ? DECIMALS + 7 : 6;
   const h =
     `[YYYY-MM-DD HH:MM:SS] ` +
-    r("ask", priceW) + " " +
-    r("bid", priceW) + " " +
+    (HIDE_COLS.has("ask") ? "" : r("ask", priceW) + " ") +
+    (HIDE_COLS.has("bid") ? "" : r("bid", priceW) + " ") +
     r("last", priceW) + " " +
-    r("ab", priceW) + " " +
+    (HIDE_COLS.has("ab") ? "" : r("ab", priceW) + " ") +
     (NO_IL ? "" : r("I-L", deltaW) + " ") +
     r("ΔL", deltaW) + " " +
-    r("Δask", deltaW) + " " +
-    r("Δbid", deltaW) + " " +
+    (HIDE_COLS.has("deltaask") ? "" : r("Δask", deltaW) + " ") +
+    (HIDE_COLS.has("deltabid") ? "" : r("Δbid", deltaW) + " ") +
     r("cdL", 3) + " " +
     r("cdS", 3) + " " +
     r("#ΔL/m", 5) + " " +
     r("ΣΔL/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
-    r("ΣΔL/h", deltaSumW);
+    r("#ΔL+", 5) + " " +
+    r("#ΔL-", 5) + " " +
+    r("ΣΔL/h", deltaSumW) + " " +
+    r("#pos/h", 5);
   console.log(h);
   rowsPrinted = 0;
 }
@@ -386,6 +397,7 @@ async function main(): Promise<void> {
   console.log(`  Cd Long:    ${CD_LONG}s`);
   console.log(`  Cd Short:   ${CD_SHORT}s`);
   console.log(`  ProfitExit: ${PROFIT_EXIT ? `ON (profit=${PROFIT})` : "OFF"}`);
+  if (HIDE_COLS.size > 0) console.log(`  HideCols:   ${[...HIDE_COLS].join(", ")}`);
   console.log(`  Mode:       ${DRY_RUN ? "DRY-RUN (no orders)" : "LIVE"}`);
   console.log(`═══════════════════════════════════════════════════════════════\n`);
 
@@ -477,26 +489,36 @@ async function main(): Promise<void> {
         deltaLastWindowHour.shift();
       }
       const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
+      const deltaLastPosHour = deltaLastWindowHour.filter(x => x.val > 0).length;
+      const deltaLastNegHour = deltaLastWindowHour.filter(x => x.val < 0).length;
+
+      while (posOpensHour.length > 0 && posOpensHour[0] < cutoffHour) {
+        posOpensHour.shift();
+      }
+      const posOpensCount = posOpensHour.length;
 
       const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
       const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
       const deltaSumW = SCIENTIFIC ? DECIMALS + 7 : 6;
       console.log(
         `[${tsNow()}] ` +
-        r(fmt(snapAsk), priceW) + " " +
-        r(fmt(snapBid), priceW) + " " +
+        (HIDE_COLS.has("ask") ? "" : r(fmt(snapAsk), priceW) + " ") +
+        (HIDE_COLS.has("bid") ? "" : r(fmt(snapBid), priceW) + " ") +
         r(fmt(snapLast), priceW) + " " +
-        r(fmt(ab), priceW) + " " +
+        (HIDE_COLS.has("ab") ? "" : r(fmt(ab), priceW) + " ") +
         (NO_IL ? "" : r(fmtSign(vector), deltaW) + " ") +
         r(fmtSign(deltaLast), deltaW) + " " +
-        r(fmtSign(deltaAsk), deltaW) + " " +
-        r(fmtSign(deltaBid), deltaW) + " " +
+        (HIDE_COLS.has("deltaask") ? "" : r(fmtSign(deltaAsk), deltaW) + " ") +
+        (HIDE_COLS.has("deltabid") ? "" : r(fmtSign(deltaBid), deltaW) + " ") +
         r(String(longCooldown) + "s", 3) + " " +
         r(String(shortCooldown) + "s", 3) + " " +
         r(rate, 5) + " " +
         r(fmtSign(deltaLastSum), deltaSumW) + " " +
         r(rateHour, 5) + " " +
-        r(fmtSign(deltaLastSumHour), deltaSumW)
+        r(String(deltaLastPosHour), 5) + " " +
+        r(String(deltaLastNegHour), 5) + " " +
+        r(fmtSign(deltaLastSumHour), deltaSumW) + " " +
+        r(String(posOpensCount), 5)
       );
       rowsPrinted++;
       if (process.stdout.rows && rowsPrinted >= process.stdout.rows - 4) {
