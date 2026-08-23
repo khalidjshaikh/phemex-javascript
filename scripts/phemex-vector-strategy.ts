@@ -49,6 +49,8 @@ const EXIT_BID_THRESHOLD = Number(getArg("--exitBidThreshold") ?? 0);
 const EXIT_ASK_THRESHOLD = Number(getArg("--exitAskThreshold") ?? 0);
 const EXIT_SIGMA_BID_THRESHOLD = Number(getArg("--exitSigmaBidThreshold") ?? 0);
 const EXIT_SIGMA_ASK_THRESHOLD = Number(getArg("--exitSigmaAskThreshold") ?? 0);
+const NO_EXIT_BID = hasFlag("--noExitBid");
+const NO_EXIT_ASK = hasFlag("--noExitAsk");
 const NO_TRADE = hasFlag("--noTrade");
 const DECIMALS = Number(getArg("--decimals") ?? 6);
 const DELTA_LAST_THRESHOLD = Number(getArg("--deltaLastThreshold") ?? 0);
@@ -80,6 +82,8 @@ Options:
   --noTrade              Disable all entries (long and short)
   --exitBidThreshold <N> Exit long when deltaBid <= N (default: 0)
   --exitAskThreshold <N> Exit short when deltaAsk >= N (default: 0)
+  --noExitBid            Disable delta bid exit (use only exitSigmaBidThreshold)
+  --noExitAsk            Disable delta ask exit (use only exitSigmaAskThreshold)
   --exitSigmaBidThreshold <N> Exit long when ΣΔbid/m <= N (default: 0)
   --exitSigmaAskThreshold <N> Exit short when ΣΔask/m >= N (default: 0)
   --cdLong <N>           Long cooldown in seconds (default: 60)
@@ -617,7 +621,7 @@ async function main(): Promise<void> {
         }
 
         // Exit logic (check first — close before potentially opening)
-        if (longPos && deltaBid !== null && deltaBid !== 0 && deltaBid <= EXIT_BID_THRESHOLD) {
+        if (longPos && !NO_EXIT_BID && deltaBid !== null && deltaBid !== 0 && deltaBid <= EXIT_BID_THRESHOLD) {
           console.log(`[${tsNow()}]  EXIT LONG — deltaBid=${fmt(deltaBid)} <= ${fmt(EXIT_BID_THRESHOLD)}`);
           await closePos(longPos);
         }
@@ -635,7 +639,7 @@ async function main(): Promise<void> {
           }
         }
 
-        if (shortPos && deltaAsk !== null && deltaAsk !== 0 && deltaAsk >= EXIT_ASK_THRESHOLD && !NO_SHORT) {
+        if (shortPos && !NO_EXIT_ASK && deltaAsk !== null && deltaAsk !== 0 && deltaAsk >= EXIT_ASK_THRESHOLD && !NO_SHORT) {
           console.log(`[${tsNow()}]  EXIT SHORT — deltaAsk=${fmt(deltaAsk)} >= ${fmt(EXIT_ASK_THRESHOLD)}`);
           await closePos(shortPos);
         }
