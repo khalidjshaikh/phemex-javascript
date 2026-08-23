@@ -139,6 +139,8 @@ let savedLong: SavedPosition | null = null;
 let savedShort: SavedPosition | null = null;
 let longOpensHour: number[] = [];
 let shortOpensHour: number[] = [];
+let deltaLastPosCountHour = 0;
+let deltaLastNegCountHour = 0;
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
@@ -382,6 +384,8 @@ function printHeaders(): void {
     r("ΣΔL+/m", deltaSumW) + " " +
     r("ΣΔL-/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
+    r("#ΔL+/h", 5) + " " +
+    r("#ΔL-/h", 5) + " " +
     r("ΣΔL/h", deltaSumW) + " " +
     r("ΣΔL+/h", deltaSumW) + " " +
     r("ΣΔL-/h", deltaSumW) + " " +
@@ -500,6 +504,8 @@ async function main(): Promise<void> {
       const deltaLastSumHour = deltaLastWindowHour.reduce((acc, x) => acc + x.val, 0);
       const deltaLastPosSumHour = deltaLastWindowHour.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
       const deltaLastNegSumHour = deltaLastWindowHour.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
+      deltaLastPosCountHour = deltaLastWindowHour.filter(x => x.val > 0).length;
+      deltaLastNegCountHour = deltaLastWindowHour.filter(x => x.val < 0).length;
 
       while (longOpensHour.length > 0 && longOpensHour[0] < cutoffHour) {
         longOpensHour.shift();
@@ -530,6 +536,8 @@ async function main(): Promise<void> {
         r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
         r(rateHour, 5) + " " +
+        r(String(deltaLastPosCountHour), 5) + " " +
+        r(String(deltaLastNegCountHour), 5) + " " +
         r(fmtSign(deltaLastSumHour), deltaSumW) + " " +
         r(fmtSign(deltaLastPosSumHour), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSumHour), deltaSumW) + " " +
