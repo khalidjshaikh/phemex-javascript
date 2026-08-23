@@ -49,3 +49,5 @@ model.onnx
 data/
 models/*
 .phemex-il-state.json
+.idea
+.vscode

@@ -10,7 +10,7 @@
  *   Close Long when slope of last N candle closes < 0 (negative trend)
  *
  * Usage:
- *   npx tsx scripts/phemex-vector-strategy2.ts                  # live trade XRPUSDT
+ *   npx tsx scripts/phemex-vector-strategy2.ts                  # live trade PUMPUSDT
  *   npx tsx scripts/phemex-vector-strategy2.ts --dry-run        # signals only, no orders
  *   npx tsx scripts/phemex-vector-strategy2.ts --symbol BTCUSDT
  *   npx tsx scripts/phemex-vector-strategy2.ts --size 1 --leverage 20
@@ -32,10 +32,10 @@ import { publicGet } from "../src/http-client.js";
 /* ------------------------------------------------------------------ */
 
 const DRY_RUN = hasFlag("--dry-run");
-const SYMBOL = (getArg("--symbol") ?? "XRPUSDT").toUpperCase();
+const SYMBOL = (getArg("--symbol") ?? "PUMPUSDT").toUpperCase();
 const SIZE = Number(getArg("--size") ?? 1);
 const LEVERAGE = Number(getArg("--leverage") ?? 20);
-const LOOKBACK = Number(getArg("--lookback") ?? 5);
+const LOOKBACK = Number(getArg("--lookback") ?? 2);
 const VERBOSE = hasFlag("--verbose");
 const CREDENTIAL = getArg("--credential");
 const FORCE = hasFlag("--force");
@@ -52,10 +52,10 @@ const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy2.ts [options]
 
 Options:
   --dry-run              Print signals without placing orders
-  --symbol <SYMBOL>      Symbol to trade (default: XRPUSDT)
+  --symbol <SYMBOL>      Symbol to trade (default: PUMPUSDT)
   --size <N>             Position size (default: 1)
   --leverage <N>         Leverage (default: 20)
-  --lookback <N>         Number of candles for slope calculation (default: 5)
+  --lookback <N>         Number of candles for slope calculation (default: 2)
   --credential <name>    Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --force                Open regardless of current position
   --noShort              Disable short entries (currently long-only)
@@ -403,6 +403,9 @@ async function main(): Promise<void> {
   candles = await fetchCandles(SYMBOL, LOOKBACK + 10);
   console.log(`[${tsNow()}]  ✓  Loaded ${candles.length} candles`);
 
+  // console.log(candles)
+    
+
   // Start WebSocket
   const ws = startWebSocket();
 
@@ -441,6 +444,7 @@ async function main(): Promise<void> {
       // Get all completed candles + current
       const allCandles = currentCandle ? [...candles, currentCandle] : [...candles];
       const recentCloses = allCandles.slice(-LOOKBACK).map((c) => c.close);
+      // console.log(recentCloses)
       const slope = calcSlope(recentCloses);
 
       // Fetch position status first
@@ -475,7 +479,7 @@ async function main(): Promise<void> {
         r(fmt(snapBid), priceW) + " " +
         r(fmt(snapLast), priceW) + " " +
         r(fmt(ab), priceW) + " " +
-        r(fmtSign(slope), slopeW) + " " +
+        r(fmtSign(slope, 9), slopeW) + " " +
         r(String(allCandles.length), 7) + " " +
         r(positionLabel, 12)
       );
@@ -485,12 +489,12 @@ async function main(): Promise<void> {
       }
 
       if (VERBOSE) {
-        console.log(`[${tsNow()}]  📊  slope=${fmtSign(slope)}  closes=${recentCloses.map((c) => fmt(c)).join(", ")}`);
+        console.log(`[${tsNow()}]  📊  slope=${fmtSign(slope, 9)}  closes=${recentCloses.map((c) => fmt(c)).join(", ")}`);
       }
 
       // Exit logic: slope < 0 → close long
       if (longPos && slope < 0 && !NO_TRADE) {
-        console.log(`[${tsNow()}]  EXIT LONG — slope=${fmtSign(slope)} < 0`);
+        console.log(`[${tsNow()}]  EXIT LONG — slope=${fmtSign(slope, 9)} < 0`);
         await closePos(longPos);
         savedLong = null;
       }
@@ -498,7 +502,7 @@ async function main(): Promise<void> {
       // Entry logic: slope > 0 → open long
       if (slope > 0 && !NO_LONG && !NO_TRADE) {
         if (FORCE || longSize === 0) {
-          console.log(`[${tsNow()}]  ENTRY LONG — slope=${fmtSign(slope)} > 0`);
+          console.log(`[${tsNow()}]  ENTRY LONG — slope=${fmtSign(slope, 9)} > 0`);
           await openLong();
           savedLong = { symbol: SYMBOL, side: "Buy", size: String(SIZE) };
         }
