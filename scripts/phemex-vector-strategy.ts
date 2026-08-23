@@ -45,6 +45,10 @@ const CREDENTIAL = getArg("--credential");
 const FORCE = hasFlag("--force");
 const NO_SHORT = hasFlag("--noShort");
 const NO_LONG = hasFlag("--noLong");
+const EXIT_BID_THRESHOLD = Number(getArg("--exitBidThreshold") ?? 0);
+const EXIT_ASK_THRESHOLD = Number(getArg("--exitAskThreshold") ?? 0);
+const EXIT_SIGMA_BID_THRESHOLD = Number(getArg("--exitSigmaBidThreshold") ?? 0);
+const EXIT_SIGMA_ASK_THRESHOLD = Number(getArg("--exitSigmaAskThreshold") ?? 0);
 const NO_TRADE = hasFlag("--noTrade");
 const DECIMALS = Number(getArg("--decimals") ?? 6);
 const DELTA_LAST_THRESHOLD = Number(getArg("--deltaLastThreshold") ?? 0);
@@ -74,6 +78,10 @@ Options:
   --noShort              Disable short entries
   --noLong               Disable long entries
   --noTrade              Disable all entries (long and short)
+  --exitBidThreshold <N> Exit long when deltaBid <= N (default: 0)
+  --exitAskThreshold <N> Exit short when deltaAsk >= N (default: 0)
+  --exitSigmaBidThreshold <N> Exit long when ΣΔbid/m <= N (default: 0)
+  --exitSigmaAskThreshold <N> Exit short when ΣΔask/m >= N (default: 0)
   --cdLong <N>           Long cooldown in seconds (default: 60)
   --cdShort <N>          Short cooldown in seconds (default: 60)
   --profitExit           Exit long when bid >= entry + profit
@@ -133,6 +141,8 @@ let shortCooldown = 0;
 let rowsPrinted = 0;
 let changeTimestamps: number[] = [];
 let deltaLastWindow: { ts: number; val: number }[] = [];
+let deltaAskWindow: { ts: number; val: number }[] = [];
+let deltaBidWindow: { ts: number; val: number }[] = [];
 let changeTimestampsHour: number[] = [];
 let deltaLastWindowHour: { ts: number; val: number }[] = [];
 let savedLong: SavedPosition | null = null;
@@ -155,6 +165,8 @@ interface SavedPosition {
 interface State {
   changeTimestamps: number[];
   deltaLastWindow: { ts: number; val: number }[];
+  deltaAskWindow: { ts: number; val: number }[];
+  deltaBidWindow: { ts: number; val: number }[];
   changeTimestampsHour: number[];
   deltaLastWindowHour: { ts: number; val: number }[];
   savedLong: SavedPosition | null;
@@ -173,6 +185,8 @@ function loadState(): void {
     const cutoff = Date.now() - 3600000;
     changeTimestamps = (saved.changeTimestamps ?? []).filter(ts => ts > cutoff);
     deltaLastWindow = (saved.deltaLastWindow ?? []).filter(x => x.ts > cutoff);
+    deltaAskWindow = (saved.deltaAskWindow ?? []).filter(x => x.ts > cutoff);
+    deltaBidWindow = (saved.deltaBidWindow ?? []).filter(x => x.ts > cutoff);
     changeTimestampsHour = (saved.changeTimestampsHour ?? []).filter(ts => ts > cutoff);
     deltaLastWindowHour = (saved.deltaLastWindowHour ?? []).filter(x => x.ts > cutoff);
     longOpensHour = (saved.longOpensHour ?? []).filter(ts => ts > cutoff);
@@ -181,7 +195,8 @@ function loadState(): void {
     savedShort = saved.savedShort ?? null;
     console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes` +
       (savedLong ? ` | saved long ${savedLong.size}` : "") +
-      (savedShort ? ` | saved short ${savedShort.size}` : ""));
+      (savedShort ? ` | saved short ${savedShort.size}` : "") +
+      ` | Δask/m: ${deltaAskWindow.length} | Δbid/m: ${deltaBidWindow.length}`);
   } catch (e) {
     console.error(`[${tsNow()}]  ⚠  Failed to load state: ${(e as Error).message}`);
   }
@@ -191,6 +206,8 @@ function saveState(): void {
   const state: State = {
     changeTimestamps,
     deltaLastWindow,
+    deltaAskWindow,
+    deltaBidWindow,
     changeTimestampsHour,
     deltaLastWindowHour,
     savedLong,
@@ -383,6 +400,8 @@ function printHeaders(): void {
     r("ΣΔL/m", deltaSumW) + " " +
     r("ΣΔL+/m", deltaSumW) + " " +
     r("ΣΔL-/m", deltaSumW) + " " +
+    r("ΣΔask/m", deltaSumW) + " " +
+    r("ΣΔbid/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
     r("#ΔL+/h", 6) + " " +
     r("#ΔL-/h", 6) + " " +
@@ -407,6 +426,10 @@ async function main(): Promise<void> {
   console.log(`  Threshold:  ±${THRESHOLD}`);
   console.log(`  Cd Long:    ${CD_LONG}s`);
   console.log(`  Cd Short:   ${CD_SHORT}s`);
+  console.log(`  ExitBid:    <= ${fmt(EXIT_BID_THRESHOLD)}`);
+  console.log(`  ExitAsk:    >= ${fmt(EXIT_ASK_THRESHOLD)}`);
+  console.log(`  ExitSigmaBid: <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
+  console.log(`  ExitSigmaAsk: >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
   console.log(`  ProfitExit: ${PROFIT_EXIT ? `ON (profit=${PROFIT})` : "OFF"}`);
   if (HIDE_COLS.size > 0) console.log(`  HideCols:   ${[...HIDE_COLS].join(", ")}`);
   console.log(`  Mode:       ${DRY_RUN ? "DRY-RUN (no orders)" : "LIVE"}`);
@@ -484,6 +507,24 @@ async function main(): Promise<void> {
       const deltaLastPosSum = deltaLastWindow.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
       const deltaLastNegSum = deltaLastWindow.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
 
+      // Aggregate deltaAsk over rolling 60 second window
+      if (deltaAsk !== null) {
+        deltaAskWindow.push({ ts: Date.now(), val: deltaAsk });
+      }
+      while (deltaAskWindow.length > 0 && deltaAskWindow[0].ts < cutoff) {
+        deltaAskWindow.shift();
+      }
+      const deltaAskSum = deltaAskWindow.reduce((acc, x) => acc + x.val, 0);
+
+      // Aggregate deltaBid over rolling 60 second window
+      if (deltaBid !== null) {
+        deltaBidWindow.push({ ts: Date.now(), val: deltaBid });
+      }
+      while (deltaBidWindow.length > 0 && deltaBidWindow[0].ts < cutoff) {
+        deltaBidWindow.shift();
+      }
+      const deltaBidSum = deltaBidWindow.reduce((acc, x) => acc + x.val, 0);
+
       // Count last changes (rolling window of 1 hour)
       const cutoffHour = Date.now() - 3600000;
       if (deltaLast !== null && deltaLast !== 0) {
@@ -535,6 +576,8 @@ async function main(): Promise<void> {
         r(fmtSign(deltaLastSum), deltaSumW) + " " +
         r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
+        r(fmtSign(deltaAskSum), deltaSumW) + " " +
+        r(fmtSign(deltaBidSum), deltaSumW) + " " +
         r(rateHour, 5) + " " +
         r(String(deltaLastPosCountHour), 6) + " " +
         r(String(deltaLastNegCountHour), 6) + " " +
@@ -574,8 +617,13 @@ async function main(): Promise<void> {
         }
 
         // Exit logic (check first — close before potentially opening)
-        if (longPos && deltaBid !== null && deltaBid < 0) {
-          console.log(`[${tsNow()}]  EXIT LONG — deltaBid=${fmt(deltaBid)} < 0`);
+        if (longPos && deltaBid !== null && deltaBid !== 0 && deltaBid <= EXIT_BID_THRESHOLD) {
+          console.log(`[${tsNow()}]  EXIT LONG — deltaBid=${fmt(deltaBid)} <= ${fmt(EXIT_BID_THRESHOLD)}`);
+          await closePos(longPos);
+        }
+
+        if (longPos && EXIT_SIGMA_BID_THRESHOLD !== 0 && deltaBidSum <= EXIT_SIGMA_BID_THRESHOLD) {
+          console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid/m=${fmt(deltaBidSum)} <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
           await closePos(longPos);
         }
 
@@ -587,8 +635,13 @@ async function main(): Promise<void> {
           }
         }
 
-        if (shortPos && deltaAsk !== null && deltaAsk > 0 && !NO_SHORT) {
-          console.log(`[${tsNow()}]  EXIT SHORT — deltaAsk=${fmt(deltaAsk)} > 0`);
+        if (shortPos && deltaAsk !== null && deltaAsk !== 0 && deltaAsk >= EXIT_ASK_THRESHOLD && !NO_SHORT) {
+          console.log(`[${tsNow()}]  EXIT SHORT — deltaAsk=${fmt(deltaAsk)} >= ${fmt(EXIT_ASK_THRESHOLD)}`);
+          await closePos(shortPos);
+        }
+
+        if (shortPos && EXIT_SIGMA_ASK_THRESHOLD !== 0 && deltaAskSum >= EXIT_SIGMA_ASK_THRESHOLD) {
+          console.log(`[${tsNow()}]  EXIT SHORT — ΣΔask/m=${fmt(deltaAskSum)} >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
           await closePos(shortPos);
         }
 
