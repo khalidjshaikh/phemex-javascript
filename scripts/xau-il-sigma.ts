@@ -14,7 +14,7 @@
  *   npx tsx xau-il-sigma.ts --decimals 4
  */
 
-import { readFileSync, appendFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { ReconnectingWs } from "../src/ws-client.js";
 import { hasFlag } from "../src/cli-utils.js";
@@ -95,6 +95,22 @@ function loadHours(): HourRecord[] {
 
 function saveHour(rec: HourRecord): void {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  appendFileSync(HOURS_FILE, JSON.stringify(rec) + "\n");
+}
+
+function upsertHour(rec: HourRecord): void {
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+  if (existsSync(HOURS_FILE)) {
+    const lines = readFileSync(HOURS_FILE, "utf8").split("\n").filter(Boolean);
+    if (lines.length > 0) {
+      const last: HourRecord = JSON.parse(lines[lines.length - 1]);
+      if (last.clockHour === rec.clockHour && last.date === rec.date) {
+        lines[lines.length - 1] = JSON.stringify(rec);
+        writeFileSync(HOURS_FILE, lines.join("\n") + "\n");
+        return;
+      }
+    }
+  }
   appendFileSync(HOURS_FILE, JSON.stringify(rec) + "\n");
 }
 
@@ -286,38 +302,43 @@ console.log(`   Decimals: ${DECIMALS}`);
 console.log();
 
 // Print past hours from persistence
+const nowHour = localHour();
 const pastHours = loadHours();
-if (pastHours.length > 0) {
-  console.log(`  ── past hours (${pastHours.length}) ──`);
+const lastHour = loadLastHour();
+const pastCompleted = pastHours.filter((h) => h.clockHour !== nowHour);
+const inProgress = lastHour && lastHour.clockHour === nowHour ? lastHour : null;
+
+if (pastCompleted.length > 0 || inProgress) {
+  console.log(`  ── past hours (${pastCompleted.length})${inProgress ? " + hour in progress" : ""} ──`);
   console.log(HOUR_HEADER);
-  for (const h of pastHours) {
+  for (const h of pastCompleted) {
     console.log(fmtHourLine("  ", h));
+  }
+  if (inProgress) {
+    console.log(fmtHourLine("⟳ ", inProgress));
   }
   console.log();
 }
 
 // Restore last hour state if we're still in the same hour
-const lastHour = loadLastHour();
-const nowHour = localHour();
-if (lastHour && lastHour.clockHour === nowHour) {
-  hourTicks = lastHour.ticks;
-  hourSigma = lastHour.sigma;
-  hourSigmaPos = lastHour.sigmaPos ?? 0;
-  hourSigmaNeg = lastHour.sigmaNeg ?? 0;
-  hourDeltaCount = lastHour.deltas;
-  hourDeltaSum = lastHour.deltaSum;
-  hourDeltaL = lastHour.deltaL;
-  hourDeltaLPos = lastHour.deltaLPos ?? 0;
-  hourDeltaLNeg = lastHour.deltaLNeg ?? 0;
-  hourDeltaLCount = lastHour.deltaLCount ?? 0;
-  hourDeltaLPosCount = lastHour.deltaLPosCount ?? 0;
-  hourDeltaLNegCount = lastHour.deltaLNegCount ?? 0;
-  hourSignChanges = lastHour.signChanges;
-  currentHour = lastHour.clockHour;
+if (inProgress) {
+  hourTicks = inProgress.ticks;
+  hourSigma = inProgress.sigma;
+  hourSigmaPos = inProgress.sigmaPos ?? 0;
+  hourSigmaNeg = inProgress.sigmaNeg ?? 0;
+  hourDeltaCount = inProgress.deltas;
+  hourDeltaSum = inProgress.deltaSum;
+  hourDeltaL = inProgress.deltaL;
+  hourDeltaLPos = inProgress.deltaLPos ?? 0;
+  hourDeltaLNeg = inProgress.deltaLNeg ?? 0;
+  hourDeltaLCount = inProgress.deltaLCount ?? 0;
+  hourDeltaLPosCount = inProgress.deltaLPosCount ?? 0;
+  hourDeltaLNegCount = inProgress.deltaLNegCount ?? 0;
+  hourSignChanges = inProgress.signChanges;
+  currentHour = inProgress.clockHour;
+  currentMinute = localMinute();
   hourFirstLast = null;  // Will be set on next tick
   hourLastLast = null;
-  console.log(`  ⟳  Restored hour ${fmtHour(lastHour.clockHour)} state: ${hourTicks} ticks, Σ(I−L): ${fmtSigma(hourSigma)}`);
-  console.log();
 }
 
 const TICK_HEADER = NO_IL
@@ -373,7 +394,7 @@ const ws = new ReconnectingWs(WS_URL, {
         }));
         console.log();
 
-        saveHour({
+        upsertHour({
           date: fmtDate(new Date()),
           hour: currentHour,
           clockHour: currentHour,
@@ -494,12 +515,39 @@ const ws = new ReconnectingWs(WS_URL, {
 
 ws.connect();
 
+/* ── Periodic save every 60s ── */
+
+setInterval(() => {
+  if (hourTicks === 0) return;
+  upsertHour({
+    date: fmtDate(new Date()),
+    hour: localHour(),
+    clockHour: localHour(),
+    ticks: hourTicks,
+    sigma: hourSigma,
+    sigmaPos: hourSigmaPos,
+    sigmaNeg: hourSigmaNeg,
+    avgIl: hourTicks > 0 ? hourSigma / hourTicks : 0,
+    deltas: hourDeltaCount,
+    deltaSum: hourDeltaSum,
+    avgDelta: hourDeltaCount > 0 ? hourDeltaSum / hourDeltaCount : 0,
+    deltaL: hourDeltaL,
+    deltaLPos: hourDeltaLPos,
+    deltaLNeg: hourDeltaLNeg,
+    deltaLCount: hourDeltaLCount,
+    deltaLPosCount: hourDeltaLPosCount,
+    deltaLNegCount: hourDeltaLNegCount,
+    signChanges: hourSignChanges,
+    priceChange: hourLastLast != null && hourFirstLast != null ? hourLastLast - hourFirstLast : 0,
+  });
+}, 60_000);
+
 /* ── Save on exit ── */
 
 function saveCurrentHour(): void {
   if (hourTicks === 0) return;
   console.log(`\n  ⟐  Saving partial hour ${fmtHour(localHour())} (${hourTicks} ticks) …`);
-  saveHour({
+  upsertHour({
     date: fmtDate(new Date()),
     hour: localHour(),
     clockHour: localHour(),
