@@ -1,19 +1,22 @@
 #!/usr/bin/env -S npx tsx
 
 /**
- * Phemex Transfer — transfer USDT from spot to perpetual futures (USDT-M).
- * Only transfers the delta needed to bring perp balance up to the target (default 10 cents).
+ * Phemex Transfer — transfer USDT between spot and perpetual futures (USDT-M).
+ *
+ * Direction:
+ *   --direction in   (default) spot → perp: tops up perp to the target
+ *   --direction out            perp → spot: drains excess above target back to spot
  *
  * Usage:
  *   npx tsx phemex-transfer.ts --credentials gmail,meta,A02,67b
- *   npx tsx phemex-transfer.ts --credentials gmail,meta,A02,67b --target 0.10
- *   npx tsx phemex-transfer.ts --credentials gmail --dry-run
+ *   npx tsx phemex-transfer.ts --credentials gmail,meta,A02,67b --direction out
+ *   npx tsx phemex-transfer.ts --credentials gmail,meta,A02,67b --target 0.10 --dry-run
  *
  * The script:
  *   1. Loads credentials from .credentials.json for each profile
  *   2. Checks spot USDT and perp USDT balances
- *   3. Transfers only the delta needed to reach the target perp balance
- *   4. Skips accounts already at or above the target
+ *   3. Transfers only the delta needed to reach the target (in) or drains excess (out)
+ *   4. Skips accounts already at the right balance
  *   5. Reports the transfer result for each account
  */
 
@@ -53,7 +56,7 @@ function toHuman(val: unknown, scale: number): number {
 async function main() {
   const credArg = getArg("--credential") ?? getArg("--credentials");
   if (!credArg) {
-    console.error("Usage: npx tsx phemex-transfer.ts --credentials <name1,name2,...> [--target 0.10] [--dry-run]");
+    console.error("Usage: npx tsx phemex-transfer.ts --credentials <name1,name2,...> [--direction in|out] [--target 0.10] [--dry-run]");
     console.error("  Available profiles: gmail, meta, high, low, A02, 67b");
     process.exit(1);
   }
@@ -61,16 +64,25 @@ async function main() {
   const credNames = credArg.split(",").map((s) => s.trim());
   const target = parseFloat(getArg("--target") ?? String(TARGET_BALANCE));
   const dryRun = hasFlag("--dry-run");
+  const direction = (getArg("--direction") ?? "in") as "in" | "out";
+
+  if (direction !== "in" && direction !== "out") {
+    console.error(`✗  Invalid direction: ${direction} (use "in" or "out")`);
+    process.exit(1);
+  }
 
   if (isNaN(target) || target <= 0) {
     console.error(`✗  Invalid target: ${target}`);
     process.exit(1);
   }
 
+  const dirLabel = direction === "in" ? "Spot → Perpetual Futures" : "Perpetual Futures → Spot";
+
   console.log("═══════════════════════════════════════");
-  console.log("  Phemex Spot → Perpetual Futures Transfer");
+  console.log(`  Phemex ${dirLabel} Transfer`);
   console.log("═══════════════════════════════════════");
   console.log(`  Target:  ${target} USDT per account`);
+  console.log(`  Direction: ${direction === "in" ? "spot → perp" : "perp → spot"}`);
   console.log(`  Accounts: ${credNames.join(", ")}`);
   if (dryRun) console.log("  *** DRY RUN — no transfers will be executed ***");
   console.log("═══════════════════════════════════════\n");
@@ -122,17 +134,35 @@ async function main() {
     console.log(`  Spot USDT:     ${spotUsdt.toFixed(8)}`);
     console.log(`  Perp USDT:     ${perpUsdt.toFixed(8)}`);
 
-    // 3. Calculate delta needed
-    const delta = target - perpUsdt;
-    if (delta <= 0) {
-      console.log(`  ✓ Already at target (${perpUsdt.toFixed(8)} >= ${target}), skipping`);
-      results.push({ profile: name, ok: true, transferred: 0 });
-      continue;
+    // 3. Calculate transfer amount based on direction
+    let transferAmount = 0;
+    let moveOp: number;
+
+    if (direction === "in") {
+      // spot → perp: top up perp to target
+      const delta = target - perpUsdt;
+      if (delta <= 0) {
+        console.log(`  ✓ Perp already at target (${perpUsdt.toFixed(8)} >= ${target}), skipping`);
+        results.push({ profile: name, ok: true, transferred: 0 });
+        continue;
+      }
+      transferAmount = Math.min(delta, spotUsdt);
+      moveOp = 2;
+    } else {
+      // perp → spot: drain excess above target
+      const excess = perpUsdt - target;
+      if (excess <= 0) {
+        console.log(`  ✓ Perp already at or below target (${perpUsdt.toFixed(8)} <= ${target}), skipping`);
+        results.push({ profile: name, ok: true, transferred: 0 });
+        continue;
+      }
+      transferAmount = excess;
+      moveOp = 1;
     }
 
-    const transferAmount = Math.min(delta, spotUsdt);
     if (transferAmount <= 0) {
-      const msg = `Insufficient spot USDT to reach target (have ${spotUsdt.toFixed(8)}, need ${delta.toFixed(8)} more)`;
+      const side = direction === "in" ? "spot" : "perp";
+      const msg = `Insufficient ${side} USDT for transfer`;
       console.error(`  ✗ ${msg}`);
       results.push({ profile: name, ok: false, error: msg });
       continue;
@@ -142,7 +172,8 @@ async function main() {
     const roundedAmount = Math.floor(transferAmount * USDT_SCALE) / USDT_SCALE;
     const amountEv = Math.round(roundedAmount * USDT_SCALE);
 
-    console.log(`  Transferring:  ${roundedAmount.toFixed(8)} USDT → perp`);
+    const arrow = direction === "in" ? "→ perp" : "→ spot";
+    console.log(`  Transferring:  ${roundedAmount.toFixed(8)} USDT ${arrow}`);
 
     if (dryRun) {
       console.log(`  ✓ Would transfer ${roundedAmount.toFixed(8)} USDT`);
@@ -150,18 +181,18 @@ async function main() {
       continue;
     }
 
-    // 4. Execute transfer: spot → futures (moveOp=2)
+    // 4. Execute transfer
     try {
       const body = JSON.stringify({
         currency: "USDT",
         amountEv: String(amountEv),
-        moveOp: 2,
+        moveOp,
       });
 
       const resp = await request("POST", "/assets/transfer", null, creds.PHEMEX_API_KEY, secretRaw, body);
 
       if (resp.code === 0) {
-        console.log(`  ✓ Transferred ${roundedAmount.toFixed(8)} USDT to perpetual futures`);
+        console.log(`  ✓ Transferred ${roundedAmount.toFixed(8)} USDT ${arrow}`);
         results.push({ profile: name, ok: true, transferred: roundedAmount });
       } else {
         const msg = `API error ${resp.code}: ${resp.msg}`;
