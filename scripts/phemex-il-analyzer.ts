@@ -70,6 +70,9 @@ interface HourRecord {
   sigmaDeltaL: number;
   sigmaDeltaLPos: number;
   sigmaDeltaLNeg: number;
+  deltaLCount: number;
+  deltaLCountPos: number;
+  deltaLCountNeg: number;
 }
 
 interface IlState {
@@ -129,6 +132,9 @@ interface IlState {
   hourSigmaDeltaL: number;
   hourSigmaDeltaLPos: number;
   hourSigmaDeltaLNeg: number;
+  hourDeltaLCount: number;
+  hourDeltaLCountPos: number;
+  hourDeltaLCountNeg: number;
 
   // Ring buffer of last 24 hourly records
   hourHistory: HourRecord[];
@@ -170,6 +176,9 @@ function initState(): IlState {
     hourSigmaDeltaL: 0,
     hourSigmaDeltaLPos: 0,
     hourSigmaDeltaLNeg: 0,
+    hourDeltaLCount: 0,
+    hourDeltaLCountPos: 0,
+    hourDeltaLCountNeg: 0,
     hourHistory: [],
   };
 }
@@ -210,6 +219,9 @@ interface PersistedState {
     hourSigmaDeltaL: number;
     hourSigmaDeltaLPos: number;
     hourSigmaDeltaLNeg: number;
+    hourDeltaLCount: number;
+    hourDeltaLCountPos: number;
+    hourDeltaLCountNeg: number;
     hourHistory: HourRecord[];
   }>;
 }
@@ -242,6 +254,9 @@ function saveState(): void {
       hourSigmaDeltaL: s.hourSigmaDeltaL,
       hourSigmaDeltaLPos: s.hourSigmaDeltaLPos,
       hourSigmaDeltaLNeg: s.hourSigmaDeltaLNeg,
+      hourDeltaLCount: s.hourDeltaLCount,
+      hourDeltaLCountPos: s.hourDeltaLCountPos,
+      hourDeltaLCountNeg: s.hourDeltaLCountNeg,
       hourHistory: s.hourHistory,
     };
   }
@@ -281,6 +296,9 @@ function loadState(): boolean {
       s.hourSigmaDeltaL = saved.hourSigmaDeltaL ?? 0;
       s.hourSigmaDeltaLPos = saved.hourSigmaDeltaLPos ?? 0;
       s.hourSigmaDeltaLNeg = saved.hourSigmaDeltaLNeg ?? 0;
+      s.hourDeltaLCount = saved.hourDeltaLCount ?? 0;
+      s.hourDeltaLCountPos = saved.hourDeltaLCountPos ?? 0;
+      s.hourDeltaLCountNeg = saved.hourDeltaLCountNeg ?? 0;
       s.hourHistory = saved.hourHistory ?? [];
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
@@ -301,7 +319,7 @@ function printHourlyDeltaL(): void {
 
   const endStamp = `${hh}:59:59.999`;
   console.log("");
-  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΣΔL + ΔL(h)`);
+  console.log(`  HOUR ${stamp} (complete)  ${stamp} to ${endStamp} — ΣΔL + ΔL(h) + counts`);
   console.log(
     "Symbol".padEnd(12) +
     (NO_IL
@@ -318,7 +336,10 @@ function printHourlyDeltaL(): void {
     "       ΣΔL".padStart(12) +
     "      ΣΔL+".padStart(12) +
     "      ΣΔL-".padStart(12) +
-    "      ΔL(h)".padStart(12)
+    "      ΔL(h)".padStart(12) +
+    "    #ΔL/h".padStart(8) +
+    "     #ΔL+".padStart(8) +
+    "     #ΔL-".padStart(8)
   );
   for (const [sym, s] of states) {
     if (s.hourHistory.length === 0) continue;
@@ -339,7 +360,10 @@ function printHourlyDeltaL(): void {
       fmtSign(rec.sigmaDeltaL).padStart(12) +
       fmtSign(rec.sigmaDeltaLPos).padStart(12) +
       fmtSign(rec.sigmaDeltaLNeg).padStart(12) +
-      fmtSign(rec.lastPriceChange).padStart(12)
+      fmtSign(rec.lastPriceChange).padStart(12) +
+      String(rec.deltaLCount).padStart(8) +
+      String(rec.deltaLCountPos).padStart(8) +
+      String(rec.deltaLCountNeg).padStart(8)
     );
   }
   console.log("");
@@ -355,7 +379,7 @@ function printStartupHistory(): void {
   if (!hasAny) return;
 
   console.log("");
-  console.log(`  LAST 24 HOURS — ΣΔL + ΔL(h)`);
+  console.log(`  LAST 24 HOURS — ΣΔL + ΔL(h) + counts`);
   const ilHeader = NO_IL
     ? ""
     : " I-L Start".padStart(12) +
@@ -373,7 +397,10 @@ function printStartupHistory(): void {
     "       ΣΔL".padStart(12) +
     "      ΣΔL+".padStart(12) +
     "      ΣΔL-".padStart(12) +
-    "      ΔL(h)".padStart(12)
+    "      ΔL(h)".padStart(12) +
+    "    #ΔL/h".padStart(8) +
+    "     #ΔL+".padStart(8) +
+    "     #ΔL-".padStart(8)
   );
 
   let prevSym: string | null = null;
@@ -390,7 +417,10 @@ function printStartupHistory(): void {
         "       ΣΔL".padStart(12) +
         "      ΣΔL+".padStart(12) +
         "      ΣΔL-".padStart(12) +
-        "      ΔL(h)".padStart(12)
+        "      ΔL(h)".padStart(12) +
+        "    #ΔL/h".padStart(8) +
+        "     #ΔL+".padStart(8) +
+        "     #ΔL-".padStart(8)
       );
     }
     prevSym = sym;
@@ -414,7 +444,10 @@ function printStartupHistory(): void {
         fmtSign(rec.sigmaDeltaL).padStart(12) +
         fmtSign(rec.sigmaDeltaLPos).padStart(12) +
         fmtSign(rec.sigmaDeltaLNeg).padStart(12) +
-        fmtSign(rec.lastPriceChange).padStart(12)
+        fmtSign(rec.lastPriceChange).padStart(12) +
+        String(rec.deltaLCount).padStart(8) +
+        String(rec.deltaLCountPos).padStart(8) +
+        String(rec.deltaLCountNeg).padStart(8)
       );
     }
   }
@@ -563,6 +596,9 @@ function processTicker(data: Record<string, unknown>): void {
       sigmaDeltaL: state.hourSigmaDeltaL,
       sigmaDeltaLPos: state.hourSigmaDeltaLPos,
       sigmaDeltaLNeg: state.hourSigmaDeltaLNeg,
+      deltaLCount: state.hourDeltaLCount,
+      deltaLCountPos: state.hourDeltaLCountPos,
+      deltaLCountNeg: state.hourDeltaLCountNeg,
     });
     // Keep only last 24 hours
     if (state.hourHistory.length > MAX_HISTORY_HOURS) {
@@ -580,6 +616,9 @@ function processTicker(data: Record<string, unknown>): void {
     state.hourSigmaDeltaL = 0;
     state.hourSigmaDeltaLPos = 0;
     state.hourSigmaDeltaLNeg = 0;
+    state.hourDeltaLCount = 0;
+    state.hourDeltaLCountPos = 0;
+    state.hourDeltaLCountNeg = 0;
     state.hourTicks = 0;
   }
   if (state.hourStartIl === null) {
@@ -598,6 +637,10 @@ function processTicker(data: Record<string, unknown>): void {
     state.hourSigmaDeltaL += deltaLast;
     if (deltaLast > 0) state.hourSigmaDeltaLPos += deltaLast;
     else if (deltaLast < 0) state.hourSigmaDeltaLNeg += deltaLast;
+    // Count delta last values
+    if (deltaLast !== 0) state.hourDeltaLCount++;
+    if (deltaLast > 0) state.hourDeltaLCountPos++;
+    else if (deltaLast < 0) state.hourDeltaLCountNeg++;
   }
   state.hourLastIl = il;
   state.hourLastLast = lastRp;  // track last price
@@ -626,7 +669,7 @@ function processTicker(data: Record<string, unknown>): void {
       const ilHeader = NO_IL
         ? ""
         : `  ${"I-L".padEnd(10)}  ${"sign".padEnd(5)}  ${"slope".padEnd(6)}${"regime".padStart(7)}${"crosses".padStart(9)}${"Σ(I-L)".padStart(11)}${"Σ+".padStart(11)}${"Σ-".padStart(11)}`;
-      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}${ilHeader}${"ΣΔL".padStart(11)}${"ΣΔL+".padStart(11)}${"ΣΔL-".padStart(11)}${"ΔL(h)".padStart(11)}`);
+      console.log(`  ${"tick".padEnd(16)}${"symbol".padEnd(10)}${ilHeader}${"ΣΔL".padStart(11)}${"ΣΔL+".padStart(11)}${"ΣΔL-".padStart(11)}${"ΔL(h)".padStart(11)}${"#ΔL/h".padStart(7)}${"#ΔL+".padStart(7)}${"#ΔL-".padStart(7)}`);
       tickHeaderPrinted = true;
       tickCount = 0;
     }
@@ -643,7 +686,7 @@ function processTicker(data: Record<string, unknown>): void {
       ? fmt(state.hourLastLast - state.hourStartLast)
       : fmt(null);
     console.log(
-      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}${ilData}${pad(sigmaDeltaL, 10).padStart(11)}${pad(sigmaDeltaLPos, 10).padStart(11)}${pad(sigmaDeltaLNeg, 10).padStart(11)}${pad(deltaLh, 10).padStart(11)}`,
+      `  ${`[${tick}]`.padEnd(16)}${pad(sym, 10)}${ilData}${pad(sigmaDeltaL, 10).padStart(11)}${pad(sigmaDeltaLPos, 10).padStart(11)}${pad(sigmaDeltaLNeg, 10).padStart(11)}${pad(deltaLh, 10).padStart(11)}${String(state.hourDeltaLCount).padStart(7)}${String(state.hourDeltaLCountPos).padStart(7)}${String(state.hourDeltaLCountNeg).padStart(7)}`,
     );
     tickCount++;
   }
@@ -737,7 +780,7 @@ const ws = new ReconnectingWs(WS_URL, {
       const ilHeader = NO_IL
         ? ""
         : ` ${"lastIL".padStart(10)}  ${"I-L".padStart(10)}  ${"slope".padStart(5)}  ${"crosses".padStart(7)}`;
-      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)}${ilHeader}  ${"ticks".padStart(5)}  ${"ΣΔL".padStart(10)} ${"ΣΔL+".padStart(10)} ${"ΣΔL-".padStart(10)}  ${"ΔL(h)".padStart(10)}  [${hh}:00]\n`);
+      process.stdout.write(`\r  ⟐  ${"Symbol".padEnd(12)}${ilHeader}  ${"ticks".padStart(5)}  ${"ΣΔL".padStart(10)} ${"ΣΔL+".padStart(10)} ${"ΣΔL-".padStart(10)}  ${"ΔL(h)".padStart(10)}  ${"#ΔL/h".padStart(5)} ${"#ΔL+".padStart(5)} ${"#ΔL-".padStart(5)}  [${hh}:00]\n`);
       hourlyLinesPrinted++;
       for (const [sym, s] of states) {
         const deltaLh = (s.hourStartLast !== null && s.hourLastLast !== null)
@@ -746,7 +789,7 @@ const ws = new ReconnectingWs(WS_URL, {
         const ilData = NO_IL
           ? ""
           : ` ${fmtSign(s.prevIl).padStart(10)}  ${fmtSign(s.lastIl).padStart(10)}  ${(s.slope === "rising" ? "↑" : s.slope === "falling" ? "↓" : "→").padStart(5)}  ${String(s.hourCrossings).padStart(7)}`;
-        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)}${ilData}  ${String(s.hourTicks).padStart(5)}  ${fmtSign(s.hourSigmaDeltaL).padStart(10)} ${fmtSign(s.hourSigmaDeltaLPos).padStart(10)} ${fmtSign(s.hourSigmaDeltaLNeg).padStart(10)}  ${fmtSign(deltaLh).padStart(10)}  [${hh}:00]\n`);
+        process.stdout.write(`\r  ⟐  ${sym.padEnd(12)}${ilData}  ${String(s.hourTicks).padStart(5)}  ${fmtSign(s.hourSigmaDeltaL).padStart(10)} ${fmtSign(s.hourSigmaDeltaLPos).padStart(10)} ${fmtSign(s.hourSigmaDeltaLNeg).padStart(10)}  ${fmtSign(deltaLh).padStart(10)}  ${String(s.hourDeltaLCount).padStart(5)} ${String(s.hourDeltaLCountPos).padStart(5)} ${String(s.hourDeltaLCountNeg).padStart(5)}  [${hh}:00]\n`);
         hourlyLinesPrinted++;
       }
     }
