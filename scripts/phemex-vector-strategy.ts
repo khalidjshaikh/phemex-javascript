@@ -384,8 +384,8 @@ function printHeaders(): void {
     r("ΣΔL+/m", deltaSumW) + " " +
     r("ΣΔL-/m", deltaSumW) + " " +
     r("#ΔL/h", 5) + " " +
-    r("#ΔL+/h", 5) + " " +
-    r("#ΔL-/h", 5) + " " +
+    r("#ΔL+/h", 6) + " " +
+    r("#ΔL-/h", 6) + " " +
     r("ΣΔL/h", deltaSumW) + " " +
     r("ΣΔL+/h", deltaSumW) + " " +
     r("ΣΔL-/h", deltaSumW) + " " +
@@ -536,8 +536,8 @@ async function main(): Promise<void> {
         r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
         r(rateHour, 5) + " " +
-        r(String(deltaLastPosCountHour), 5) + " " +
-        r(String(deltaLastNegCountHour), 5) + " " +
+        r(String(deltaLastPosCountHour), 6) + " " +
+        r(String(deltaLastNegCountHour), 6) + " " +
         r(fmtSign(deltaLastSumHour), deltaSumW) + " " +
         r(fmtSign(deltaLastPosSumHour), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSumHour), deltaSumW) + " " +
