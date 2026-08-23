@@ -84,8 +84,8 @@ Options:
   --exitAskThreshold <N> Exit short when deltaAsk >= N (default: 0)
   --noExitBid            Disable delta bid exit (use only exitSigmaBidThreshold)
   --noExitAsk            Disable delta ask exit (use only exitSigmaAskThreshold)
-  --exitSigmaBidThreshold <N> Exit long when ΣΔbid/m <= N (default: 0)
-  --exitSigmaAskThreshold <N> Exit short when ΣΔask/m >= N (default: 0)
+  --exitSigmaBidThreshold <N> Exit long when ΣΔbid-/m <= N (default: 0)
+  --exitSigmaAskThreshold <N> Exit short when ΣΔask+/m >= N (default: 0)
   --cdLong <N>           Long cooldown in seconds (default: 60)
   --cdShort <N>          Short cooldown in seconds (default: 60)
   --profitExit           Exit long when bid >= entry + profit
@@ -405,7 +405,13 @@ function printHeaders(): void {
     r("ΣΔL+/m", deltaSumW) + " " +
     r("ΣΔL-/m", deltaSumW) + " " +
     r("ΣΔask/m", deltaSumW) + " " +
+    r("ΣΔask+/m", deltaSumW) + " " +
+    r("ΣΔask-/m", deltaSumW) + " " +
+    r("#Δask/m", 5) + " " +
     r("ΣΔbid/m", deltaSumW) + " " +
+    r("ΣΔbid+/m", deltaSumW) + " " +
+    r("ΣΔbid-/m", deltaSumW) + " " +
+    r("#Δbid/m", 5) + " " +
     r("#ΔL/h", 5) + " " +
     r("#ΔL+/h", 6) + " " +
     r("#ΔL-/h", 6) + " " +
@@ -519,6 +525,9 @@ async function main(): Promise<void> {
         deltaAskWindow.shift();
       }
       const deltaAskSum = deltaAskWindow.reduce((acc, x) => acc + x.val, 0);
+      const deltaAskPosSum = deltaAskWindow.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaAskNegSum = deltaAskWindow.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaAskCount = deltaAskWindow.filter(x => x.val !== 0).length;
 
       // Aggregate deltaBid over rolling 60 second window
       if (deltaBid !== null) {
@@ -528,6 +537,9 @@ async function main(): Promise<void> {
         deltaBidWindow.shift();
       }
       const deltaBidSum = deltaBidWindow.reduce((acc, x) => acc + x.val, 0);
+      const deltaBidPosSum = deltaBidWindow.filter(x => x.val > 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaBidNegSum = deltaBidWindow.filter(x => x.val < 0).reduce((acc, x) => acc + x.val, 0);
+      const deltaBidCount = deltaBidWindow.filter(x => x.val !== 0).length;
 
       // Count last changes (rolling window of 1 hour)
       const cutoffHour = Date.now() - 3600000;
@@ -581,7 +593,13 @@ async function main(): Promise<void> {
         r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
         r(fmtSign(deltaAskSum), deltaSumW) + " " +
+        r(fmtSign(deltaAskPosSum), deltaSumW) + " " +
+        r(fmtSign(deltaAskNegSum), deltaSumW) + " " +
+        r(String(deltaAskCount), 5) + " " +
         r(fmtSign(deltaBidSum), deltaSumW) + " " +
+        r(fmtSign(deltaBidPosSum), deltaSumW) + " " +
+        r(fmtSign(deltaBidNegSum), deltaSumW) + " " +
+        r(String(deltaBidCount), 5) + " " +
         r(rateHour, 5) + " " +
         r(String(deltaLastPosCountHour), 6) + " " +
         r(String(deltaLastNegCountHour), 6) + " " +
@@ -626,8 +644,8 @@ async function main(): Promise<void> {
           await closePos(longPos);
         }
 
-        if (longPos && EXIT_SIGMA_BID_THRESHOLD !== 0 && deltaBidSum <= EXIT_SIGMA_BID_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid/m=${fmt(deltaBidSum)} <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
+        if (longPos && EXIT_SIGMA_BID_THRESHOLD !== 0 && deltaBidNegSum <= EXIT_SIGMA_BID_THRESHOLD) {
+          console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid-/m=${fmt(deltaBidNegSum)} <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
           await closePos(longPos);
         }
 
@@ -644,8 +662,8 @@ async function main(): Promise<void> {
           await closePos(shortPos);
         }
 
-        if (shortPos && EXIT_SIGMA_ASK_THRESHOLD !== 0 && deltaAskSum >= EXIT_SIGMA_ASK_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT SHORT — ΣΔask/m=${fmt(deltaAskSum)} >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
+        if (shortPos && EXIT_SIGMA_ASK_THRESHOLD !== 0 && deltaAskPosSum >= EXIT_SIGMA_ASK_THRESHOLD) {
+          console.log(`[${tsNow()}]  EXIT SHORT — ΣΔask+/m=${fmt(deltaAskPosSum)} >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
           await closePos(shortPos);
         }
 
