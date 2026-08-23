@@ -14,6 +14,7 @@
     "price": "tsx scripts/phemex-price.ts",
     "min-fee": "tsx scripts/phemex-min-fee.ts",
     "perps": "tsx scripts/phemex-perps.ts",
+    "transfer": "tsx scripts/phemex-transfer.ts",
     "symbols": "tsx scripts/phemex-symbols.ts",
     "log-viewer": "tsx scripts/log-viewer.ts"
   },
