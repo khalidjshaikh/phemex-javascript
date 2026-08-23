@@ -299,7 +299,12 @@ function loadState(): boolean {
       s.hourDeltaLCount = saved.hourDeltaLCount ?? 0;
       s.hourDeltaLCountPos = saved.hourDeltaLCountPos ?? 0;
       s.hourDeltaLCountNeg = saved.hourDeltaLCountNeg ?? 0;
-      s.hourHistory = saved.hourHistory ?? [];
+      s.hourHistory = (saved.hourHistory ?? []).map(r => ({
+        ...r,
+        deltaLCount: r.deltaLCount ?? 0,
+        deltaLCountPos: r.deltaLCountPos ?? 0,
+        deltaLCountNeg: r.deltaLCountNeg ?? 0,
+      }));
     }
     console.log(`⟐  Loaded state from ${STATE_FILE} (${Math.round(age / 60000)}m old)`);
     return true;
