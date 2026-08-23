@@ -32,6 +32,7 @@ Options:
   --decimals <N>      Decimal places for display (default: 4)
   --hourlyOnly        Suppress per-tick output, show only hourly summary
   --noIL              Remove I-L Start, I-L End, Δ(I-L), Σ(I-L), Σ+, Σ-, Crosses columns
+  --scientific        Print numbers in scientific notation in hourly reports
   --help              Show this help and exit
 
 Hourly summary prints:
@@ -48,6 +49,7 @@ const HOLD = Number(getArg("--hold") ?? 3);
 const DECIMALS = Number(getArg("--decimals") ?? 4);
 const HOURLY_ONLY = hasFlag("--hourlyOnly");
 const NO_IL = hasFlag("--noIL");
+const SCIENTIFIC = hasFlag("--scientific");
 const WS_URL = "wss://ws.phemex.com";
 const IS_USDT_M = SYMBOLS[0].endsWith("USDT");
 
@@ -470,14 +472,15 @@ function tsHMS(ms: number): string {
 function fmt(v: unknown, dec = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(dec) : String(v);
+  if (!Number.isFinite(n)) return String(v);
+  return SCIENTIFIC ? n.toExponential(dec) : n.toFixed(dec);
 }
 
 function fmtSign(v: unknown, dec = DECIMALS): string {
   if (v == null) return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
-  const s = n.toFixed(dec);
+  const s = SCIENTIFIC ? n.toExponential(dec) : n.toFixed(dec);
   return n > 0 ? `+${s}` : n < 0 ? s : ` ${s}`;
 }
 
