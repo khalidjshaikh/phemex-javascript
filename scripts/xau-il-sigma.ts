@@ -155,6 +155,9 @@ let deltaCount = 0;
 let cumDeltaL = 0;
 let cumDeltaLPos = 0;
 let cumDeltaLNeg = 0;
+let cumDeltaLCount = 0;
+let cumDeltaLPosCount = 0;
+let cumDeltaLNegCount = 0;
 let minuteSignChanges = 0;
 let prevSign: "pos" | "neg" | "zero" | null = null;
 let tickHeaderPrinted = false;
@@ -188,6 +191,9 @@ function resetMinute(minute: number): void {
   cumDeltaL = 0;
   cumDeltaLPos = 0;
   cumDeltaLNeg = 0;
+  cumDeltaLCount = 0;
+  cumDeltaLPosCount = 0;
+  cumDeltaLNegCount = 0;
   deltaCount = 0;
   minuteSignChanges = 0;
   prevSign = null;
@@ -339,9 +345,9 @@ const ws = new ReconnectingWs(WS_URL, {
       if (!NO_MINUTE) {
         console.log(`\n  ── minute ${String(currentMinute % 60).padStart(2, "0")} end ──`);
         if (NO_IL) {
-          console.log(`  ticks: ${tickCount}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}`);
+          console.log(`  ticks: ${tickCount}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  #ΔL: ${cumDeltaLCount}  #ΔL+: ${cumDeltaLPosCount}  #ΔL-: ${cumDeltaLNegCount}`);
         } else {
-          console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  sign changes: ${minuteSignChanges}`);
+          console.log(`  ticks: ${tickCount}  avg(I−L): ${tickCount > 0 ? fmtSigma(cumSigma / tickCount) : "—"}  Σ(I−L): ${fmtSigma(cumSigma)}  Σ(I−L)>0: ${fmtSigma(cumSigmaPos)}  Σ(I−L)<0: ${fmtSigma(cumSigmaNeg)}  ΣΔL: ${fmtDelta(cumDeltaL)}  ΣΔL>0: ${fmtDelta(cumDeltaLPos)}  ΣΔL<0: ${fmtDelta(cumDeltaLNeg)}  #ΔL: ${cumDeltaLCount}  #ΔL+: ${cumDeltaLPosCount}  #ΔL-: ${cumDeltaLNegCount}  sign changes: ${minuteSignChanges}`);
         }
         console.log();
       }
@@ -444,8 +450,14 @@ const ws = new ReconnectingWs(WS_URL, {
     }
     if (deltaLast !== null) {
       cumDeltaL += deltaLast;
-      if (deltaLast > 0) cumDeltaLPos += deltaLast;
-      else if (deltaLast < 0) cumDeltaLNeg += deltaLast;
+      if (deltaLast > 0) {
+        cumDeltaLPos += deltaLast;
+        cumDeltaLPosCount++;
+      } else if (deltaLast < 0) {
+        cumDeltaLNeg += deltaLast;
+        cumDeltaLNegCount++;
+      }
+      if (deltaLast !== 0) cumDeltaLCount++;
       hourDeltaL += deltaLast;
       if (deltaLast > 0) {
         hourDeltaLPos += deltaLast;
