@@ -71,7 +71,7 @@ const SLOPE_N = Number(getArg("--slopeN") ?? 10);
 const SLOPE_THRESHOLD = Number(getArg("--slopeThreshold") ?? 0);
 const OPPOSING_THRESHOLD = Number(getArg("--opposingThreshold") ?? 1e-6);
 const NO_OPPOSING_EXIT = hasFlag("--noOpposingExit");
-const NO_SLOPE_EXIT = hasFlag("--noSlopeExit");
+const NO_ZERO_SLOPE_EXIT = hasFlag("--noZeroSlopeExit");
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -110,7 +110,7 @@ Options:
   --slopeThreshold <N>   Minimum slope magnitude for entry (default: 0)
   --opposingThreshold <N> Opposing direction threshold for exit (default: 1e-6)
   --noOpposingExit       Disable opposing threshold exits
-  --noSlopeExit          Disable slope inflection exits
+  --noZeroSlopeExit     Disable slope inflection exits
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -831,24 +831,19 @@ async function main(): Promise<void> {
           entryAskForLong = null;
         }
 
-        // Slope-based exit for long: slope < -threshold
+        // Slope-based exits for long
         if (SLOPE_MODE && longPos && priceBuffer.length >= SLOPE_N) {
           const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_SLOPE_EXIT && SLOPE_THRESHOLD > 0 && currentSlope < -SLOPE_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
-            await closePos(longPos);
-            entryAskForLong = null;
-          }
-          previousSlope = currentSlope;
-        }
-
-        // Slope-based exit for long: slope inflection (sign change from positive to negative)
-        if (SLOPE_MODE && longPos && priceBuffer.length >= SLOPE_N) {
-          const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_SLOPE_EXIT && previousSlope > 0 && currentSlope < 0) {
-            console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-            await closePos(longPos);
-            entryAskForLong = null;
+          if (!NO_ZERO_SLOPE_EXIT) {
+            if (SLOPE_THRESHOLD > 0 && currentSlope < -SLOPE_THRESHOLD) {
+              console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
+              await closePos(longPos);
+              entryAskForLong = null;
+            } else if (previousSlope > 0 && currentSlope < 0) {
+              console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
+              await closePos(longPos);
+              entryAskForLong = null;
+            }
           }
           previousSlope = currentSlope;
         }
@@ -882,23 +877,19 @@ async function main(): Promise<void> {
         }
 
         // Slope-based exit for short: slope > threshold
+        // Slope-based exits for short
         if (SLOPE_MODE && shortPos && priceBuffer.length >= SLOPE_N) {
           const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_SLOPE_EXIT && SLOPE_THRESHOLD > 0 && currentSlope > SLOPE_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT SHORT — slope ${fmt(currentSlope)} > ${fmt(SLOPE_THRESHOLD)}`);
-            await closePos(shortPos);
-            entryBidForShort = null;
-          }
-          previousSlope = currentSlope;
-        }
-
-        // Slope-based exit for short: slope inflection (sign change from negative to positive)
-        if (SLOPE_MODE && shortPos && priceBuffer.length >= SLOPE_N) {
-          const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_SLOPE_EXIT && previousSlope < 0 && currentSlope > 0) {
-            console.log(`[${tsNow()}]  EXIT SHORT — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-            await closePos(shortPos);
-            entryBidForShort = null;
+          if (!NO_ZERO_SLOPE_EXIT) {
+            if (SLOPE_THRESHOLD > 0 && currentSlope > SLOPE_THRESHOLD) {
+              console.log(`[${tsNow()}]  EXIT SHORT — slope ${fmt(currentSlope)} > ${fmt(SLOPE_THRESHOLD)}`);
+              await closePos(shortPos);
+              entryBidForShort = null;
+            } else if (previousSlope < 0 && currentSlope > 0) {
+              console.log(`[${tsNow()}]  EXIT SHORT — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
+              await closePos(shortPos);
+              entryBidForShort = null;
+            }
           }
           previousSlope = currentSlope;
         }
@@ -929,6 +920,11 @@ async function main(): Promise<void> {
 
         if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
+            if (shortPos) {
+              console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
+              await closePos(shortPos);
+              entryBidForShort = null;
+            }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             await openLong();
@@ -937,6 +933,11 @@ async function main(): Promise<void> {
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
+            if (longPos) {
+              console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
+              await closePos(longPos);
+              entryAskForLong = null;
+            }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             await openShort();
