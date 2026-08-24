@@ -459,13 +459,13 @@ function printHeaders(): void {
     r("ΣΔL/m", deltaSumW) + " " +
     r("ΣΔL+/m", deltaSumW) + " " +
     r("ΣΔL-/m", deltaSumW) + " " +
-    r("ΣΔask/m", deltaSumW) + " " +
-    r("ΣΔask+/m", deltaSumW) + " " +
-    r("ΣΔask-/m", deltaSumW) + " " +
+    (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r("ΣΔask/m", deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r("ΣΔask+/m", deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r("ΣΔask-/m", deltaSumW) + " ") +
     r("#Δask/m", 5) + " " +
-    r("ΣΔbid/m", deltaSumW) + " " +
-    r("ΣΔbid+/m", deltaSumW) + " " +
-    r("ΣΔbid-/m", deltaSumW) + " " +
+    (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r("ΣΔbid/m", deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r("ΣΔbid+/m", deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r("ΣΔbid-/m", deltaSumW) + " ") +
     r("#Δbid/m", 5) + " " +
     r("ΣΔask+/h", deltaSumW) + " " +
     r("ΣΔbid-/h", deltaSumW) + " " +
@@ -746,13 +746,13 @@ async function main(): Promise<void> {
         r(fmtSign(deltaLastSum), deltaSumW) + " " +
         r(fmtSign(deltaLastPosSum), deltaSumW) + " " +
         r(fmtSign(deltaLastNegSum), deltaSumW) + " " +
-        r(fmtSign(deltaAskSum), deltaSumW) + " " +
-        r(fmtSign(deltaAskPosSum), deltaSumW) + " " +
-        r(fmtSign(deltaAskNegSum), deltaSumW) + " " +
+        (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r(fmtSign(deltaAskSum), deltaSumW) + " ") +
+        (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r(fmtSign(deltaAskPosSum), deltaSumW) + " ") +
+        (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r(fmtSign(deltaAskNegSum), deltaSumW) + " ") +
         r(String(deltaAskCount), 5) + " " +
-        r(fmtSign(deltaBidSum), deltaSumW) + " " +
-        r(fmtSign(deltaBidPosSum), deltaSumW) + " " +
-        r(fmtSign(deltaBidNegSum), deltaSumW) + " " +
+        (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r(fmtSign(deltaBidSum), deltaSumW) + " ") +
+        (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r(fmtSign(deltaBidPosSum), deltaSumW) + " ") +
+        (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r(fmtSign(deltaBidNegSum), deltaSumW) + " ") +
         r(String(deltaBidCount), 5) + " " +
         r(fmtSign(deltaAskPosSumHour), deltaSumW) + " " +
         r(fmtSign(deltaBidNegSumHour), deltaSumW) + " " +
