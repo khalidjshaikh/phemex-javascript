@@ -72,6 +72,7 @@ const SLOPE_THRESHOLD = Number(getArg("--slopeThreshold") ?? 0);
 const OPPOSING_THRESHOLD = Number(getArg("--opposingThreshold") ?? 1e-6);
 const NO_OPPOSING_EXIT = hasFlag("--noOpposingExit");
 const NO_ZERO_SLOPE_EXIT = hasFlag("--noZeroSlopeExit");
+const SLOPE_HOLD_THRESHOLD = Number(getArg("--slopeHoldThreshold") ?? 0);
 
 const USAGE = `Usage: npx tsx scripts/phemex-vector-strategy.ts [options]
 
@@ -111,6 +112,7 @@ Options:
   --opposingThreshold <N> Opposing direction threshold for exit (default: 1e-6)
   --noOpposingExit       Disable opposing threshold exits
   --noZeroSlopeExit     Disable slope inflection exits
+  --slopeHoldThreshold <N> Hold position when |slope| >= threshold (disables take-profit exits)
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -826,9 +828,12 @@ async function main(): Promise<void> {
 
         // Slope-based exit for long: bid > entryAsk
         if (SLOPE_MODE && longPos && entryAskForLong !== null && snapBid > entryAskForLong) {
-          console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(snapBid)} > entryAsk ${fmt(entryAskForLong)}`);
-          await closePos(longPos);
-          entryAskForLong = null;
+          const holdSlope = priceBuffer.length >= SLOPE_N ? Math.abs(calculateSlope(priceBuffer)) : 0;
+          if (SLOPE_HOLD_THRESHOLD <= 0 || holdSlope < SLOPE_HOLD_THRESHOLD) {
+            console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(snapBid)} > entryAsk ${fmt(entryAskForLong)}`);
+            await closePos(longPos);
+            entryAskForLong = null;
+          }
         }
 
         // Slope-based exits for long
@@ -871,9 +876,12 @@ async function main(): Promise<void> {
 
         // Slope-based exit for short: ask < entryBid
         if (SLOPE_MODE && shortPos && entryBidForShort !== null && snapAsk < entryBidForShort) {
-          console.log(`[${tsNow()}]  EXIT SHORT — ask ${fmt(snapAsk)} < entryBid ${fmt(entryBidForShort)}`);
-          await closePos(shortPos);
-          entryBidForShort = null;
+          const holdSlope = priceBuffer.length >= SLOPE_N ? Math.abs(calculateSlope(priceBuffer)) : 0;
+          if (SLOPE_HOLD_THRESHOLD <= 0 || holdSlope < SLOPE_HOLD_THRESHOLD) {
+            console.log(`[${tsNow()}]  EXIT SHORT — ask ${fmt(snapAsk)} < entryBid ${fmt(entryBidForShort)}`);
+            await closePos(shortPos);
+            entryBidForShort = null;
+          }
         }
 
         // Slope-based exit for short: slope > threshold
