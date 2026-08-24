@@ -28,7 +28,7 @@ import path from "node:path";
 
 function usage(): never {
   console.log(`
-Usage: ./phemex-list-fills.ts [--symbol <symbol>] [--limit <n>] [--days <n>] [--loop] [--interval <sec>] [--dry-run]
+Usage: ./phemex-list-fills.ts [--symbol <symbol>] [--limit <n>] [--days <n>] [--decimals <N>] [--loop] [--interval <sec>] [--dry-run]
 
 List trade fills (executed trades) via /exchange/order/v2/tradingList.
 
@@ -36,6 +36,7 @@ Options:
   --symbol <symbol>   Trading pair (e.g. XBRUSDT, BTCUSDT) — omit to list ALL symbols
   --limit <n>         Max results per symbol (default 50; values >200 are paged in batches of 200)
   --days <n>          Look back days (default 7)
+  --decimals <N>      Decimal places for price display (default 2; range 0–8)
   --credential <name> Credential profile from .credentials.json (e.g. A02, meta, gmail)
   --loop              Repeat the listing every --interval seconds until Ctrl+C
   --interval <sec>    Poll period in seconds (default 2; used with --loop)
@@ -148,7 +149,7 @@ async function fetchFillsForSymbol(
 /*  Display fills table                                                */
 /* ------------------------------------------------------------------ */
 
-function displayFills(rows: Record<string, unknown>[], symbol: string, totalOverride?: number): void {
+function displayFills(rows: Record<string, unknown>[], symbol: string, totalOverride?: number, priceDecimals?: number): void {
   if (rows.length === 0) {
     console.log(`  ℹ  ${symbol}: No fills found.`);
     return;
@@ -162,7 +163,7 @@ function displayFills(rows: Record<string, unknown>[], symbol: string, totalOver
     const execId = String(f.execId ?? "?");
     const side = sideMap[Number(f.side)] ?? String(f.side ?? "?");
     const qty = String(f.execQtyRq ?? "?");
-    const price = f.execPriceRp != null ? Number(f.execPriceRp).toFixed(2) : "?";
+    const price = f.execPriceRp != null ? Number(f.execPriceRp).toFixed(priceDecimals ?? 2) : "?";
     const fee = f.execFeeRv != null ? Number(f.execFeeRv).toFixed(8) : "-";
     const feePerQty =
       f.execFeeRv != null && f.execQtyRq != null && Number(f.execQtyRq) !== 0
@@ -239,8 +240,13 @@ async function main(): Promise<void> {
   const loopMode = hasFlag("--loop");
   const intervalSec = parseInt(getArg("--interval") || "2", 10);
   const credential = getArg("--credential");
+  const priceDecimals = getArg("--decimals") != null ? parseInt(getArg("--decimals")!, 10) : undefined;
   if (!Number.isInteger(intervalSec) || intervalSec < 1) {
     console.error(`  ✗  Invalid --interval: "${getArg("--interval")}" — use a whole number of seconds >= 1`);
+    process.exit(1);
+  }
+  if (priceDecimals != null && (!Number.isInteger(priceDecimals) || priceDecimals < 0 || priceDecimals > 8)) {
+    console.error(`  ✗  Invalid --decimals: "${getArg("--decimals")}" — use a whole number between 0 and 8`);
     process.exit(1);
   }
 
@@ -288,11 +294,11 @@ async function main(): Promise<void> {
     if (symbols) {
       for (const sym of symbols) {
         const rows = await fetchFillsForSymbol(sym, limit, days, creds, secretRaw, pageSize);
-        displayFills(rows, sym);
+        displayFills(rows, sym, undefined, priceDecimals);
       }
     } else {
       const rows = await fetchFillsForSymbol(undefined, limit, days, creds, secretRaw, pageSize);
-      displayFills(rows, "ALL");
+      displayFills(rows, "ALL", undefined, priceDecimals);
     }
 
     if (!loopMode) break;
