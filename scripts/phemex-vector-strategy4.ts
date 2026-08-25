@@ -202,6 +202,7 @@ let lastChartOutput = "";
 type TradeEventType = "OPEN_LONG" | "OPEN_SHORT" | "EXIT_LONG" | "EXIT_SHORT";
 let tradeEvents: { type: TradeEventType; price: number; tick: number }[] = [];
 let tickCounter = 0;
+let tickerRowHistory: string[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
@@ -616,14 +617,9 @@ function renderChart(price: number): string {
       set(chartCanvas, px, py);
     }
 
-    // Draw event marker at this index (vertical bar through the price point)
+    // Draw event marker at this index (single pixel at price point)
     if (eventIndices.has(i)) {
-      for (let dy = -2; dy <= 2; dy++) {
-        const y = py + dy;
-        if (y >= 0 && y < chartPixelHeight) {
-          set(chartCanvas, px, y);
-        }
-      }
+      set(chartCanvas, px, py);
     }
 
     prevPx = px;
@@ -640,16 +636,32 @@ function renderChart(price: number): string {
   // Header
   resultLines.push(`  LAST: ${fmt(price)}`);
 
-  // Add chart lines with price scale on right (right-aligned labels)
+  // Add chart lines with direct labeling (labels next to the line)
   const labelWidth = fmt(maxPrice).length;
   for (let i = 0; i < chartLines.length; i++) {
     const fraction = i / Math.max(1, chartLines.length - 1);
     const labelPrice = maxPrice - fraction * priceRange;
-    const label = fmt(labelPrice).padStart(labelWidth);
-    // Pad each line to exact chartCols width using spaces
+    const label = fmt(labelPrice);
     const line = chartLines[i];
-    const padLen = Math.max(0, chartCols - [...line].length);
-    resultLines.push(`${line}${" ".repeat(padLen)}  ${label}`);
+    // Find the last non-space character position
+    const chars = [...line];
+    let lastNonSpace = -1;
+    for (let j = chars.length - 1; j >= 0; j--) {
+      if (chars[j] !== " ") {
+        lastNonSpace = j;
+        break;
+      }
+    }
+    // Place label right after the last braille character
+    if (lastNonSpace >= 0) {
+      const before = chars.slice(0, lastNonSpace + 1).join("");
+      const after = chars.slice(lastNonSpace + 1).join("");
+      resultLines.push(`${before} ${label}${after}`);
+    } else {
+      // No braille on this row, just pad and add label
+      const padLen = Math.max(0, chartCols - chars.length);
+      resultLines.push(`${line}${" ".repeat(padLen)}  ${label}`);
+    }
   }
 
   // Add legend at bottom
@@ -667,7 +679,23 @@ function renderChart(price: number): string {
   return resultLines.join("\n");
 }
 
-function printChartToTerminal(price: number, tickerData: TickerData | null): void {
+interface TickerRowData {
+  snapAsk: number; snapBid: number; snapLast: number; snapIndex: number;
+  vector: number; deltaLast: number | null; deltaAsk: number | null; deltaBid: number | null;
+  ab: number; longCooldown: number; shortCooldown: number;
+  rate: string; rateHour: string;
+  deltaLastSum: number; deltaLastPosSum: number; deltaLastNegSum: number;
+  deltaAskSum: number; deltaAskPosSum: number; deltaAskNegSum: number; deltaAskCount: number;
+  deltaBidSum: number; deltaBidPosSum: number; deltaBidNegSum: number; deltaBidCount: number;
+  deltaAskPosSumHour: number; deltaBidNegSumHour: number;
+  cumulativeDeltaAskPos: number; cumulativeDeltaBidNeg: number;
+  deltaLastPosCountHour: number; deltaLastNegCountHour: number;
+  deltaLastSumHour: number; deltaLastPosSumHour: number; deltaLastNegSumHour: number;
+  longOpensCount: number; shortOpensCount: number; slope: number;
+  priceW: number; deltaW: number; deltaSumW: number;
+}
+
+function printChartToTerminal(price: number, tickerData: TickerData | null, row: TickerRowData): void {
   if (!CHART) return;
 
   const chartOutput = renderChart(price);
@@ -675,8 +703,8 @@ function printChartToTerminal(price: number, tickerData: TickerData | null): voi
 
   const lines = chartOutput.split("\n");
 
-  // Clear screen and move cursor to top-left
-  process.stdout.write("\x1b[2J\x1b[H");
+  // Clear screen and move cursor to top-left (use alternate screen buffer)
+  process.stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
 
   // Print chart at top
   for (let i = 0; i < lines.length; i++) {
@@ -687,6 +715,54 @@ function printChartToTerminal(price: number, tickerData: TickerData | null): voi
   if (tickerData) {
     process.stdout.write("\n");
     process.stdout.write(`  ${SYMBOL}  Last:${fmt(tickerData.last)}  Bid:${fmt(tickerData.bid)}  Ask:${fmt(tickerData.ask)}  Idx:${fmt(tickerData.index)}  Mk:${fmt(tickerData.mark)}  Spr:${fmt(tickerData.ask - tickerData.bid)}  Vec:${fmtSign(tickerData.index - tickerData.last)}\n`);
+    process.stdout.write("\n");
+  }
+
+  // Build ticker row string
+  const tickerRow =
+    `[${tsNow()}] ` +
+    (HIDE_COLS.has("ask") ? "" : r(fmt(row.snapAsk), row.priceW) + " ") +
+    (HIDE_COLS.has("bid") ? "" : r(fmt(row.snapBid), row.priceW) + " ") +
+    r(fmt(row.snapLast), row.priceW) + " " +
+    (HIDE_COLS.has("ab") ? "" : r(fmt(row.ab), row.priceW) + " ") +
+    (SLOPE_MODE ? r(fmt(row.slope), row.deltaW) + " " : (NO_IL ? "" : r(fmtSign(row.vector), row.deltaW) + " ")) +
+    r(fmtSign(row.deltaLast), row.deltaW) + " " +
+    (HIDE_COLS.has("deltaask") ? "" : r(fmtSign(row.deltaAsk), row.deltaW) + " ") +
+    (HIDE_COLS.has("deltabid") ? "" : r(fmtSign(row.deltaBid), row.deltaW) + " ") +
+    r(String(row.longCooldown) + "s", 3) + " " +
+    r(String(row.shortCooldown) + "s", 3) + " " +
+    r(row.rate, 5) + " " +
+    r(fmtSign(row.deltaLastSum), row.deltaSumW) + " " +
+    r(fmtSign(row.deltaLastPosSum), row.deltaSumW) + " " +
+    r(fmtSign(row.deltaLastNegSum), row.deltaSumW) + " " +
+    (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r(fmtSign(row.deltaAskSum), row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r(fmtSign(row.deltaAskPosSum), row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r(fmtSign(row.deltaAskNegSum), row.deltaSumW) + " ") +
+    r(String(row.deltaAskCount), 5) + " " +
+    (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r(fmtSign(row.deltaBidSum), row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r(fmtSign(row.deltaBidPosSum), row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r(fmtSign(row.deltaBidNegSum), row.deltaSumW) + " ") +
+    r(String(row.deltaBidCount), 5) + " " +
+    r(fmtSign(row.deltaAskPosSumHour), row.deltaSumW) + " " +
+    r(fmtSign(row.deltaBidNegSumHour), row.deltaSumW) + " " +
+    r(fmtSign(row.cumulativeDeltaAskPos), row.deltaSumW) + " " +
+    r(fmtSign(row.cumulativeDeltaBidNeg), row.deltaSumW) + " " +
+    r(row.rateHour, 5) + " " +
+    r(String(row.deltaLastPosCountHour), 6) + " " +
+    r(String(row.deltaLastNegCountHour), 6) + " " +
+    r(fmtSign(row.deltaLastSumHour), row.deltaSumW) + " " +
+    r(fmtSign(row.deltaLastPosSumHour), row.deltaSumW) + " " +
+    r(fmtSign(row.deltaLastNegSumHour), row.deltaSumW) + " " +
+    r(String(row.longOpensCount), 5) + " " +
+    r(String(row.shortOpensCount), 5);
+
+  // Store last 5 rows and print
+  tickerRowHistory.push(tickerRow);
+  if (tickerRowHistory.length > 5) {
+    tickerRowHistory.shift();
+  }
+  for (const line of tickerRowHistory) {
+    process.stdout.write(line + "\n");
   }
 }
 
@@ -775,6 +851,7 @@ async function main(): Promise<void> {
 
   // Graceful shutdown
   process.on("SIGINT", () => {
+    process.stdout.write("\x1b[?1049l"); // restore main screen buffer
     console.log(`\n[${tsNow()}] ⏹  Stopped.`);
     saveState();
     ws.shutdown();
@@ -913,7 +990,23 @@ async function main(): Promise<void> {
       const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
       const deltaSumW = SCIENTIFIC ? DECIMALS + 7 : 6;
       const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-      if (!SUPPRESS_TICKER) {
+
+      // Render chart on right side if enabled
+      if (CHART) {
+        printChartToTerminal(snapLast, ticker, {
+          snapAsk, snapBid, snapLast, snapIndex, vector, deltaLast, deltaAsk, deltaBid,
+          ab, longCooldown, shortCooldown, rate, rateHour,
+          deltaLastSum, deltaLastPosSum, deltaLastNegSum,
+          deltaAskSum, deltaAskPosSum, deltaAskNegSum, deltaAskCount,
+          deltaBidSum, deltaBidPosSum, deltaBidNegSum, deltaBidCount,
+          deltaAskPosSumHour, deltaBidNegSumHour,
+          cumulativeDeltaAskPos, cumulativeDeltaBidNeg,
+          deltaLastPosCountHour, deltaLastNegCountHour,
+          deltaLastSumHour, deltaLastPosSumHour, deltaLastNegSumHour,
+          longOpensCount, shortOpensCount, slope,
+          priceW, deltaW, deltaSumW,
+        });
+      } else if (!SUPPRESS_TICKER) {
         console.log(
           `[${tsNow()}] ` +
           (HIDE_COLS.has("ask") ? "" : r(fmt(snapAsk), priceW) + " ") +
@@ -956,11 +1049,6 @@ async function main(): Promise<void> {
       //   const bufStr = priceBuffer.map((p) => fmt(p.last)).join(", ");
       //   console.log(`  buffer[${priceBuffer.length}/${SLOPE_N}]: [${bufStr}]`);
       // }
-
-      // Render chart on right side if enabled
-      if (CHART) {
-        printChartToTerminal(snapLast, ticker);
-      }
 
       if (!SUPPRESS_TICKER) {
         rowsPrinted++;
