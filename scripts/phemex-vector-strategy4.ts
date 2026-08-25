@@ -1309,18 +1309,16 @@ async function main(): Promise<void> {
         // Slope-based exits for long
         if (SLOPE_MODE && longPos && priceBuffer.length >= SLOPE_N) {
           const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_ZERO_SLOPE_EXIT) {
-            if (SLOPE_THRESHOLD > 0 && currentSlope < -SLOPE_THRESHOLD) {
-              console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
-              recordExit("EXIT_LONG", snapLast);
-              await closePos(longPos);
-              entryAskForLong = null;
-            } else if (previousSlope > 0 && currentSlope < 0) {
-              console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-              recordExit("EXIT_LONG", snapLast);
-              await closePos(longPos);
-              entryAskForLong = null;
-            }
+          if (SLOPE_THRESHOLD > 0 && currentSlope < -SLOPE_THRESHOLD) {
+            console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
+            recordExit("EXIT_LONG", snapLast);
+            await closePos(longPos);
+            entryAskForLong = null;
+          } else if (!NO_ZERO_SLOPE_EXIT && previousSlope > 0 && currentSlope < 0) {
+            console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
+            recordExit("EXIT_LONG", snapLast);
+            await closePos(longPos);
+            entryAskForLong = null;
           }
           previousSlope = currentSlope;
         }
@@ -1364,18 +1362,16 @@ async function main(): Promise<void> {
         // Slope-based exits for short
         if (SLOPE_MODE && shortPos && priceBuffer.length >= SLOPE_N) {
           const currentSlope = calculateSlope(priceBuffer);
-          if (!NO_ZERO_SLOPE_EXIT) {
-            if (SLOPE_THRESHOLD > 0 && currentSlope > SLOPE_THRESHOLD) {
-              console.log(`[${tsNow()}]  EXIT SHORT — slope ${fmt(currentSlope)} > ${fmt(SLOPE_THRESHOLD)}`);
-              recordExit("EXIT_SHORT", snapLast);
-              await closePos(shortPos);
-              entryBidForShort = null;
-            } else if (previousSlope < 0 && currentSlope > 0) {
-              console.log(`[${tsNow()}]  EXIT SHORT — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-              recordExit("EXIT_SHORT", snapLast);
-              await closePos(shortPos);
-              entryBidForShort = null;
-            }
+          if (SLOPE_THRESHOLD > 0 && currentSlope > SLOPE_THRESHOLD) {
+            console.log(`[${tsNow()}]  EXIT SHORT — slope ${fmt(currentSlope)} > ${fmt(SLOPE_THRESHOLD)}`);
+            recordExit("EXIT_SHORT", snapLast);
+            await closePos(shortPos);
+            entryBidForShort = null;
+          } else if (!NO_ZERO_SLOPE_EXIT && previousSlope < 0 && currentSlope > 0) {
+            console.log(`[${tsNow()}]  EXIT SHORT — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
+            recordExit("EXIT_SHORT", snapLast);
+            await closePos(shortPos);
+            entryBidForShort = null;
           }
           previousSlope = currentSlope;
         }
