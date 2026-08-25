@@ -203,6 +203,7 @@ type TradeEventType = "OPEN_LONG" | "OPEN_SHORT" | "EXIT_LONG" | "EXIT_SHORT";
 let tradeEvents: { type: TradeEventType; price: number; tick: number }[] = [];
 let tickCounter = 0;
 let tickerRowHistory: string[] = [];
+let tradeEventHistory: string[] = [];
 
 /* ------------------------------------------------------------------ */
 /*  State persistence                                                  */
@@ -532,6 +533,9 @@ function calculateSlope(buffer: { ts: number; last: number }[]): number {
 
 function recordExit(type: "EXIT_LONG" | "EXIT_SHORT", price: number): void {
   tradeEvents.push({ type, price, tick: tickCounter });
+  const label = type === "EXIT_LONG" ? "EXIT LONG" : "EXIT SHORT";
+  tradeEventHistory.push(`[${tsNow()}]  ${label} @ ${fmt(price)}`);
+  if (tradeEventHistory.length > 3) tradeEventHistory.shift();
 }
 
 /* ------------------------------------------------------------------ */
@@ -545,9 +549,9 @@ function renderChart(price: number): string {
     chartCanvas = createCanvas();
   }
 
-  // Use 80% of terminal dimensions: width for chart, height - 5 for ticker lines below
+  // Use 90% of terminal width, 80% of height - 5 for ticker lines below
   const { width: termWidth, height: termHeight } = getTerminalSize();
-  const chartCols = Math.max(20, Math.floor(termWidth * 0.8));
+  const chartCols = Math.max(20, Math.floor(termWidth * 0.9));
   const chartRows = Math.max(5, Math.floor(termHeight * 0.8) - 5);  // 5 rows for ticker below
 
   chartPixelWidth = chartCols * 2;   // 2 pixels per braille column
@@ -617,9 +621,44 @@ function renderChart(price: number): string {
       set(chartCanvas, px, py);
     }
 
-    // Draw event marker at this index (single pixel at price point)
+    // Draw event markers with elegant patterns
     if (eventIndices.has(i)) {
-      set(chartCanvas, px, py);
+      const evtType = eventIndices.get(i)!;
+      if (evtType === "▲") {
+        // Open Long: upward arrow (triangle above)
+        set(chartCanvas, px, py - 3);
+        set(chartCanvas, px, py - 2);
+        set(chartCanvas, px - 1, py - 1);
+        set(chartCanvas, px, py - 1);
+        set(chartCanvas, px + 1, py - 1);
+      } else if (evtType === "▼") {
+        // Open Short: downward arrow (triangle below)
+        set(chartCanvas, px, py + 3);
+        set(chartCanvas, px, py + 2);
+        set(chartCanvas, px - 1, py + 1);
+        set(chartCanvas, px, py + 1);
+        set(chartCanvas, px + 1, py + 1);
+      } else if (evtType === "○") {
+        // Exit Long: hollow diamond above
+        set(chartCanvas, px, py - 3);
+        set(chartCanvas, px - 1, py - 2);
+        set(chartCanvas, px + 1, py - 2);
+        set(chartCanvas, px - 2, py - 1);
+        set(chartCanvas, px + 2, py - 1);
+        set(chartCanvas, px - 1, py);
+        set(chartCanvas, px + 1, py);
+      } else if (evtType === "●") {
+        // Exit Short: filled diamond below
+        set(chartCanvas, px, py + 3);
+        set(chartCanvas, px - 1, py + 2);
+        set(chartCanvas, px, py + 2);
+        set(chartCanvas, px + 1, py + 2);
+        set(chartCanvas, px - 2, py + 1);
+        set(chartCanvas, px - 1, py + 1);
+        set(chartCanvas, px, py + 1);
+        set(chartCanvas, px + 1, py + 1);
+        set(chartCanvas, px + 2, py + 1);
+      }
     }
 
     prevPx = px;
@@ -763,6 +802,14 @@ function printChartToTerminal(price: number, tickerData: TickerData | null, row:
   }
   for (const line of tickerRowHistory) {
     process.stdout.write(line + "\n");
+  }
+
+  // Print trade event history (last 3)
+  if (tradeEventHistory.length > 0) {
+    process.stdout.write("\n");
+    for (const line of tradeEventHistory) {
+      process.stdout.write(`  ${line}\n`);
+    }
   }
 }
 
@@ -1230,6 +1277,8 @@ async function main(): Promise<void> {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
+            tradeEventHistory.push(`[${tsNow()}]  OPEN LONG @ ${fmt(snapLast)}`);
+            if (tradeEventHistory.length > 3) tradeEventHistory.shift();
             await openLong();
             entryAskForLong = snapAsk;
             longCooldown = CD_LONG;
@@ -1244,6 +1293,8 @@ async function main(): Promise<void> {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
+            tradeEventHistory.push(`[${tsNow()}]  OPEN SHORT @ ${fmt(snapLast)}`);
+            if (tradeEventHistory.length > 3) tradeEventHistory.shift();
             await openShort();
             entryBidForShort = snapBid;
             shortCooldown = CD_SHORT;
