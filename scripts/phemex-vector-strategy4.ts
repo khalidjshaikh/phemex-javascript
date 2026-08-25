@@ -456,7 +456,10 @@ function fmtSign(v: number | null, decimals = DECIMALS): string {
   return v > 0 ? `+${s}` : v < 0 ? s : ` ${s}`;
 }
 
-const r = (s: string, n: number) => " ".repeat(Math.max(0, n - s.length)) + s;
+// Characters that take 2 display columns
+const DOUBLE_WIDTH = new Set("ΣΔσδ");
+const displayWidth = (s: string) => [...s].reduce((w, c) => w + (DOUBLE_WIDTH.has(c) ? 2 : 1), 0);
+const r = (s: string, n: number) => " ".repeat(Math.max(0, n - displayWidth(s))) + s;
 
 function printHeaders(): void {
   const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
@@ -533,9 +536,6 @@ function calculateSlope(buffer: { ts: number; last: number }[]): number {
 
 function recordExit(type: "EXIT_LONG" | "EXIT_SHORT", price: number): void {
   tradeEvents.push({ type, price, tick: tickCounter });
-  const label = type === "EXIT_LONG" ? "EXIT LONG" : "EXIT SHORT";
-  tradeEventHistory.push(`[${tsNow()}]  ${label} @ ${fmt(price)}`);
-  if (tradeEventHistory.length > 3) tradeEventHistory.shift();
 }
 
 /* ------------------------------------------------------------------ */
@@ -549,9 +549,9 @@ function renderChart(price: number): string {
     chartCanvas = createCanvas();
   }
 
-  // Use 90% of terminal width, 80% of height - 5 for ticker lines below
+  // Use 95% of terminal width, 80% of height - 5 for ticker lines below
   const { width: termWidth, height: termHeight } = getTerminalSize();
-  const chartCols = Math.max(20, Math.floor(termWidth * 0.9));
+  const chartCols = Math.max(20, Math.floor(termWidth * 0.95));
   const chartRows = Math.max(5, Math.floor(termHeight * 0.8) - 5);  // 5 rows for ticker below
 
   chartPixelWidth = chartCols * 2;   // 2 pixels per braille column
@@ -584,24 +584,40 @@ function renderChart(price: number): string {
 
   // Build set of event indices for this chart window
   const eventIndices = new Map<number, string>();
-  const eventMarkers: { char: string; label: string }[] = [
-    { char: "▲", label: "Open Long" },
-    { char: "▼", label: "Open Short" },
-    { char: "○", label: "Exit Long" },
-    { char: "●", label: "Exit Short" },
+  const eventMarkers: { type: string; char: string; label: string }[] = [
+    { type: "OPEN_LONG", char: "▲", label: "Open Long" },
+    { type: "OPEN_SHORT", char: "▼", label: "Open Short" },
+    { type: "EXIT_LONG", char: "○", label: "Exit Long" },
+    { type: "EXIT_SHORT", char: "●", label: "Exit Short" },
   ];
   const activeMarkers: string[] = [];
 
   for (const evt of tradeEvents) {
-    const chartIdx = evt.tick - (tickCounter - chartCols);
-    if (chartIdx < 0 || chartIdx >= chartCols) continue;
-    const marker = eventMarkers.find(m => m.char === (evt.type === "OPEN_LONG" ? "▲" : evt.type === "OPEN_SHORT" ? "▼" : evt.type === "EXIT_LONG" ? "○" : "●"));
+    const evtIdx = evt.tick - (tickCounter - priceHistory.length);
+    if (evtIdx < 0 || evtIdx >= priceHistory.length) continue;
+    const marker = eventMarkers.find(m => m.type === evt.type);
     if (marker) {
-      eventIndices.set(chartIdx, marker.char);
+      eventIndices.set(evtIdx, marker.char);
       if (!activeMarkers.includes(marker.label)) {
         activeMarkers.push(marker.label);
       }
     }
+  }
+
+  // ANSI colors for event markers
+  const COLOR_OPEN_LONG = "\x1b[32m";   // green
+  const COLOR_OPEN_SHORT = "\x1b[31m";  // red
+  const COLOR_EXIT_LONG = "\x1b[36m";   // cyan
+  const COLOR_EXIT_SHORT = "\x1b[35m";  // magenta
+  const COLOR_RESET = "\x1b[0m";
+  const eventCharColors = new Map<number, Map<number, string>>();
+
+  function getEventColor(type: string): string {
+    if (type === "▲") return COLOR_OPEN_LONG;
+    if (type === "▼") return COLOR_OPEN_SHORT;
+    if (type === "○") return COLOR_EXIT_LONG;
+    if (type === "●") return COLOR_EXIT_SHORT;
+    return "";
   }
 
   // Draw price line and event markers together
@@ -624,6 +640,12 @@ function renderChart(price: number): string {
     // Draw event markers with elegant patterns
     if (eventIndices.has(i)) {
       const evtType = eventIndices.get(i)!;
+      const color = getEventColor(evtType);
+      const charCol = Math.floor(px / 2);
+      const charRow = Math.floor(py / 4);
+      if (!eventCharColors.has(charRow)) eventCharColors.set(charRow, new Map());
+      eventCharColors.get(charRow)!.set(charCol, color);
+
       if (evtType === "▲") {
         // Open Long: upward arrow (triangle above)
         set(chartCanvas, px, py - 3);
@@ -665,6 +687,26 @@ function renderChart(price: number): string {
     prevPy = py;
   }
 
+  // Compute slope window bracket data (rendered below chart, not in it)
+  let slopeBracketLine = "";
+  if (SLOPE_MODE && priceHistory.length > 0) {
+    const slopeStart = Math.max(0, priceHistory.length - SLOPE_N);
+    const startX = Math.round((slopeStart / Math.max(1, chartCols - 1)) * (chartPixelWidth - 1));
+    const endX = Math.round(((priceHistory.length - 1) / Math.max(1, chartCols - 1)) * (chartPixelWidth - 1));
+    const startChar = Math.floor(startX / 2);
+    const endChar = Math.floor(endX / 2);
+    const chars = new Array(chartCols).fill(" ");
+    // Left tick
+    chars[startChar] = "├";
+    // Right tick
+    chars[endChar] = "┤";
+    // Horizontal line
+    for (let c = startChar + 1; c < endChar; c++) {
+      chars[c] = "─";
+    }
+    slopeBracketLine = chars.join("");
+  }
+
   // Render braille frame
   const chartStr = frame(chartCanvas);
   const chartLines = chartStr.split("\n").filter(l => l.length > 0);
@@ -675,18 +717,29 @@ function renderChart(price: number): string {
   // Header
   resultLines.push(`  LAST: ${fmt(price)}`);
 
-  // Add chart lines with direct labeling (labels next to the line)
+  // Add chart lines with direct labeling and colors
   const labelWidth = fmt(maxPrice).length;
   for (let i = 0; i < chartLines.length; i++) {
     const fraction = i / Math.max(1, chartLines.length - 1);
     const labelPrice = maxPrice - fraction * priceRange;
     const label = fmt(labelPrice);
     const line = chartLines[i];
-    // Find the last non-space character position
     const chars = [...line];
+
+    // Apply colors to event characters
+    const rowColors = eventCharColors.get(i);
+    if (rowColors && rowColors.size > 0) {
+      for (let j = 0; j < chars.length; j++) {
+        if (rowColors.has(j)) {
+          chars[j] = `${rowColors.get(j)}${chars[j]}${COLOR_RESET}`;
+        }
+      }
+    }
+
+    // Find the last non-space character position
     let lastNonSpace = -1;
     for (let j = chars.length - 1; j >= 0; j--) {
-      if (chars[j] !== " ") {
+      if (chars[j] !== " " && !chars[j].startsWith("\x1b[")) {
         lastNonSpace = j;
         break;
       }
@@ -697,18 +750,47 @@ function renderChart(price: number): string {
       const after = chars.slice(lastNonSpace + 1).join("");
       resultLines.push(`${before} ${label}${after}`);
     } else {
-      // No braille on this row, just pad and add label
       const padLen = Math.max(0, chartCols - chars.length);
-      resultLines.push(`${line}${" ".repeat(padLen)}  ${label}`);
+      resultLines.push(`${chars.join("")}${" ".repeat(padLen)}  ${label}`);
     }
   }
 
-  // Add legend at bottom
+  // Add slope bracket below chart with slope value
+  if (slopeBracketLine) {
+    resultLines.push(slopeBracketLine);
+    if (SLOPE_MODE && priceBuffer.length >= 2) {
+      const slope = calculateSlope(priceBuffer);
+      const slopeLabel = `slope=${fmt(slope)}`;
+      // Place label at right end of bracket
+      const bracketLen = slopeBracketLine.length;
+      const labelStart = Math.max(0, bracketLen - slopeLabel.length);
+      const slopeLine = " ".repeat(labelStart) + slopeLabel;
+      resultLines.push(slopeLine);
+
+      // Slope per minute and per hour
+      const timeSpanMs = priceBuffer[priceBuffer.length - 1].ts - priceBuffer[0].ts;
+      const avgTickMs = timeSpanMs / (priceBuffer.length - 1);
+      if (avgTickMs > 0) {
+        const slopePerMin = slope * (60000 / avgTickMs);
+        const spmLabel = `slope/min=${fmt(slopePerMin)}`;
+        const spmStart = Math.max(0, bracketLen - spmLabel.length);
+        resultLines.push(" ".repeat(spmStart) + spmLabel);
+
+        const slopePerHr = slope * (3600000 / avgTickMs);
+        const sphLabel = `slope/hr=${fmt(slopePerHr)}`;
+        const sphStart = Math.max(0, bracketLen - sphLabel.length);
+        resultLines.push(" ".repeat(sphStart) + sphLabel);
+      }
+    }
+  }
+
+  // Add legend at bottom with colors
   resultLines.push("");
   const legendParts: string[] = [];
   for (const m of eventMarkers) {
     if (activeMarkers.includes(m.label)) {
-      legendParts.push(`${m.char}=${m.label}`);
+      const color = getEventColor(m.char);
+      legendParts.push(`${color}${m.char}${COLOR_RESET}=${m.label}`);
     }
   }
   if (legendParts.length > 0) {
@@ -795,6 +877,45 @@ function printChartToTerminal(price: number, tickerData: TickerData | null, row:
     r(String(row.longOpensCount), 5) + " " +
     r(String(row.shortOpensCount), 5);
 
+  // Print column header
+  const h =
+    `[YYYY-MM-DD HH:MM:SS] ` +
+    (HIDE_COLS.has("ask") ? "" : r("ask", row.priceW) + " ") +
+    (HIDE_COLS.has("bid") ? "" : r("bid", row.priceW) + " ") +
+    r("last", row.priceW) + " " +
+    (HIDE_COLS.has("ab") ? "" : r("ab", row.priceW) + " ") +
+    (SLOPE_MODE ? r("slope", row.deltaW) + " " : (NO_IL ? "" : r("I-L", row.deltaW) + " ")) +
+    r("ΔL", row.deltaW) + " " +
+    (HIDE_COLS.has("deltaask") ? "" : r("Δask", row.deltaW) + " ") +
+    (HIDE_COLS.has("deltabid") ? "" : r("Δbid", row.deltaW) + " ") +
+    r("cdL", 3) + " " +
+    r("cdS", 3) + " " +
+    r("#ΔL/m", 5) + " " +
+    r("ΣΔL/m", row.deltaSumW) + " " +
+    r("ΣΔL+/m", row.deltaSumW) + " " +
+    r("ΣΔL-/m", row.deltaSumW) + " " +
+    (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r("ΣΔask/m", row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r("ΣΔask+/m", row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r("ΣΔask-/m", row.deltaSumW) + " ") +
+    r("#Δask/m", 5) + " " +
+    (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r("ΣΔbid/m", row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r("ΣΔbid+/m", row.deltaSumW) + " ") +
+    (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r("ΣΔbid-/m", row.deltaSumW) + " ") +
+    r("#Δbid/m", 5) + " " +
+    r("ΣΔask+/h", row.deltaSumW) + " " +
+    r("ΣΔbid-/h", row.deltaSumW) + " " +
+    r("ΣΔask+", row.deltaSumW) + " " +
+    r("ΣΔbid-", row.deltaSumW) + " " +
+    r("#ΔL/h", 5) + " " +
+    r("#ΔL+/h", 6) + " " +
+    r("#ΔL-/h", 6) + " " +
+    r("ΣΔL/h", row.deltaSumW) + " " +
+    r("ΣΔL+/h", row.deltaSumW) + " " +
+    r("ΣΔL-/h", row.deltaSumW) + " " +
+    r("#L/h", 5) + " " +
+    r("#S/h", 5);
+  process.stdout.write(h + "\n");
+
   // Store last 5 rows and print
   tickerRowHistory.push(tickerRow);
   if (tickerRowHistory.length > 5) {
@@ -804,11 +925,17 @@ function printChartToTerminal(price: number, tickerData: TickerData | null, row:
     process.stdout.write(line + "\n");
   }
 
-  // Print trade event history (last 3)
+  // Print trade event history (last 6, two columns of 3)
   if (tradeEventHistory.length > 0) {
     process.stdout.write("\n");
-    for (const line of tradeEventHistory) {
-      process.stdout.write(`  ${line}\n`);
+    const leftCol = tradeEventHistory.slice(0, 3);
+    const rightCol = tradeEventHistory.slice(3, 6);
+    const colPos = 72;
+    for (let i = 0; i < 3; i++) {
+      const left = leftCol[i] || "";
+      const right = rightCol[i] || "";
+      const paddedLeft = left.padEnd(colPos);
+      process.stdout.write(`${paddedLeft}${right}\n`);
     }
   }
 }
@@ -842,6 +969,17 @@ async function main(): Promise<void> {
   if (HIDE_COLS.size > 0) console.log(`  HideCols:   ${[...HIDE_COLS].join(", ")}`);
   console.log(`  Mode:       ${DRY_RUN ? "DRY-RUN (no orders)" : "LIVE"}`);
   console.log(`═══════════════════════════════════════════════════════════════\n`);
+
+  // Intercept console.log for trade messages
+  const origLog = console.log;
+  console.log = (...args: unknown[]) => {
+    const msg = args.map(a => String(a)).join(" ");
+    if (msg.includes("EXIT LONG") || msg.includes("EXIT SHORT") || msg.includes("ENTRY LONG") || msg.includes("ENTRY SHORT")) {
+      tradeEventHistory.push(msg);
+      if (tradeEventHistory.length > 6) tradeEventHistory.shift();
+    }
+    origLog.apply(console, args);
+  };
 
   // Set leverage
   if (!DRY_RUN) {
@@ -1277,8 +1415,6 @@ async function main(): Promise<void> {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
-            tradeEventHistory.push(`[${tsNow()}]  OPEN LONG @ ${fmt(snapLast)}`);
-            if (tradeEventHistory.length > 3) tradeEventHistory.shift();
             await openLong();
             entryAskForLong = snapAsk;
             longCooldown = CD_LONG;
@@ -1293,8 +1429,6 @@ async function main(): Promise<void> {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
-            tradeEventHistory.push(`[${tsNow()}]  OPEN SHORT @ ${fmt(snapLast)}`);
-            if (tradeEventHistory.length > 3) tradeEventHistory.shift();
             await openShort();
             entryBidForShort = snapBid;
             shortCooldown = CD_SHORT;
