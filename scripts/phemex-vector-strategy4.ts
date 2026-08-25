@@ -1407,9 +1407,9 @@ async function main(): Promise<void> {
 
         if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
-            if (shortPos) {
+            if (shortPos || entryBidForShort !== null) {
               console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
-              await closePos(shortPos);
+              if (shortPos) await closePos(shortPos);
               entryBidForShort = null;
             }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
@@ -1421,9 +1421,9 @@ async function main(): Promise<void> {
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
-            if (longPos) {
+            if (longPos || entryAskForLong !== null) {
               console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
-              await closePos(longPos);
+              if (longPos) await closePos(longPos);
               entryAskForLong = null;
             }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
