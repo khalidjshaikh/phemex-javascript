@@ -1405,13 +1405,20 @@ async function main(): Promise<void> {
           shortTrigger = (!NO_VECTOR && vector < -THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast <= -DELTA_LAST_THRESHOLD);
         }
 
+        // Close opposing positions before entry
+        if (shortTrigger && !NO_SHORT && !NO_TRADE && (longPos || entryAskForLong !== null)) {
+          console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
+          if (longPos) await closePos(longPos);
+          entryAskForLong = null;
+        }
+        if (longTrigger && !NO_LONG && !NO_TRADE && (shortPos || entryBidForShort !== null)) {
+          console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
+          if (shortPos) await closePos(shortPos);
+          entryBidForShort = null;
+        }
+
         if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
-            if (shortPos || entryBidForShort !== null) {
-              console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
-              if (shortPos) await closePos(shortPos);
-              entryBidForShort = null;
-            }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
@@ -1421,11 +1428,6 @@ async function main(): Promise<void> {
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
-            if (longPos || entryAskForLong !== null) {
-              console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
-              if (longPos) await closePos(longPos);
-              entryAskForLong = null;
-            }
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
             console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
             tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
