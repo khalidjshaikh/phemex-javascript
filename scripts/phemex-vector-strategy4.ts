@@ -65,6 +65,7 @@ const SCIENTIFIC = hasFlag("--scientific");
 const HIDE_COLS = new Set((getArg("--hideCols") ?? "").split(",").filter(Boolean).map(s => s.trim().toLowerCase()));
 const CLOSE_LONG = hasFlag("--closeLong");
 const CLOSE_SHORT = hasFlag("--closeShort");
+const TRAILING_TP = hasFlag("--trailingTp");
 
 // Chart options
 const CHART = hasFlag("--chart");
@@ -108,6 +109,7 @@ Options:
   --cdShort <N>          Short cooldown in seconds (default: 60)
   --profitExit           Exit long when bid >= entry + profit
   --profit <N>           Profit threshold for profitExit (default: 0)
+  --trailingTp           Exit at local extremum: short exits when ask ticks up from min, long exits when bid ticks down from max
   --decimals <N>         Digits below decimal for printed numbers (default: 6)
   --scientific           Use scientific notation for numeric columns
   --hideCols <list>      Comma-separated columns to hide: ask, bid, ab, deltaAsk, deltaBid
@@ -193,6 +195,10 @@ let entryAskForLong: number | null = null;
 let entryBidForShort: number | null = null;
 let previousSlope = 0;
 
+// Trailing TP state
+let trailingLongPeak: number | null = null;
+let trailingShortFloor: number | null = null;
+
 // Chart state
 let chartCanvas: ReturnType<typeof createCanvas> | null = null;
 let priceHistory: number[] = [];
@@ -234,6 +240,8 @@ interface State {
   entryAskForLong: number | null;
   entryBidForShort: number | null;
   previousSlope: number;
+  trailingLongPeak: number | null;
+  trailingShortFloor: number | null;
 }
 
 const STATE_FILE = path.resolve(process.cwd(), `.vector-state-${SYMBOL}.json`);
@@ -262,6 +270,8 @@ function loadState(): void {
     entryAskForLong = saved.entryAskForLong ?? null;
     entryBidForShort = saved.entryBidForShort ?? null;
     previousSlope = saved.previousSlope ?? 0;
+    trailingLongPeak = saved.trailingLongPeak ?? null;
+    trailingShortFloor = saved.trailingShortFloor ?? null;
     console.log(`[${tsNow()}]  ✓  Loaded state: ${changeTimestamps.length} + ${changeTimestampsHour.length} changes` +
       (savedLong ? ` | saved long ${savedLong.size}` : "") +
       (savedShort ? ` | saved short ${savedShort.size}` : "") +
@@ -292,6 +302,8 @@ function saveState(): void {
     entryAskForLong,
     entryBidForShort,
     previousSlope,
+    trailingLongPeak,
+    trailingShortFloor,
   };
   try {
     fs.writeFileSync(STATE_FILE, JSON.stringify(state));
@@ -925,17 +937,18 @@ function printChartToTerminal(price: number, tickerData: TickerData | null, row:
     process.stdout.write(line + "\n");
   }
 
-  // Print trade event history (last 6, two columns of 3)
+  // Print trade event history (last 9, three columns of 3)
   if (tradeEventHistory.length > 0) {
     process.stdout.write("\n");
-    const leftCol = tradeEventHistory.slice(0, 3);
-    const rightCol = tradeEventHistory.slice(3, 6);
+    const col1 = tradeEventHistory.slice(0, 3);
+    const col2 = tradeEventHistory.slice(3, 6);
+    const col3 = tradeEventHistory.slice(6, 9);
     const colPos = 72;
     for (let i = 0; i < 3; i++) {
-      const left = leftCol[i] || "";
-      const right = rightCol[i] || "";
-      const paddedLeft = left.padEnd(colPos);
-      process.stdout.write(`${paddedLeft}${right}\n`);
+      const c1 = col1[i] || "";
+      const c2 = col2[i] || "";
+      const c3 = col3[i] || "";
+      process.stdout.write(`${c1.padEnd(colPos)}${c2.padEnd(colPos)}${c3}\n`);
     }
   }
 }
@@ -964,6 +977,7 @@ async function main(): Promise<void> {
   console.log(`  ExitSigmaBid: <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
   console.log(`  ExitSigmaAsk: >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
   console.log(`  ProfitExit: ${PROFIT_EXIT ? `ON (profit=${PROFIT})` : "OFF"}`);
+  if (TRAILING_TP) console.log(`  TrailingTp: ON`);
   if (CHART) console.log(`  Chart:      ON (auto-size to terminal)`);
   if (SUPPRESS_TICKER) console.log(`  SuppressTicker: ON`);
   if (HIDE_COLS.size > 0) console.log(`  HideCols:   ${[...HIDE_COLS].join(", ")}`);
@@ -976,7 +990,7 @@ async function main(): Promise<void> {
     const msg = args.map(a => String(a)).join(" ");
     if (msg.includes("EXIT LONG") || msg.includes("EXIT SHORT") || msg.includes("ENTRY LONG") || msg.includes("ENTRY SHORT")) {
       tradeEventHistory.push(msg);
-      if (tradeEventHistory.length > 6) tradeEventHistory.shift();
+      if (tradeEventHistory.length > 9) tradeEventHistory.shift();
     }
     origLog.apply(console, args);
   };
@@ -1268,6 +1282,45 @@ async function main(): Promise<void> {
         }
 
         // Exit logic (check first — close before potentially opening)
+
+        // Trailing TP: long — track peak bid, exit when it ticks down
+        if (TRAILING_TP && longPos && entryAskForLong !== null) {
+          if (snapBid > entryAskForLong) {
+            if (trailingLongPeak === null || snapBid > trailingLongPeak) {
+              trailingLongPeak = snapBid;
+            }
+            if (trailingLongPeak !== null && snapBid < trailingLongPeak) {
+              console.log(`[${tsNow()}]  EXIT LONG — trailingTp: bid ${fmt(snapBid)} < peak ${fmt(trailingLongPeak)}`);
+              recordExit("EXIT_LONG", snapLast);
+              await closePos(longPos);
+              cumulativeDeltaBidNeg = 0;
+              entryAskForLong = null;
+              trailingLongPeak = null;
+            }
+          } else {
+            trailingLongPeak = null;
+          }
+        }
+
+        // Trailing TP: short — track floor ask, exit when it ticks up
+        if (TRAILING_TP && shortPos && entryBidForShort !== null) {
+          if (snapAsk < entryBidForShort) {
+            if (trailingShortFloor === null || snapAsk < trailingShortFloor) {
+              trailingShortFloor = snapAsk;
+            }
+            if (trailingShortFloor !== null && snapAsk > trailingShortFloor) {
+              console.log(`[${tsNow()}]  EXIT SHORT — trailingTp: ask ${fmt(snapAsk)} > floor ${fmt(trailingShortFloor)}`);
+              recordExit("EXIT_SHORT", snapLast);
+              await closePos(shortPos);
+              cumulativeDeltaAskPos = 0;
+              entryBidForShort = null;
+              trailingShortFloor = null;
+            }
+          } else {
+            trailingShortFloor = null;
+          }
+        }
+
         if (longPos && !NO_EXIT_BID && cumulativeDeltaBidNeg <= EXIT_BID_THRESHOLD) {
           console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid-=${fmt(cumulativeDeltaBidNeg)} <= ${fmt(EXIT_BID_THRESHOLD)}`);
           recordExit("EXIT_LONG", snapLast);
