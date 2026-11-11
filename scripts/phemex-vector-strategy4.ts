@@ -67,6 +67,16 @@ const CLOSE_LONG = hasFlag("--closeLong");
 const CLOSE_SHORT = hasFlag("--closeShort");
 const TRAILING_TP = hasFlag("--trailingTp");
 
+/* Fixed column widths. Every cell is right-aligned inside its column and each
+ * width is one character wider than the longest possible value/header, so
+ * adjacent columns always keep at least one space between them. */
+const COL_PRICE_W = SCIENTIFIC ? DECIMALS + 8 : Math.max(DECIMALS + 4, 10);
+const COL_DELTA_W = SCIENTIFIC ? DECIMALS + 8 : Math.max(DECIMALS + 4, 10);
+const COL_SUM_W = SCIENTIFIC ? DECIMALS + 8 : Math.max(DECIMALS + 4, 10);
+const COL_CD_W = 5;
+const COL_RATE_W = 8;
+const COL_COUNT_W = 7;
+
 // Chart options
 const CHART = hasFlag("--chart");
 const SUPPRESS_TICKER = hasFlag("--suppressTickerOutput");
@@ -192,8 +202,14 @@ let cumulativeDeltaAskPos = 0;
 // Slope-based strategy state
 let priceBuffer: { ts: number; last: number }[] = [];
 let entryAskForLong: number | null = null;
+let entryBidForLong: number | null = null;
 let entryBidForShort: number | null = null;
 let previousSlope = 0;
+
+function clearLongEntry(): void {
+  entryAskForLong = null;
+  entryBidForLong = null;
+}
 
 // Trailing TP state
 let trailingLongPeak: number | null = null;
@@ -239,6 +255,7 @@ interface State {
   cumulativeDeltaAskPos: number;
   priceBuffer: { ts: number; last: number }[];
   entryAskForLong: number | null;
+  entryBidForLong: number | null;
   entryBidForShort: number | null;
   previousSlope: number;
   trailingLongPeak: number | null;
@@ -275,6 +292,7 @@ function loadState(): void {
     cumulativeDeltaAskPos = saved.cumulativeDeltaAskPos ?? 0;
     priceBuffer = (saved.priceBuffer ?? []).slice(-SLOPE_N);
     entryAskForLong = saved.entryAskForLong ?? null;
+    entryBidForLong = saved.entryBidForLong ?? null;
     entryBidForShort = saved.entryBidForShort ?? null;
     previousSlope = saved.previousSlope ?? 0;
     trailingLongPeak = saved.trailingLongPeak ?? null;
@@ -314,6 +332,7 @@ function saveState(): void {
     cumulativeDeltaAskPos,
     priceBuffer,
     entryAskForLong,
+    entryBidForLong,
     entryBidForShort,
     previousSlope,
     trailingLongPeak,
@@ -500,11 +519,8 @@ const DOUBLE_WIDTH = new Set<string>();
 const displayWidth = (s: string) => [...s].reduce((w, c) => w + (DOUBLE_WIDTH.has(c) ? 2 : 1), 0);
 const r = (s: string, n: number) => " ".repeat(Math.max(0, n - displayWidth(s))) + s;
 
-function printHeaders(): void {
-  const priceW = SCIENTIFIC ? DECIMALS + 2 : DECIMALS + 2;
-  const deltaW = SCIENTIFIC ? DECIMALS + 3 : DECIMALS + 2;
-  const deltaSumW = SCIENTIFIC ? DECIMALS + 3 : 3;
-  const h =
+function buildHeader(priceW: number, deltaW: number, deltaSumW: number): string {
+  return (
     `[YYYY-MM-DD HH:MM:SS]` +
     (HIDE_COLS.has("ask") ? "" : r("ask", priceW)) +
     (HIDE_COLS.has("bid") ? "" : r("bid", priceW)) +
@@ -514,33 +530,37 @@ function printHeaders(): void {
     r("ΔL", deltaW) +
     (HIDE_COLS.has("deltaask") ? "" : r("Δask", deltaW)) +
     (HIDE_COLS.has("deltabid") ? "" : r("Δbid", deltaW)) +
-    r("cdL", 3) +
-    r("cdS", 3) +
-    r("#ΔL/m", 5) +
+    r("cdL", COL_CD_W) +
+    r("cdS", COL_CD_W) +
+    r("#ΔL/m", COL_RATE_W) +
     r("ΣΔL/m", deltaSumW) +
     r("ΣΔL+/m", deltaSumW) +
     r("ΣΔL-/m", deltaSumW) +
     (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r("ΣΔask/m", deltaSumW)) +
     (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r("ΣΔask+/m", deltaSumW)) +
     (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r("ΣΔask-/m", deltaSumW)) +
-    r("#Δask/m", 5) +
+    r("#Δask/m", COL_RATE_W) +
     (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r("ΣΔbid/m", deltaSumW)) +
     (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r("ΣΔbid+/m", deltaSumW)) +
     (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r("ΣΔbid-/m", deltaSumW)) +
-    r("#Δbid/m", 5) +
+    r("#Δbid/m", COL_RATE_W) +
     r("ΣΔask+/h", deltaSumW) +
     r("ΣΔbid-/h", deltaSumW) +
     r("ΣΔask+", deltaSumW) +
     r("ΣΔbid-", deltaSumW) +
-    r("#ΔL/h", 5) +
-    r("#ΔL+/h", 5) +
-    r("#ΔL-/h", 5) +
+    r("#ΔL/h", COL_COUNT_W) +
+    r("#ΔL+/h", COL_COUNT_W) +
+    r("#ΔL-/h", COL_COUNT_W) +
     r("ΣΔL/h", deltaSumW) +
     r("ΣΔL+/h", deltaSumW) +
     r("ΣΔL-/h", deltaSumW) +
-    r("#L/h", 4) +
-    r("#S/h", 4);
-  console.log(h);
+    r("#L/h", COL_COUNT_W) +
+    r("#S/h", COL_COUNT_W)
+  );
+}
+
+function printHeaders(): void {
+  console.log(buildHeader(COL_PRICE_W, COL_DELTA_W, COL_SUM_W));
   rowsPrinted = 0;
 }
 
@@ -905,70 +925,35 @@ function printChartToTerminal(price: number, tickerData: TickerData | null, row:
     r(fmtSign(row.deltaLast), row.deltaW) +
     (HIDE_COLS.has("deltaask") ? "" : r(fmtSign(row.deltaAsk), row.deltaW)) +
     (HIDE_COLS.has("deltabid") ? "" : r(fmtSign(row.deltaBid), row.deltaW)) +
-    r(String(row.longCooldown) + "s", 3) +
-    r(String(row.shortCooldown) + "s", 3) +
-    r(row.rate, 5) +
+    r(String(row.longCooldown) + "s", COL_CD_W) +
+    r(String(row.shortCooldown) + "s", COL_CD_W) +
+    r(row.rate, COL_RATE_W) +
     r(fmtSign(row.deltaLastSum), row.deltaSumW) +
     r(fmtSign(row.deltaLastPosSum), row.deltaSumW) +
     r(fmtSign(row.deltaLastNegSum), row.deltaSumW) +
     (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r(fmtSign(row.deltaAskSum), row.deltaSumW)) +
     (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r(fmtSign(row.deltaAskPosSum), row.deltaSumW)) +
     (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r(fmtSign(row.deltaAskNegSum), row.deltaSumW)) +
-    r(String(row.deltaAskCount), 5) +
+    r(String(row.deltaAskCount), COL_RATE_W) +
     (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r(fmtSign(row.deltaBidSum), row.deltaSumW)) +
     (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r(fmtSign(row.deltaBidPosSum), row.deltaSumW)) +
     (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r(fmtSign(row.deltaBidNegSum), row.deltaSumW)) +
-    r(String(row.deltaBidCount), 5) +
+    r(String(row.deltaBidCount), COL_RATE_W) +
     r(fmtSign(row.deltaAskPosSumHour), row.deltaSumW) +
     r(fmtSign(row.deltaBidNegSumHour), row.deltaSumW) +
     r(fmtSign(row.cumulativeDeltaAskPos), row.deltaSumW) +
     r(fmtSign(row.cumulativeDeltaBidNeg), row.deltaSumW) +
-    r(row.rateHour, 5) +
-    r(String(row.deltaLastPosCountHour), 6) +
-    r(String(row.deltaLastNegCountHour), 6) +
+    r(row.rateHour, COL_RATE_W) +
+    r(String(row.deltaLastPosCountHour), COL_COUNT_W) +
+    r(String(row.deltaLastNegCountHour), COL_COUNT_W) +
     r(fmtSign(row.deltaLastSumHour), row.deltaSumW) +
     r(fmtSign(row.deltaLastPosSumHour), row.deltaSumW) +
     r(fmtSign(row.deltaLastNegSumHour), row.deltaSumW) +
-    r(String(row.longOpensCount), 5) +
-    r(String(row.shortOpensCount), 5);
+    r(String(row.longOpensCount), COL_COUNT_W) +
+    r(String(row.shortOpensCount), COL_COUNT_W);
 
-  // Print column header
-  const h =
-    `[YYYY-MM-DD HH:MM:SS]` +
-    (HIDE_COLS.has("ask") ? "" : r("ask", row.priceW)) +
-    (HIDE_COLS.has("bid") ? "" : r("bid", row.priceW)) +
-    r("last", row.priceW) +
-    (HIDE_COLS.has("ab") ? "" : r("ab", row.priceW)) +
-    (SLOPE_MODE ? r("slope", row.deltaW) : (NO_IL ? "" : r("I-L", row.deltaW))) +
-    r("ΔL", row.deltaW) +
-    (HIDE_COLS.has("deltaask") ? "" : r("Δask", row.deltaW)) +
-    (HIDE_COLS.has("deltabid") ? "" : r("Δbid", row.deltaW)) +
-    r("cdL", 3) +
-    r("cdS", 3) +
-    r("#ΔL/m", 5) +
-    r("ΣΔL/m", row.deltaSumW) +
-    r("ΣΔL+/m", row.deltaSumW) +
-    r("ΣΔL-/m", row.deltaSumW) +
-    (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r("ΣΔask/m", row.deltaSumW)) +
-    (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r("ΣΔask+/m", row.deltaSumW)) +
-    (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r("ΣΔask-/m", row.deltaSumW)) +
-    r("#Δask/m", 5) +
-    (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r("ΣΔbid/m", row.deltaSumW)) +
-    (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r("ΣΔbid+/m", row.deltaSumW)) +
-    (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r("ΣΔbid-/m", row.deltaSumW)) +
-    r("#Δbid/m", 5) +
-    r("ΣΔask+/h", row.deltaSumW) +
-    r("ΣΔbid-/h", row.deltaSumW) +
-    r("ΣΔask+", row.deltaSumW) +
-    r("ΣΔbid-", row.deltaSumW) +
-    r("#ΔL/h", 5) +
-    r("#ΔL+/h", 5) +
-    r("#ΔL-/h", 5) +
-    r("ΣΔL/h", row.deltaSumW) +
-    r("ΣΔL+/h", row.deltaSumW) +
-    r("ΣΔL-/h", row.deltaSumW) +
-    r("#L/h", 4) +
-    r("#S/h", 4);
+  // Print column header (same builder and widths as the periodic header)
+  const h = buildHeader(row.priceW, row.deltaW, row.deltaSumW);
   process.stdout.write(h + "\n");
 
   // Store last 5 rows and print
@@ -1228,9 +1213,6 @@ async function main(): Promise<void> {
       const longOpensCount = longOpensHour.length;
       const shortOpensCount = shortOpensHour.length;
 
-      const priceW = SCIENTIFIC ? DECIMALS + 6 : DECIMALS + 2;
-      const deltaW = SCIENTIFIC ? DECIMALS + 7 : DECIMALS + 3;
-      const deltaSumW = SCIENTIFIC ? DECIMALS + 4 : 6;
       const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
 
       // Render chart on right side if enabled
@@ -1246,45 +1228,45 @@ async function main(): Promise<void> {
           deltaLastPosCountHour, deltaLastNegCountHour,
           deltaLastSumHour, deltaLastPosSumHour, deltaLastNegSumHour,
           longOpensCount, shortOpensCount, slope,
-          priceW, deltaW, deltaSumW,
+          priceW: COL_PRICE_W, deltaW: COL_DELTA_W, deltaSumW: COL_SUM_W,
         });
       } else if (!SUPPRESS_TICKER) {
         console.log(
           `[${tsNow()}]` +
-          (HIDE_COLS.has("ask") ? "" : r(fmt(snapAsk), priceW)) +
-          (HIDE_COLS.has("bid") ? "" : r(fmt(snapBid), priceW)) +
-          r(fmt(snapLast), priceW) +
-          (HIDE_COLS.has("ab") ? "" : r(fmt(ab), priceW)) +
-          (SLOPE_MODE ? r(fmt(slope), deltaW) : (NO_IL ? "" : r(fmtSign(vector), deltaW))) +
-          r(fmtSign(deltaLast), deltaW) +
-          (HIDE_COLS.has("deltaask") ? "" : r(fmtSign(deltaAsk), deltaW)) +
-          (HIDE_COLS.has("deltabid") ? "" : r(fmtSign(deltaBid), deltaW)) +
-          r(String(longCooldown) + "s", 3) +
-          r(String(shortCooldown) + "s", 3) +
-          r(rate, 5) +
-          r(fmtSign(deltaLastSum), deltaSumW) +
-          r(fmtSign(deltaLastPosSum), deltaSumW) +
-          r(fmtSign(deltaLastNegSum), deltaSumW) +
-          (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r(fmtSign(deltaAskSum), deltaSumW)) +
-          (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r(fmtSign(deltaAskPosSum), deltaSumW)) +
-          (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r(fmtSign(deltaAskNegSum), deltaSumW)) +
-          r(String(deltaAskCount), 5) +
-          (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r(fmtSign(deltaBidSum), deltaSumW)) +
-          (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r(fmtSign(deltaBidPosSum), deltaSumW)) +
-          (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r(fmtSign(deltaBidNegSum), deltaSumW)) +
-          r(String(deltaBidCount), 5) +
-          r(fmtSign(deltaAskPosSumHour), deltaSumW) +
-          r(fmtSign(deltaBidNegSumHour), deltaSumW) +
-          r(fmtSign(cumulativeDeltaAskPos), deltaSumW) +
-          r(fmtSign(cumulativeDeltaBidNeg), deltaSumW) +
-          r(rateHour, 5) +
-          r(String(deltaLastPosCountHour), 6) +
-          r(String(deltaLastNegCountHour), 6) +
-          r(fmtSign(deltaLastSumHour), deltaSumW) +
-          r(fmtSign(deltaLastPosSumHour), deltaSumW) +
-          r(fmtSign(deltaLastNegSumHour), deltaSumW) +
-          r(String(longOpensCount), 5) +
-          r(String(shortOpensCount), 5)
+          (HIDE_COLS.has("ask") ? "" : r(fmt(snapAsk), COL_PRICE_W)) +
+          (HIDE_COLS.has("bid") ? "" : r(fmt(snapBid), COL_PRICE_W)) +
+          r(fmt(snapLast), COL_PRICE_W) +
+          (HIDE_COLS.has("ab") ? "" : r(fmt(ab), COL_PRICE_W)) +
+          (SLOPE_MODE ? r(fmt(slope), COL_DELTA_W) : (NO_IL ? "" : r(fmtSign(vector), COL_DELTA_W))) +
+          r(fmtSign(deltaLast), COL_DELTA_W) +
+          (HIDE_COLS.has("deltaask") ? "" : r(fmtSign(deltaAsk), COL_DELTA_W)) +
+          (HIDE_COLS.has("deltabid") ? "" : r(fmtSign(deltaBid), COL_DELTA_W)) +
+          r(String(longCooldown) + "s", COL_CD_W) +
+          r(String(shortCooldown) + "s", COL_CD_W) +
+          r(rate, COL_RATE_W) +
+          r(fmtSign(deltaLastSum), COL_SUM_W) +
+          r(fmtSign(deltaLastPosSum), COL_SUM_W) +
+          r(fmtSign(deltaLastNegSum), COL_SUM_W) +
+          (HIDE_COLS.has("σδask/m") || HIDE_COLS.has("sigmadeltaask/m") ? "" : r(fmtSign(deltaAskSum), COL_SUM_W)) +
+          (HIDE_COLS.has("σδask+/m") || HIDE_COLS.has("sigmadeltaask+/m") ? "" : r(fmtSign(deltaAskPosSum), COL_SUM_W)) +
+          (HIDE_COLS.has("σδask-/m") || HIDE_COLS.has("sigmadeltaask-/m") ? "" : r(fmtSign(deltaAskNegSum), COL_SUM_W)) +
+          r(String(deltaAskCount), COL_RATE_W) +
+          (HIDE_COLS.has("σδbid/m") || HIDE_COLS.has("sigmadeltabid/m") ? "" : r(fmtSign(deltaBidSum), COL_SUM_W)) +
+          (HIDE_COLS.has("σδbid+/m") || HIDE_COLS.has("sigmadeltabid+/m") ? "" : r(fmtSign(deltaBidPosSum), COL_SUM_W)) +
+          (HIDE_COLS.has("σδbid-/m") || HIDE_COLS.has("sigmadeltabid-/m") ? "" : r(fmtSign(deltaBidNegSum), COL_SUM_W)) +
+          r(String(deltaBidCount), COL_RATE_W) +
+          r(fmtSign(deltaAskPosSumHour), COL_SUM_W) +
+          r(fmtSign(deltaBidNegSumHour), COL_SUM_W) +
+          r(fmtSign(cumulativeDeltaAskPos), COL_SUM_W) +
+          r(fmtSign(cumulativeDeltaBidNeg), COL_SUM_W) +
+          r(rateHour, COL_RATE_W) +
+          r(String(deltaLastPosCountHour), COL_COUNT_W) +
+          r(String(deltaLastNegCountHour), COL_COUNT_W) +
+          r(fmtSign(deltaLastSumHour), COL_SUM_W) +
+          r(fmtSign(deltaLastPosSumHour), COL_SUM_W) +
+          r(fmtSign(deltaLastNegSumHour), COL_SUM_W) +
+          r(String(longOpensCount), COL_COUNT_W) +
+          r(String(shortOpensCount), COL_COUNT_W)
         );
       }
       // if (SLOPE_MODE && priceBuffer.length > 0) {
@@ -1337,7 +1319,7 @@ async function main(): Promise<void> {
               recordExit("EXIT_LONG", snapLast);
               await closePos(longPos);
               cumulativeDeltaBidNeg = 0;
-              entryAskForLong = null;
+              clearLongEntry();
               trailingLongPeak = null;
             }
           } else {
@@ -1369,7 +1351,7 @@ async function main(): Promise<void> {
           recordExit("EXIT_LONG", snapLast);
           await closePos(longPos);
           cumulativeDeltaBidNeg = 0;
-          entryAskForLong = null;
+          clearLongEntry();
         }
 
         if (longPos && EXIT_SIGMA_BID_THRESHOLD !== 0 && deltaBidNegSumHour <= EXIT_SIGMA_BID_THRESHOLD) {
@@ -1377,7 +1359,7 @@ async function main(): Promise<void> {
           recordExit("EXIT_LONG", snapLast);
           await closePos(longPos);
           cumulativeDeltaBidNeg = 0;
-          entryAskForLong = null;
+          clearLongEntry();
         }
 
         if (PROFIT_EXIT && longPos) {
@@ -1387,7 +1369,7 @@ async function main(): Promise<void> {
             recordExit("EXIT_LONG", snapLast);
             await closePos(longPos);
             cumulativeDeltaBidNeg = 0;
-            entryAskForLong = null;
+            clearLongEntry();
           }
         }
 
@@ -1398,7 +1380,7 @@ async function main(): Promise<void> {
             console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(snapBid)} > entryAsk ${fmt(entryAskForLong)}`);
             recordExit("EXIT_LONG", snapLast);
             await closePos(longPos);
-            entryAskForLong = null;
+            clearLongEntry();
           }
         }
 
@@ -1409,12 +1391,12 @@ async function main(): Promise<void> {
             console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
             recordExit("EXIT_LONG", snapLast);
             await closePos(longPos);
-            entryAskForLong = null;
+            clearLongEntry();
           } else if (!NO_ZERO_SLOPE_EXIT && previousSlope > 0 && currentSlope < 0) {
             console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
             recordExit("EXIT_LONG", snapLast);
             await closePos(longPos);
-            entryAskForLong = null;
+            clearLongEntry();
           }
           previousSlope = currentSlope;
         }
@@ -1424,7 +1406,7 @@ async function main(): Promise<void> {
           console.log(`[${tsNow()}]  EXIT LONG — opposing threshold: bid ${fmt(snapBid)} < entryAsk ${fmt(entryAskForLong)} - ${fmt(OPPOSING_THRESHOLD)}`);
           recordExit("EXIT_LONG", snapLast);
           await closePos(longPos);
-          entryAskForLong = null;
+          clearLongEntry();
         }
 
         if (shortPos && !NO_EXIT_ASK && cumulativeDeltaAskPos >= EXIT_ASK_THRESHOLD && !NO_SHORT) {
@@ -1501,7 +1483,7 @@ async function main(): Promise<void> {
         if (shortTrigger && !NO_SHORT && !NO_TRADE && (longPos || entryAskForLong !== null)) {
           console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
           if (longPos) await closePos(longPos);
-          entryAskForLong = null;
+          clearLongEntry();
         }
         if (longTrigger && !NO_LONG && !NO_TRADE && (shortPos || entryBidForShort !== null)) {
           console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
@@ -1512,16 +1494,17 @@ async function main(): Promise<void> {
         if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
+            console.log(`[${tsNow()}]  ENTRY LONG — slope=${fmt(slope)}${SLOPE_MODE ? "" : `  vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryAsk=${fmt(snapAsk)}`);
             tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
             await openLong();
             entryAskForLong = snapAsk;
+            entryBidForLong = snapBid;
             longCooldown = CD_LONG;
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
+            console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryBid=${fmt(snapBid)}`);
             tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
             await openShort();
             entryBidForShort = snapBid;

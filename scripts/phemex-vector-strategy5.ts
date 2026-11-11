@@ -1308,210 +1308,57 @@ async function main(): Promise<void> {
         //   }
         // }
 
-        // Exit logic (check first — close before potentially opening)
+        // Exit logic [DISABLED]
+        // Trailing TP, cumulative delta exits, slope exits, profit exits - all disabled
 
-        // Trailing TP: long — track peak bid, exit when it ticks down
-        if (TRAILING_TP && longPos && entryAskForLong !== null) {
-          if (snapBid > entryAskForLong) {
-            if (trailingLongPeak === null || snapBid > trailingLongPeak) {
-              trailingLongPeak = snapBid;
-            }
-            if (trailingLongPeak !== null && snapBid < trailingLongPeak) {
-              console.log(`[${tsNow()}]  EXIT LONG — trailingTp: bid ${fmt(snapBid)} < peak ${fmt(trailingLongPeak)}`);
-              recordExit("EXIT_LONG", snapLast);
-              await closePos(longPos);
-              cumulativeDeltaBidNeg = 0;
-              entryAskForLong = null;
-              trailingLongPeak = null;
-            }
-          } else {
-            trailingLongPeak = null;
-          }
-        }
+        // Entry logic [DISABLED]
+        // let longTrigger = false;
+        // let shortTrigger = false;
 
-        // Trailing TP: short — track floor ask, exit when it ticks up
-        if (TRAILING_TP && shortPos && entryBidForShort !== null) {
-          if (snapAsk < entryBidForShort) {
-            if (trailingShortFloor === null || snapAsk < trailingShortFloor) {
-              trailingShortFloor = snapAsk;
-            }
-            if (trailingShortFloor !== null && snapAsk > trailingShortFloor) {
-              console.log(`[${tsNow()}]  EXIT SHORT — trailingTp: ask ${fmt(snapAsk)} > floor ${fmt(trailingShortFloor)}`);
-              recordExit("EXIT_SHORT", snapLast);
-              await closePos(shortPos);
-              cumulativeDeltaAskPos = 0;
-              entryBidForShort = null;
-              trailingShortFloor = null;
-            }
-          } else {
-            trailingShortFloor = null;
-          }
-        }
+        // if (SLOPE_MODE && priceBuffer.length >= SLOPE_N) {
+        //   // Slope-based entry
+        //   const slope = calculateSlope(priceBuffer);
+        //   if (Math.abs(slope) > SLOPE_THRESHOLD) {
+        //     longTrigger = slope > 0;
+        //     shortTrigger = slope < 0;
+        //   }
+        // } else {
+        //   // Original vector/deltaLast entry
+        //   longTrigger = (!NO_VECTOR && vector > THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast >= DELTA_LAST_THRESHOLD);
+        //   shortTrigger = (!NO_VECTOR && vector < -THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast <= -DELTA_LAST_THRESHOLD);
+        // }
 
-        if (longPos && !NO_EXIT_BID && cumulativeDeltaBidNeg <= EXIT_BID_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid-=${fmt(cumulativeDeltaBidNeg)} <= ${fmt(EXIT_BID_THRESHOLD)}`);
-          recordExit("EXIT_LONG", snapLast);
-          await closePos(longPos);
-          cumulativeDeltaBidNeg = 0;
-          entryAskForLong = null;
-        }
+        // Close opposing positions before entry [DISABLED]
+        // if (shortTrigger && !NO_SHORT && !NO_TRADE && (longPos || entryAskForLong !== null)) {
+        //   console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
+        //   if (longPos) await closePos(longPos);
+        //   entryAskForLong = null;
+        // }
+        // if (longTrigger && !NO_LONG && !NO_TRADE && (shortPos || entryBidForShort !== null)) {
+        //   console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
+        //   if (shortPos) await closePos(shortPos);
+        //   entryBidForShort = null;
+        // }
 
-        if (longPos && EXIT_SIGMA_BID_THRESHOLD !== 0 && deltaBidNegSumHour <= EXIT_SIGMA_BID_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT LONG — ΣΔbid-/h=${fmt(deltaBidNegSumHour)} <= ${fmt(EXIT_SIGMA_BID_THRESHOLD)}`);
-          recordExit("EXIT_LONG", snapLast);
-          await closePos(longPos);
-          cumulativeDeltaBidNeg = 0;
-          entryAskForLong = null;
-        }
-
-        if (PROFIT_EXIT && longPos) {
-          const entry = parseFloat(longPos.avgEntryPriceRp || "0");
-          if (ticker && ticker.bid >= entry + PROFIT) {
-            console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(ticker.bid)} >= entry ${fmt(entry)} + ${fmt(PROFIT)}`);
-            recordExit("EXIT_LONG", snapLast);
-            await closePos(longPos);
-            cumulativeDeltaBidNeg = 0;
-            entryAskForLong = null;
-          }
-        }
-
-        // Slope-based exit for long: bid > entryAsk
-        if (SLOPE_MODE && longPos && entryAskForLong !== null && snapBid > entryAskForLong) {
-          const holdSlope = priceBuffer.length >= SLOPE_N ? Math.abs(calculateSlope(priceBuffer)) : 0;
-          if (SLOPE_HOLD_THRESHOLD <= 0 || holdSlope < SLOPE_HOLD_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT LONG — bid ${fmt(snapBid)} > entryAsk ${fmt(entryAskForLong)}`);
-            recordExit("EXIT_LONG", snapLast);
-            await closePos(longPos);
-            entryAskForLong = null;
-          }
-        }
-
-        // Slope-based exits for long
-        if (SLOPE_MODE && longPos && priceBuffer.length >= SLOPE_N) {
-          const currentSlope = calculateSlope(priceBuffer);
-          if (SLOPE_THRESHOLD > 0 && currentSlope < -SLOPE_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT LONG — slope ${fmt(currentSlope)} < -${fmt(SLOPE_THRESHOLD)}`);
-            recordExit("EXIT_LONG", snapLast);
-            await closePos(longPos);
-            entryAskForLong = null;
-          } else if (!NO_ZERO_SLOPE_EXIT && previousSlope > 0 && currentSlope < 0) {
-            console.log(`[${tsNow()}]  EXIT LONG — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-            recordExit("EXIT_LONG", snapLast);
-            await closePos(longPos);
-            entryAskForLong = null;
-          }
-          previousSlope = currentSlope;
-        }
-
-        // Slope-based exit for long: opposing direction 1e-6
-        if (SLOPE_MODE && longPos && entryAskForLong !== null && !NO_OPPOSING_EXIT && snapBid < entryAskForLong - OPPOSING_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT LONG — opposing threshold: bid ${fmt(snapBid)} < entryAsk ${fmt(entryAskForLong)} - ${fmt(OPPOSING_THRESHOLD)}`);
-          recordExit("EXIT_LONG", snapLast);
-          await closePos(longPos);
-          entryAskForLong = null;
-        }
-
-        if (shortPos && !NO_EXIT_ASK && cumulativeDeltaAskPos >= EXIT_ASK_THRESHOLD && !NO_SHORT) {
-          console.log(`[${tsNow()}]  EXIT SHORT — ΣΔask+=${fmt(cumulativeDeltaAskPos)} >= ${fmt(EXIT_ASK_THRESHOLD)}`);
-          recordExit("EXIT_SHORT", snapLast);
-          await closePos(shortPos);
-          cumulativeDeltaAskPos = 0;
-          entryBidForShort = null;
-        }
-
-        if (shortPos && EXIT_SIGMA_ASK_THRESHOLD !== 0 && deltaAskPosSumHour >= EXIT_SIGMA_ASK_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT SHORT — ΣΔask+/h=${fmt(deltaAskPosSumHour)} >= ${fmt(EXIT_SIGMA_ASK_THRESHOLD)}`);
-          recordExit("EXIT_SHORT", snapLast);
-          await closePos(shortPos);
-          cumulativeDeltaAskPos = 0;
-          entryBidForShort = null;
-        }
-
-        // Slope-based exit for short: ask < entryBid
-        if (SLOPE_MODE && shortPos && entryBidForShort !== null && snapAsk < entryBidForShort) {
-          const holdSlope = priceBuffer.length >= SLOPE_N ? Math.abs(calculateSlope(priceBuffer)) : 0;
-          if (SLOPE_HOLD_THRESHOLD <= 0 || holdSlope < SLOPE_HOLD_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT SHORT — ask ${fmt(snapAsk)} < entryBid ${fmt(entryBidForShort)}`);
-            recordExit("EXIT_SHORT", snapLast);
-            await closePos(shortPos);
-            entryBidForShort = null;
-          }
-        }
-
-        // Slope-based exit for short: slope > threshold
-        // Slope-based exits for short
-        if (SLOPE_MODE && shortPos && priceBuffer.length >= SLOPE_N) {
-          const currentSlope = calculateSlope(priceBuffer);
-          if (SLOPE_THRESHOLD > 0 && currentSlope > SLOPE_THRESHOLD) {
-            console.log(`[${tsNow()}]  EXIT SHORT — slope ${fmt(currentSlope)} > ${fmt(SLOPE_THRESHOLD)}`);
-            recordExit("EXIT_SHORT", snapLast);
-            await closePos(shortPos);
-            entryBidForShort = null;
-          } else if (!NO_ZERO_SLOPE_EXIT && previousSlope < 0 && currentSlope > 0) {
-            console.log(`[${tsNow()}]  EXIT SHORT — slope inflection: ${fmt(previousSlope)} -> ${fmt(currentSlope)}`);
-            recordExit("EXIT_SHORT", snapLast);
-            await closePos(shortPos);
-            entryBidForShort = null;
-          }
-          previousSlope = currentSlope;
-        }
-
-        // Slope-based exit for short: opposing direction 1e-6
-        if (SLOPE_MODE && shortPos && entryBidForShort !== null && !NO_OPPOSING_EXIT && snapAsk > entryBidForShort + OPPOSING_THRESHOLD) {
-          console.log(`[${tsNow()}]  EXIT SHORT — opposing threshold: ask ${fmt(snapAsk)} > entryBid ${fmt(entryBidForShort)} + ${fmt(OPPOSING_THRESHOLD)}`);
-          recordExit("EXIT_SHORT", snapLast);
-          await closePos(shortPos);
-          entryBidForShort = null;
-        }
-
-        // Entry logic
-        let longTrigger = false;
-        let shortTrigger = false;
-
-        if (SLOPE_MODE && priceBuffer.length >= SLOPE_N) {
-          // Slope-based entry
-          const slope = calculateSlope(priceBuffer);
-          if (Math.abs(slope) > SLOPE_THRESHOLD) {
-            longTrigger = slope > 0;
-            shortTrigger = slope < 0;
-          }
-        } else {
-          // Original vector/deltaLast entry
-          longTrigger = (!NO_VECTOR && vector > THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast >= DELTA_LAST_THRESHOLD);
-          shortTrigger = (!NO_VECTOR && vector < -THRESHOLD) || (DELTA_LAST_THRESHOLD > 0 && deltaLast !== null && deltaLast <= -DELTA_LAST_THRESHOLD);
-        }
-
-        // Close opposing positions before entry
-        if (shortTrigger && !NO_SHORT && !NO_TRADE && (longPos || entryAskForLong !== null)) {
-          console.log(`[${tsNow()}]  CLOSE LONG — opening short`);
-          if (longPos) await closePos(longPos);
-          entryAskForLong = null;
-        }
-        if (longTrigger && !NO_LONG && !NO_TRADE && (shortPos || entryBidForShort !== null)) {
-          console.log(`[${tsNow()}]  CLOSE SHORT — opening long`);
-          if (shortPos) await closePos(shortPos);
-          entryBidForShort = null;
-        }
-
-        if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
-          if (FORCE || longSize === 0) {
-            const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
-            tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
-            await openLong();
-            entryAskForLong = snapAsk;
-            longCooldown = CD_LONG;
-          }
-        } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
-          if (FORCE || shortSize === 0) {
-            const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
-            tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
-            await openShort();
-            entryBidForShort = snapBid;
-            shortCooldown = CD_SHORT;
-          }
-        }
+        // if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
+        //   if (FORCE || longSize === 0) {
+        //     const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
+        //     console.log(`[${tsNow()}]  ENTRY LONG — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
+        //     tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
+        //     await openLong();
+        //     entryAskForLong = snapAsk;
+        //     longCooldown = CD_LONG;
+        //   }
+        // } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
+        //   if (FORCE || shortSize === 0) {
+        //     const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
+        //     console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}`);
+        //     tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
+        //     await openShort();
+        //     entryBidForShort = snapBid;
+        //     shortCooldown = CD_SHORT;
+        //   }
+        // }
       } catch (e) {
         console.error(`[${tsNow()}]  ⚠  Error: ${(e as Error).message}`);
       }

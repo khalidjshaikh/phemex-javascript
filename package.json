@@ -4,6 +4,8 @@
   "scripts": {
     "gpu": "tsx scripts/gpu-app.ts",
     "npu": "tsx scripts/npu-app.ts",
+    "npu-trader": "tsx scripts/phemex-npu-trader.ts",
+    "npu-trainer": "tsx scripts/phemex-npu-trainer.ts",
     "creds": "tsx scripts/select-credentials.ts",
     "index-trader": "tsx scripts/phemex-index-trader.ts",
     "xti-trader": "tsx scripts/phemex-ws-xtiusdt-trader.ts",
@@ -19,22 +21,22 @@
     "log-viewer": "tsx scripts/log-viewer.ts"
   },
   "dependencies": {
-    "@types/node": "^26.2.0",
-    "dotenv": "^17.4.2",
+    "@types/node": "^26.6.6",
+    "dotenv": "^18.0.10",
     "json5": "^2.2.3",
     "termdot": "^0.1.13",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
   "devDependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1113.0",
+    "@aws-sdk/client-dynamodb": "^3.1166.0",
     "@aws-sdk/util-dynamodb": "^3.996.9",
-    "@types/nodemailer": "^8.0.1",
-    "@webgpu/types": "^0.1.71",
-    "nodemailer": "^9.0.5",
+    "@types/nodemailer": "^8.0.2",
+    "@webgpu/types": "^0.1.74",
+    "nodemailer": "^10.5.0",
     "onnx-proto": "^8.0.1",
-    "onnxruntime-node": "^1.27.0",
-    "webgpu": "^0.4.0"
+    "onnxruntime-node": "^1.31.1",
+    "webgpu": "^0.6.2"
   },
   "allowScripts": {
     "webgpu@0.4.0": true,
