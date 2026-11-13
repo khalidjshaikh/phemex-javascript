@@ -29,7 +29,7 @@ import { ReconnectingWs } from "../src/ws-client.js";
 import { getArg, hasFlag, findSymbolRow } from "../src/cli-utils.js";
 import { loadCredentials } from "../src/credentials.js";
 import { placeMarketOrder, setLeverageUsdtM } from "../src/place-limit-order.js";
-import { fetchPositions, closePosition, type Position } from "../src/positions.js";
+import { fetchPositions, fetchAccountBalance, closePosition, type Position } from "../src/positions.js";
 import { createCanvas, clear, set, line, frame, getTerminalSize } from "termdot";
 
 /* ------------------------------------------------------------------ */
@@ -444,8 +444,8 @@ function startWebSocket(): ReconnectingWs {
 /* ------------------------------------------------------------------ */
 
 async function openLong(): Promise<void> {
-  longOpensHour.push(Date.now());
   if (DRY_RUN) {
+    longOpensHour.push(Date.now());
     console.log(`[${tsNow()}]  📗  DRY-RUN — would open LONG ${SYMBOL} size=${SIZE}`);
     return;
   }
@@ -454,12 +454,13 @@ async function openLong(): Promise<void> {
     creds.PHEMEX_API_KEY,
     secretRaw,
   );
+  longOpensHour.push(Date.now());
   console.log(`[${tsNow()}]  📗  LONG opened — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`);
 }
 
 async function openShort(): Promise<void> {
-  shortOpensHour.push(Date.now());
   if (DRY_RUN) {
+    shortOpensHour.push(Date.now());
     console.log(`[${tsNow()}]  📕  DRY-RUN — would open SHORT ${SYMBOL} size=${SIZE}`);
     return;
   }
@@ -468,6 +469,7 @@ async function openShort(): Promise<void> {
     creds.PHEMEX_API_KEY,
     secretRaw,
   );
+  shortOpensHour.push(Date.now());
   console.log(`[${tsNow()}]  📕  SHORT opened — orderID: ${result.orderID ?? result.clOrdID ?? "—"}  status: ${result.ordStatus ?? "—"}`);
 }
 
@@ -1071,6 +1073,21 @@ async function main(): Promise<void> {
   }
   console.log(" connected.\n");
 
+  // Preflight: flag an account that cannot cover one order's margin
+  if (!DRY_RUN) {
+    try {
+      const bal = await fetchAccountBalance(creds.PHEMEX_API_KEY, secretRaw);
+      const notional = SIZE * ticker.last;
+      const margin = LEVERAGE > 0 ? notional / LEVERAGE : notional;
+      console.log(`[${tsNow()}]  ✓  Available: ${bal.available.toFixed(6)} USDT  |  order notional ≈ ${notional.toFixed(6)} USDT  |  margin @${LEVERAGE}x ≈ ${margin.toFixed(6)} USDT`);
+      if (bal.available < margin) {
+        console.log(`[${tsNow()}]  ⚠  Available balance is below one order's margin — entries will be rejected.`);
+      }
+    } catch (e) {
+      console.log(`[${tsNow()}]  ⚠  Could not read balance: ${(e as Error).message}`);
+    }
+  }
+
   // Print column headers
   if (!SUPPRESS_TICKER) {
     printHeaders();
@@ -1494,21 +1511,33 @@ async function main(): Promise<void> {
         if (longTrigger && longCooldown === 0 && !NO_LONG && !NO_TRADE) {
           if (FORCE || longSize === 0) {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY LONG — slope=${fmt(slope)}${SLOPE_MODE ? "" : `  vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryAsk=${fmt(snapAsk)}`);
-            tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
-            await openLong();
-            entryAskForLong = snapAsk;
-            entryBidForLong = snapBid;
-            longCooldown = CD_LONG;
+            try {
+              await openLong();
+              console.log(`[${tsNow()}]  ENTRY LONG — slope=${fmt(slope)}${SLOPE_MODE ? "" : `  vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryAsk=${fmt(snapAsk)}`);
+              tradeEvents.push({ type: "OPEN_LONG", price: snapLast, tick: tickCounter });
+              entryAskForLong = snapAsk;
+              entryBidForLong = snapBid;
+            } catch (e) {
+              console.log(`[${tsNow()}]  ✗  ENTRY LONG failed — ${(e as Error).message} (retry in ${CD_LONG}s)`);
+              clearLongEntry();
+            } finally {
+              longCooldown = CD_LONG;
+            }
           }
         } else if (shortTrigger && shortCooldown === 0 && !NO_SHORT && !NO_TRADE) {
           if (FORCE || shortSize === 0) {
             const slope = SLOPE_MODE ? calculateSlope(priceBuffer) : 0;
-            console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryBid=${fmt(snapBid)}`);
-            tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
-            await openShort();
-            entryBidForShort = snapBid;
-            shortCooldown = CD_SHORT;
+            try {
+              await openShort();
+              console.log(`[${tsNow()}]  ENTRY SHORT — ${SLOPE_MODE ? `slope=${fmt(slope)}` : `vector=${fmtSign(vector)}  ΔL=${deltaLast !== null ? fmtSign(deltaLast) : "—"}`}  entryBid=${fmt(snapBid)}`);
+              tradeEvents.push({ type: "OPEN_SHORT", price: snapLast, tick: tickCounter });
+              entryBidForShort = snapBid;
+            } catch (e) {
+              console.log(`[${tsNow()}]  ✗  ENTRY SHORT failed — ${(e as Error).message} (retry in ${CD_SHORT}s)`);
+              entryBidForShort = null;
+            } finally {
+              shortCooldown = CD_SHORT;
+            }
           }
         }
       } catch (e) {
