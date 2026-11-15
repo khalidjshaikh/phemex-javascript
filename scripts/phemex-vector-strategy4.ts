@@ -66,6 +66,11 @@ const HIDE_COLS = new Set((getArg("--hideCols") ?? "").split(",").filter(Boolean
 const CLOSE_LONG = hasFlag("--closeLong");
 const CLOSE_SHORT = hasFlag("--closeShort");
 const TRAILING_TP = hasFlag("--trailingTp");
+const QUIET = hasFlag("--quiet") || hasFlag("--silent") || hasFlag("-q");
+if (QUIET) {
+  console.log = () => {};
+  console.error = () => {};
+}
 
 /* Fixed column widths. Every cell is right-aligned inside its column and each
  * width is one character wider than the longest possible value/header, so
@@ -132,6 +137,7 @@ Options:
   --slopeHoldThreshold <N> Hold position when |slope| >= threshold (disables take-profit exits)
   --chart                 Enable braille price chart on right side
   --suppressTickerOutput  Suppress ticker row output (chart only)
+  --quiet                 Suppress all log output (alias: --silent, -q)
   --verbose              Log every tick's vector and deltas
   --help                 Show this help`;
 
@@ -1067,11 +1073,11 @@ async function main(): Promise<void> {
   const ws = startWebSocket();
 
   // Wait for first tick
-  process.stdout.write(`[${tsNow()}]  Waiting for first tick…`);
+  if (!QUIET) process.stdout.write(`[${tsNow()}]  Waiting for first tick…`);
   while (!ticker) {
     await new Promise((r) => setTimeout(r, 100));
   }
-  console.log(" connected.\n");
+  if (!QUIET) console.log(" connected.\n");
 
   // Preflight: flag an account that cannot cover one order's margin
   if (!DRY_RUN) {
@@ -1095,8 +1101,8 @@ async function main(): Promise<void> {
 
   // Graceful shutdown
   process.on("SIGINT", () => {
-    process.stdout.write("\x1b[?1049l"); // restore main screen buffer
-    console.log(`\n[${tsNow()}] ⏹  Stopped.`);
+    if (!QUIET) process.stdout.write("\x1b[?1049l"); // restore main screen buffer
+    if (!QUIET) console.log(`\n[${tsNow()}] ⏹  Stopped.`);
     saveState();
     ws.shutdown();
     process.exit(0);
