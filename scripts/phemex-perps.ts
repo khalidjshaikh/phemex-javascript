@@ -9,6 +9,8 @@
  *   npx tsx scripts/phemex-perps.ts                    # all listed USDT-M perps
  *   npx tsx scripts/phemex-perps.ts --symbol BTC       # filter by substring
  *   npx tsx scripts/phemex-perps.ts --decimals 4       # price decimal places (default: 2)
+ *   npx tsx scripts/phemex-perps.ts --sort 2xtaker     # sort by 2×Taker
+ *   npx tsx scripts/phemex-perps.ts --sort 2xtaker --desc  # sort 2×Taker descending
  *   npx tsx scripts/phemex-perps.ts --json             # raw JSON output
  *   npx tsx scripts/phemex-perps.ts --help             # show help
  */
@@ -23,10 +25,15 @@ Usage: npx tsx scripts/phemex-perps.ts [options]
 List USDT-M perpetual futures with price, index, and min trade size.
 
 Options:
-  --symbol <kw>   Filter by symbol substring
-  --decimals <N>  Price decimal places (default: 2)
-  --json          Output raw JSON
-  --help          Show this help
+  --symbol <kw>     Filter by symbol substring
+  --decimals <N>    Price decimal places (default: 2)
+  --sort <field>    Sort by: symbol (default) or 2xtaker
+  --order <dir>     Sort direction: asc or desc (default: asc)
+  --asc             Sort 2×Taker ascending
+  --desc            Sort 2×Taker descending
+  --sort-2xtaker <dir>  Sort by 2×Taker: asc or desc
+  --json            Output raw JSON
+  --help            Show this help
 `);
   process.exit(0);
 }
@@ -55,6 +62,94 @@ async function main(): Promise<void> {
   const decimalsArg = getArg("--decimals");
   const decimals = decimalsArg ? Math.max(0, parseInt(decimalsArg, 10) || 2) : 2;
   const asJson = hasFlag("--json");
+
+  // ---- Sort by 2×Taker option parsing (flexible) ----
+  const FIELD_ALIASES = /2x|taker|round|trip/i;
+  function norm(s: string): string {
+    return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+  const ASC_WORDS = new Set(["asc", "ascending", "up", "increasing", "lowtohigh", "smallestfirst", "lowestfirst"]);
+  const DESC_WORDS = new Set(["desc", "descending", "down", "decreasing", "hightolow", "largestfirst", "highestfirst", "reverse"]);
+
+  let sort2x = false;
+  let sortDir: "asc" | "desc" = "asc";
+
+  function setField(): void { sort2x = true; }
+  function setDir(d: "asc" | "desc"): void { sortDir = d; sort2x = true; }
+
+  function parseCombo(v: string): { field: boolean; dir: "asc" | "desc" | null } {
+    const n = norm(v);
+    let field = FIELD_ALIASES.test(n) || n.includes("2xtaker") || n.includes("roundtrip") || n.includes("twotaker");
+    let dir: "asc" | "desc" | null = null;
+    if (ASC_WORDS.has(n) || n.endsWith("asc") || n.includes("asc")) dir = "asc";
+    if (DESC_WORDS.has(n) || n.endsWith("desc") || n.includes("desc")) dir = "desc";
+    if (field && (n.includes("asc") || n.includes("desc"))) {
+      // combined
+    }
+    return { field, dir };
+  }
+
+  const rawArgs = process.argv.slice(2);
+  for (let i = 0; i < rawArgs.length; i++) {
+    let token = rawArgs[i];
+    let val: string | undefined;
+    if (token.includes("=") && token.startsWith("--")) {
+      const eq = token.indexOf("=");
+      val = token.slice(eq + 1);
+      token = token.slice(0, eq);
+    }
+    const name = token.replace(/^--/, "");
+    const nname = norm(name);
+    const next = i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith("--") ? rawArgs[i + 1] : undefined;
+
+    // container sort/order options
+    if (nname === "sort" || nname === "sortby" || nname === "orderby" || nname === "sortfield" || nname === "sortkey") {
+      const v = val ?? next;
+      if (v !== undefined) {
+        if (val === undefined) i++;
+        const vn = norm(v);
+        const c = parseCombo(v);
+        if (c.field) setField();
+        if (c.dir) setDir(c.dir);
+        if (ASC_WORDS.has(vn)) { setField(); setDir("asc"); }
+        if (DESC_WORDS.has(vn)) { setField(); setDir("desc"); }
+        if (c.field && !c.dir) sort2x = true;
+      }
+    }
+
+    // order/direction containers
+    if (nname === "order" || nname === "direction" || nname === "dir" || nname === "sortorder" || nname === "sortdir" || nname === "orderdir") {
+      const v = val ?? next;
+      if (v !== undefined) {
+        if (val === undefined) i++;
+        const vn = norm(v);
+        if (ASC_WORDS.has(vn) || vn.includes("asc")) { setField(); setDir("asc"); }
+        if (DESC_WORDS.has(vn) || vn.includes("desc")) { setField(); setDir("desc"); }
+      }
+    }
+
+    // dedicated 2xtaker options
+    if (nname.includes("2xtaker") || nname.includes("roundtrip") || nname.includes("twotaker") || nname.includes("2xtakerfee")) {
+      if (nname.includes("desc")) { setField(); setDir("desc"); }
+      else if (nname.includes("asc")) { setField(); setDir("asc"); }
+      else {
+        const v = val ?? next;
+        if (v !== undefined) {
+          if (val === undefined) i++;
+          const vn = norm(v);
+          if (ASC_WORDS.has(vn) || vn.includes("asc")) { setField(); setDir("asc"); }
+          else if (DESC_WORDS.has(vn) || vn.includes("desc")) { setField(); setDir("desc"); }
+          else { setField(); }
+        } else {
+          setField();
+        }
+      }
+    }
+
+    // standalone asc/desc flags
+    if (nname === "asc" || nname === "ascending" || nname === "increasing") setDir("asc");
+    if (nname === "desc" || nname === "descending" || nname === "decreasing" || nname === "reverse") setDir("desc");
+  }
 
   const prodResp = (await publicGet("/public/products", null)) as unknown as {
     code?: number;
@@ -112,6 +207,16 @@ async function main(): Promise<void> {
     });
   }
 
+  if (sort2x) {
+    rows.sort((a, b) => {
+      const va = Number(a.roundTrip);
+      const vb = Number(b.roundTrip);
+      const base = (Number.isFinite(va) ? va : 0) - (Number.isFinite(vb) ? vb : 0);
+      const cmp = sortDir === "desc" ? -base : base;
+      if (cmp !== 0) return cmp;
+      return String(a.symbol).localeCompare(String(b.symbol));
+    });
+  }
   if (asJson) {
     console.log(JSON.stringify(rows, null, 2));
     return;
